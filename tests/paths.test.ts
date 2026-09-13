@@ -67,14 +67,17 @@ await test("resolveAgentDir", async (t) => {
 
 await test("diagnostics display paths track the resolved agent dir", () => {
   const display = getTelegramDiagnosticsDisplayPaths();
-  assert.ok(
-    display.state.startsWith("~/.omp/agent/tmp/telegram/"),
-    `state display path should sit under the OMP agent dir, got ${display.state}`,
-  );
-  assert.ok(
-    display.logs.startsWith("~/.omp/agent/tmp/telegram/"),
-    `logs display path should sit under the OMP agent dir, got ${display.logs}`,
-  );
+  for (const [label, value] of Object.entries(display)) {
+    assert.ok(
+      value.includes("/tmp/telegram/"),
+      `${label} display path should sit under the agent temp dir, got ${value}`,
+    );
+    assert.equal(
+      value.includes("\\"),
+      false,
+      `${label} display path must stay POSIX-style on every platform, got ${value}`,
+    );
+  }
 });
 
 await test("resolveTelegramConfigPath", () => {

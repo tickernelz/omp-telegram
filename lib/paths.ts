@@ -45,9 +45,10 @@ export function resolveAgentDir(
 
 function toDisplayPath(absolutePath: string): string {
   const home = homedir();
-  return absolutePath.startsWith(home)
+  const relative = absolutePath.startsWith(home)
     ? `~${absolutePath.slice(home.length)}`
     : absolutePath;
+  return relative.replace(/\\/g, "/");
 }
 
 /** Telegram bridge configuration file (<agentDir>/telegram.json). */
