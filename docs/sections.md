@@ -8,9 +8,9 @@
 
 ## 1. Philosophy
 
-Telegram Extension Sections let ordinary pi extensions add structured UI surfaces to the `pi-telegram` inline application menu. The platform mirrors Pi's own extensibility model: small, composable extensions that plug into a shared shell without owning transport, polling, authorization, or menu lifecycle.
+Telegram Extension Sections let ordinary OMP extensions add structured UI surfaces to the `omp-telegram` inline application menu. The platform mirrors OMP's own extensibility model: small, composable extensions that plug into a shared shell without owning transport, polling, authorization, or menu lifecycle.
 
-`pi-telegram` stays the single bot operator. Extensions register typed sections; the bridge handles Telegram UI rendering, callback routing, token mapping, navigation hierarchy, and diagnostics. Section views default to explicit Telegram HTML UI markup, while extensions can request Markdown or plain text when that better matches their content. No second polling loop, no new loader — just one `registerTelegramSection()` call.
+`omp-telegram` stays the single bot operator. Extensions register typed sections; the bridge handles Telegram UI rendering, callback routing, token mapping, navigation hierarchy, and diagnostics. Section views default to explicit Telegram HTML UI markup, while extensions can request Markdown or plain text when that better matches their content. No second polling loop, no new loader — just one `registerTelegramSection()` call.
 
 ## 2. Contract Layers
 
@@ -18,13 +18,13 @@ The standard operates across three integration surfaces:
 
 - **Extension API**: registration shape, context ports, `callbackData()`, `getLabel()`, navigation, disposer
 - **Telegram Bot API**: 64-byte limit → token mapping, inline keyboard, `menu:back`/`settings:list` routing, stale-token answers
-- **Pi Extension API**: typed import + `globalThis`, `pi.on("shutdown")` cleanup, load-order, identity
+- **OMP Extension API**: typed import + `globalThis`, `pi.on("session_shutdown")` cleanup, load-order, identity
 
 ## 3. Identity Key
 
 Each section has one stable identity key. Use the same rules as the Extension Locks Standard:
 
-1. `package.json/name` for npm-style pi packages
+1. `package.json/name` for npm-style OMP packages
 2. Directory name when the entrypoint is `index.ts` without `package.json`
 3. File basename for single-file extensions
 
@@ -39,8 +39,8 @@ The `id` is the owner identity. No separate `owner` field. Used for registry own
 ## 4. Registration Shape
 
 ```ts
-import { registerTelegramSection } from "@llblab/pi-telegram/sections";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { registerTelegramSection } from "@tickernelz/omp-telegram/sections";
+import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 
 export default function (pi: ExtensionAPI) {
   const unregister = registerTelegramSection({
@@ -75,7 +75,7 @@ export default function (pi: ExtensionAPI) {
       },
     },
   });
-  pi.on("shutdown", () => unregister());
+  pi.on("session_shutdown", () => unregister());
 }
 ```
 
@@ -129,19 +129,19 @@ unregister(); // removes from main menu, settings, and callback routing
 
 Two paths, same registry:
 
-**Typed import (preferred):** Extension imports `registerTelegramSection` from `@llblab/pi-telegram/sections`. The function reads from a `globalThis` registry set by `pi-telegram` at startup. In `0.12.0`, package-private `@llblab/pi-telegram/lib/*.ts` deep imports are no longer exported.
+**Typed import (preferred):** Extension imports `registerTelegramSection` from `@tickernelz/omp-telegram/sections`. The function reads from a `globalThis` registry set by `omp-telegram` at startup. In `0.12.0`, package-private `@tickernelz/omp-telegram/lib/*.ts` deep imports are no longer exported.
 
-**Relative import (local):** When the extension cannot resolve `@llblab/pi-telegram` as an npm package, use the public API membrane via a relative path:
+**Relative import (local):** When the extension cannot resolve `@tickernelz/omp-telegram` as an npm package, use the public API membrane via a relative path:
 
 ```ts
-import { registerTelegramSection } from "../pi-telegram/api/sections.ts";
+import { registerTelegramSection } from "../omp-telegram/api/sections.ts";
 ```
 
-**GlobalThis bridge (zero-coupling):** `pi-telegram` exposes `__piTelegramSectionRegistry__` on `globalThis`. The typed import is a thin wrapper. Extensions never touch the raw registry.
+**GlobalThis bridge (zero-coupling):** `omp-telegram` exposes `__piTelegramSectionRegistry__` on `globalThis`. The typed import is a thin wrapper. Extensions never touch the raw registry.
 
-**Load order:** `pi-telegram` must load first (sets the global registry). Demo/consumer extensions load second (call `registerTelegramSection`). Pi's normal extension loader guarantees this when `pi-telegram` is listed first.
+**Load order:** `omp-telegram` must load first (sets the global registry). Demo/consumer extensions load second (call `registerTelegramSection`). OMP's normal extension loader guarantees this when `omp-telegram` is listed first.
 
-**Shutdown:** Call `pi.on("shutdown", () => unregister())` to clean up your section. `pi-telegram` owns the registry for its loaded session, but it does not globally wipe extension registries on every `session_shutdown`.
+**Shutdown:** Call `pi.on("session_shutdown", () => unregister())` to clean up your section. `omp-telegram` owns the registry for its loaded session, but it does not globally wipe extension registries on every `session_shutdown`.
 
 ## 6. Menu Integration
 
@@ -182,7 +182,7 @@ The final Settings menu keeps `⬆️ Main menu` first, then groups built-ins by
 
 ### Token mapping
 
-Telegram limits `callback_data` to 64 bytes. Full npm names like `@llblab/pi-telegram-explorer` often exceed this. `pi-telegram` maps each registered section to a compact numeric token:
+Telegram limits `callback_data` to 64 bytes. Full npm names like `@example/omp-telegram-explorer` often exceed this. `omp-telegram` maps each registered section to a compact numeric token:
 
 ```text
 section:<token>:<action>:<payload>
@@ -194,7 +194,7 @@ The token is an implementation detail. Section authors **never** write `section:
 
 ### Routing order
 
-1. Telegram update arrives through the single `pi-telegram` polling loop
+1. Telegram update arrives through the single `omp-telegram` polling loop
 2. Update handlers observe/consume (raw update interception)
 3. Button action store (`tgbtn:*`)
 4. Compact confirmation callbacks (`compact:*`)
@@ -355,7 +355,7 @@ handleCallback: async (ctx) => {
 
 ### `callback_data` contract
 
-Section callbacks use the `section:` prefix owned by `pi-telegram`:
+Section callbacks use the `section:` prefix owned by `omp-telegram`:
 
 ```text
 section:0:open                   → open section root
@@ -379,17 +379,17 @@ If the interactive message has expired (no stored model menu state), the callbac
 
 This applies to section callbacks as well — the state check runs before dispatch.
 
-## 11. Pi Extension API Inspiration
+## 11. OMP Extension API Inspiration
 
-The platform inherits from Pi's own extension model:
+The platform inherits from OMP's own extension model:
 
 - `export default function(pi)` → `registerTelegramSection(section)`
-- `pi.on("shutdown", ...)` → disposer from `registerTelegramSection`
-- Typed imports → typed import from `@llblab/pi-telegram/sections`
+- `pi.on("session_shutdown", ...)` → disposer from `registerTelegramSection`
+- Typed imports → typed import from `@tickernelz/omp-telegram/sections`
 - `globalThis` registry → `__piTelegramSectionRegistry__` on `globalThis`
 - Identity from `package.json/name` → same identity rules as Locks Standard
 - Narrow typed context ports → `TelegramSectionContext` / `TelegramSectionCallbackContext`
-- Extension does not own transport → `pi-telegram` owns polling, message lifecycle
+- Extension does not own transport → `omp-telegram` owns polling, message lifecycle
 
 ## 12. Diagnostics
 
@@ -427,7 +427,7 @@ Available programmatically via `getTelegramSectionDiagnostics()`. Main-menu/sett
 ### Non-goals:
 
 - No second Telegram polling loop
-- No new pi extension loader
+- No new OMP extension loader
 - No generic webview system
 - No default filesystem mutation API
 - No prompt rollback semantics
@@ -435,18 +435,18 @@ Available programmatically via `getTelegramSectionDiagnostics()`. Main-menu/sett
 
 ## 14. Relationship to Other Standards
 
-- [Callback Namespaces](./callback-namespaces.md): defines `section:` as pi-telegram-owned prefix. Sections use namespaced callbacks but authors never hand-roll them
+- [Callback Namespaces](./callback-namespaces.md): defines `section:` as omp-telegram-owned prefix. Sections use namespaced callbacks but authors never hand-roll them
 - [Updates](./updates.md): raw update interception for direct Telegram update access. Sections are the structured UI layer above
-- [Architecture](./architecture.md#configuration-and-ownership): pi-telegram transport ownership is extension-local and independent from section registration identity
+- [Architecture](./architecture.md#configuration-and-ownership): omp-telegram transport ownership is extension-local and independent from section registration identity
 - [Command Templates](./command-templates.md): sections do not execute command templates by default. UI registration + callback routing, not shell execution
 
 ## 15. Demo Extension
 
-[`@llblab/pi-telegram-extension-demo`](https://github.com/llblab/pi-telegram-extension-demo) is the maintained companion-extension reference:
+[`@llblab/pi-telegram-extension-demo`](https://github.com/llblab/pi-telegram-extension-demo) is the upstream companion-extension reference. It is written against upstream `@llblab/pi-telegram` on Pi, not against this fork, so its imports and host types need retargeting before it will run here. The section contract it demonstrates is unchanged:
 
 - Main-menu and Settings surfaces with dynamic labels.
 - Managed section callbacks, buttons, edits, navigation, and cleanup.
-- Public `@llblab/pi-telegram/*` imports rather than package-private `/lib` paths.
-- Independent package and lifecycle ownership outside pi-telegram core.
+- Public package-subpath imports rather than package-private `/lib` paths; under this fork those become `@tickernelz/omp-telegram/*`.
+- Independent package and lifecycle ownership outside omp-telegram core.
 
-Use it as a template for section-based extensions. Activity-specific registration and delivery patterns remain in [Telegram Activity API](./activity.md); pi-telegram does not duplicate the demo as an in-package `examples/` directory.
+Use it as a template for section-based extensions. Activity-specific registration and delivery patterns remain in [Telegram Activity API](./activity.md); omp-telegram does not duplicate the demo as an in-package `examples/` directory.

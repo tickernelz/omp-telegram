@@ -17,7 +17,7 @@ Use this reference only when Show Me is responding through Telegram or preparing
 - Avoid wide tables, deep trees, side-by-side layouts, and Mermaid when the current Telegram renderer would expose only source text. Move genuinely spatial material to HTML.
 - Put material state near the top: what changed, whether it is local or live, what was validated, and what remains unresolved.
 - Keep source paths and symbol names below the explanation unless they are the explanation.
-- Keep intended Telegram bot-command tokens as plain text rather than inline code. Format Pi/TUI or shell commands as code according to the host contract. Plain source shape does not prove native clickability; claim it only after the active entity-detection and client path is verified.
+- Keep intended Telegram bot-command tokens as plain text rather than inline code. Format OMP/TUI or shell commands as code according to the host contract. Plain source shape does not prove native clickability; claim it only after the active entity-detection and client path is verified.
 - Use explicit Markdown links when a destination matters rather than assuming plain URL auto-detection.
 
 ## Telegram HTML

@@ -1,6 +1,6 @@
 ---
 name: generative-apps
-description: Design, author, review, install, replace, invoke, or debug reusable Generative Apps that combine generated button interfaces, deterministic bound methods, and optional model-mediated prompts. Use for standalone applications and bounded view/controller adapters rendered through pi-telegram; prefer Generated Control Surface when no reusable deterministic program is earned.
+description: Design, author, review, install, replace, invoke, or debug reusable Generative Apps that combine generated button interfaces, deterministic bound methods, and optional model-mediated prompts. Use for standalone applications and bounded view/controller adapters rendered through omp-telegram; prefer Generated Control Surface when no reusable deterministic program is earned.
 ---
 
 # Generative Apps
@@ -47,7 +47,7 @@ This Skill owns agent operating judgment:
 
 This Skill also owns the transport-independent concept, vocabulary, application shapes, hybrid action model, and relationship to Generated Control Surface.
 
-[`../../docs/generative-apps.md`](../../docs/generative-apps.md) owns only the concrete `pi-telegram` runtime reference: Telegram wire syntax, managed layout, executable ABI, state timeline, generation/revision fencing, worker execution, locking, installation transactions, callback routing, lifecycle behavior, and current limitations. Do not duplicate those implementation details here.
+[`../../docs/generative-apps.md`](../../docs/generative-apps.md) owns only the concrete `omp-telegram` runtime reference: Telegram wire syntax, managed layout, executable ABI, state timeline, generation/revision fencing, worker execution, locking, installation transactions, callback routing, lifecycle behavior, and current limitations. Do not duplicate those implementation details here.
 
 ## When To Use
 
@@ -105,7 +105,7 @@ Before presenting an app as working:
 
 - Confirm app, source stem, installed identity, and bound prompts agree.
 - Inspect the installed initial view and persisted bounded state.
-- Exercise at least one real bound action and prove it bypasses Pi queue/model admission.
+- Exercise at least one real bound action and prove it bypasses OMP queue/model admission.
 - Exercise at least one ordinary prompt when the app intentionally uses the model plane.
 - Verify the placements actually used by the app and prove disabled cells invoke nothing. A successful ordinary prompt-button smoke is not evidence of app-method dispatch or stale-revision rejection.
 - Verify replacement rejects stale buttons and failed initialization preserves the prior app.

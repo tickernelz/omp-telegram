@@ -8,7 +8,7 @@ Small standard for inline buttons, menu rows, state controls, cards, and confirm
 - Put emoji where they help scanning, not everywhere.
 - Use one strong indicator for current selection; avoid emoji noise on every option.
 - Match label casing to control role.
-- Keep Telegram bot commands such as `/start` and `/abort` as plain text so clients expose their native command links; bot command names use Telegram-compatible characters and never hyphens. Render Pi TUI commands mentioned inside Telegram HTML, such as `<code>/telegram-connect</code>`, as code so Telegram does not mis-tokenize their hyphenated names; callback alerts remain plain because Telegram does not support rich formatting there.
+- Keep Telegram bot commands such as `/start` and `/abort` as plain text so clients expose their native command links; bot command names use Telegram-compatible characters and never hyphens. Render OMP TUI commands mentioned inside Telegram HTML, such as `<code>/telegram-connect</code>`, as code so Telegram does not mis-tokenize their hyphenated names; callback alerts remain plain because Telegram does not support rich formatting there.
 - Prefer minimal, clear configuration UI over exhaustive explanation.
 - Preserve domain-owned callback prefixes and behavior in the owning module.
 
@@ -20,7 +20,7 @@ Use emoji as stable semantic markers, not decoration. Emoji carry transportable 
 
 | Emoji | Meaning | Canonical surfaces | Notes |
 | --- | --- | --- | --- |
-| `🧵` | Telegram/Pi thread routing | Thread chooser headings, unbound-thread warnings, thread lifecycle/status copy | Canonical thread marker. Do not add it to every concrete target button; target buttons use the acknowledged display title or stable-name fallback. |
+| `🧵` | Telegram/OMP thread routing | Thread chooser headings, unbound-thread warnings, thread lifecycle/status copy | Canonical thread marker. Do not add it to every concrete target button; target buttons use the acknowledged display title or stable-name fallback. |
 | `📡` | Telegram transport / bridge connection | Instance connected notices, polling/transport role, bridge online copy | Transport is not thread identity; use `🧵` for thread concepts. |
 | `📊` | Status / overview | `/status` command description, status cards or status rows | Use for status summaries, not queue priority. |
 | `🤖` | Model selection | `/model`, model menu headings, model status rows | Keep model-control surfaces visually distinct from thinking. |
@@ -45,13 +45,13 @@ Use emoji as stable semantic markers, not decoration. Emoji carry transportable 
 | `🗜` | Compact session | `/compact`, compact confirmation action | Do not use for generic cleanup/delete. |
 | `⏩` | Abort and advance | Busy `/next` command result and matching menu action | Means the active turn is aborted before advancing to queued work. |
 | `▶️` | Play / continue immediately | Idle `/next` result, `/continue` command, and matching menu action | Means work can start or resume directly without first aborting an active turn. |
-| `⏹️` | Abort current Pi work | `/abort` command description and active `/stop` result | Stops active work; accompanying copy states separately when queued work is cleared. |
+| `⏹️` | Abort current OMP work | `/abort` command description and active `/stop` result | Stops active work; accompanying copy states separately when queued work is cleared. |
 | `🟥` | Destructive stop command | `/stop` command description | Strong warning at the command/action entrypoint; standalone results use the more precise idle or abort state icon. |
-| `🆕` | New session / fresh start | Reserved visible extension command example for `/new`-like flows | Same-thread Telegram `/new` is currently blocked by Pi core API; keep this meaning reserved. |
+| `🆕` | New session / fresh start | Reserved visible extension command example for `/new`-like flows | Same-thread Telegram `/new` is currently blocked by OMP core API; keep this meaning reserved. |
 | `🔄` | Refresh | Queue refresh row and future refresh buttons | Re-fetch/re-render current surface, not transport reconnect. |
 | `↪️` | Reroute to an existing target | Thread chooser buttons that send a captured command/message from one thread to another live thread | Curved arrow means the message arrived here but bends to another target. |
-| `🔁` | Replace/restore mode | Thread replace/restore chooser entrypoints | Opens a second step for moving a Pi instance binding to the current source thread. |
-| `➡️` | Choose replacement target | Thread replace/restore target buttons that select which Pi instance should move to the current thread | Use inside the second replace/restore chooser, not for ordinary reroutes. |
+| `🔁` | Replace/restore mode | Thread replace/restore chooser entrypoints | Opens a second step for moving an OMP instance binding to the current source thread. |
+| `➡️` | Choose replacement target | Thread replace/restore target buttons that select which OMP instance should move to the current thread | Use inside the second replace/restore chooser, not for ordinary reroutes. |
 | `☑️` | Activate / choose this item | Model detail activation action, generated button-only choice heading | Positive selection cue; use `🟢 Active` for already-current state. |
 | `❌` | No / cancel / terminal failure | Confirmation cancel buttons and terminal failure notices | Do not use for a recoverable operation failure that leaves session state intact. |
 | `🗑` | Delete / defer removal | Destructive confirmations and removal reaction | In the queue menu, reversible Keep/Skip selectors replace immediate deletion. |
@@ -104,9 +104,9 @@ The menu may clear internal Skip but cannot remove a reaction created by the use
 
 ### Decorative Or Local-Example Emoji
 
-Some emoji are intentionally local examples or decorative variants, not global semantics. Empty-queue rotating messages (`🫙`, `🍃`, `🕳`, `🦗`, `🌙`, `🧘`, `🪐`, `🧺`, `🔭`, `🫧`, `🛸`) are copy flavor only and must not become controls. The Guest Mode placeholder frames (`🌎`, `🌍`, `🌏` stepping every second with dots growing once every two seconds) are the same kind of decorative copy: they complete whole 6-frame cycles over at least a ~20 s rotation while a guest answer is pending and then hold the cycle's final frame (a 26 s safety bound caps slow streams), never become controls, and must not carry another meaning. Example extension icons such as `🧪`, `🔧`, and `🗂` are documentation fixtures for companion extensions, not built-in pi-telegram meanings.
+Some emoji are intentionally local examples or decorative variants, not global semantics. Empty-queue rotating messages (`🫙`, `🍃`, `🕳`, `🦗`, `🌙`, `🧘`, `🪐`, `🧺`, `🔭`, `🫧`, `🛸`) are copy flavor only and must not become controls. The Guest Mode placeholder frames (`🌎`, `🌍`, `🌏` stepping every second with dots growing once every two seconds) are the same kind of decorative copy: they complete whole 6-frame cycles over at least a ~20 s rotation while a guest answer is pending and then hold the cycle's final frame (a 26 s safety bound caps slow streams), never become controls, and must not carry another meaning. Example extension icons such as `🧪`, `🔧`, and `🗂` are documentation fixtures for companion extensions, not built-in omp-telegram meanings.
 
-Thread UI rule: when a message heading, chooser, or status line is specifically about Telegram/Pi threads or target thread selection, start the heading with `🧵`. Button labels for concrete thread targets should stay clean (`threadName` or slot fallback) and should not add `🧵` to every target button unless the row would otherwise be ambiguous.
+Thread UI rule: when a message heading, chooser, or status line is specifically about Telegram/OMP threads or target thread selection, start the heading with `🧵`. Button labels for concrete thread targets should stay clean (`threadName` or slot fallback) and should not add `🧵` to every target button unless the row would otherwise be ambiguous.
 
 ## Action Buttons
 
@@ -186,7 +186,7 @@ Rules:
 
 - Put each option on its own row when labels are long, the set may grow, or scanning benefits from full width.
 - A fixed set of short, ordered peer values may use compact rows of up to three buttons.
-- Keep a semantically distinct value such as thinking `off` on its own full-width row before grouped intensity values.
+- A semantically distinct value may take its own full-width row before grouped intensity values when the set is small enough that the extra row still scans quickly.
 - Mark only the current value with `🟢`.
 - Leave non-current values without emoji.
 - Use lowercase labels when the option is a value.
@@ -194,7 +194,7 @@ Rules:
 Examples:
 
 - Vertical: `hidden`, `🟢 mirror`, `always`.
-- Thinking: full-width `off`, then `minimal` / `low` / `🟢 medium`, then `high` / `xhigh` / `max`.
+- Thinking: a full-width `⬆️ Main menu` row, then the eight levels in rows of three — `inherit` / `off` / `minimal`, `low` / `🟢 medium` / `high`, `xhigh` / `max`.
 
 ## Generated Prompt Buttons
 

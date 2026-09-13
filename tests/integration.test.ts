@@ -1314,14 +1314,14 @@ test("Public activity delivery reaches the classic instance without blocking age
       createRuntimeTelegramApiResponse({ message_id: 91 }),
     );
     await waitForEventLoopCondition(() => activityHandledCount === 1);
-    await handlers.get("agent_settled")?.({}, ctx);
+    await handlers.get("agent_end")?.({ messages: [] }, ctx);
     await handlers.get("session_shutdown")?.({}, ctx);
 
     await handlers.get("session_start")?.({}, ctx);
     await handlers.get("input")?.({ source: "interactive" }, ctx);
     await handlers.get("agent_start")?.({}, ctx);
     await waitForEventLoopCondition(() => activityHandledCount === 2);
-    await handlers.get("agent_settled")?.({}, ctx);
+    await handlers.get("agent_end")?.({ messages: [] }, ctx);
     await handlers.get("session_shutdown")?.({}, ctx);
   } finally {
     unregisterActivity?.();
@@ -1503,7 +1503,6 @@ test("Verbose activity reaches classic transport before the final assistant answ
     assert.match(editedRich, /arguments/);
     assert.match(editedRich, /result/);
     assert.equal(calls[toolEditIndex]?.body.text, undefined);
-    await handlers.get("agent_settled")?.({}, ctx);
     await commands.get("telegram-disconnect")?.handler("", ctx);
     await handlers.get("session_shutdown")?.({}, ctx);
   } finally {
@@ -5105,7 +5104,7 @@ test("Extension runtime compaction notices cannot overtake a pending local final
     await handlers.get("agent_end")?.({ messages: [message] }, ctx);
     await handlers.get("session_before_compact")?.({ signal: new AbortController().signal }, ctx);
     await handlers.get("session_compact")?.({}, ctx);
-    settled = Promise.resolve(handlers.get("agent_settled")?.({}, ctx));
+    settled = Promise.resolve();
     await flushMicrotasks(30);
     assert.deepEqual(committed, []);
     releaseFinal();
@@ -5302,6 +5301,7 @@ test(`Extension runtime delivers the final answer before observed auto-compactio
     );
     await handlers.get("session_compact")?.({}, ctx);
     if (compactionBeforeAgentEnd) await endAgent();
+    await flushMicrotasks(5);
     if (emptyFinal) {
       await waitForCondition(() => runtimeEvents.slice(noticeBaseline).includes("send:**✅ Compaction completed.**"));
     } else if (!runtimeEvents.slice(noticeBaseline).some((event) => event === "send:done" || event === "edit:done")) {
@@ -5311,7 +5311,6 @@ test(`Extension runtime delivers the final answer before observed auto-compactio
       runtimeEvents.includes("dispatch:[telegram] queued during active turn"),
       false,
     );
-    await handlers.get("agent_settled")?.({}, ctx);
     await waitForCondition(() =>
       runtimeEvents.slice(noticeBaseline).includes("send:**✅ Compaction completed.**"),
     ).catch((error) => { throw new Error(runtimeEvents.join("\n"), { cause: error }); });

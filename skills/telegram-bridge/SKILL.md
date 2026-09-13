@@ -5,7 +5,7 @@ description: Operate Telegram-originated turns or explicit Telegram delivery, in
 
 # Telegram Bridge
 
-Use Telegram as a mobile companion to the current Pi session. Preserve the exact target, ordinary reply ownership, queue semantics, and the boundary between agent intent and bridge transport.
+Use Telegram as a mobile companion to the current OMP session. Preserve the exact target, ordinary reply ownership, queue semantics, and the boundary between agent intent and bridge transport.
 
 ## Routing Kernel
 

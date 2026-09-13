@@ -4,7 +4,7 @@ _Status: incremental implementation. Canonical installation and explicit transac
 
 ## Purpose
 
-This document specifies the concrete Generative App runtime implemented by `pi-telegram`. The transport-independent concept, vocabulary, application shapes, hybrid action model, and agent operating workflow belong to the bundled [`generative-apps` Skill](../skills/generative-apps/SKILL.md).
+This document specifies the concrete Generative App runtime implemented by `omp-telegram`. The transport-independent concept, vocabulary, application shapes, hybrid action model, and agent operating workflow belong to the bundled [`generative-apps` Skill](../skills/generative-apps/SKILL.md).
 
 The Telegram implementation provides managed installation, method execution, persistence, button binding, callback routing, and message delivery:
 
@@ -19,14 +19,14 @@ This runtime coexists with ordinary prompt buttons, companion-extension callback
 
 - The bundled [`generative-apps` Skill](../skills/generative-apps/SKILL.md) owns the general concept and agent operation: category definition, `generated` versus `generative`, application shapes, hybrid method/prompt surfaces, selection, authorship, review, workflow, safety, and validation judgment.
 - [`architecture.md`](./architecture.md#generative-apps) owns this runtime's place inside the Telegram bridge and its domain boundaries.
-- This document owns only `pi-telegram` implementation contracts: canonical managed identity, executable ABI, Telegram wire syntax, state timeline, installation/replacement, bounded ports, callback routing, delivery, lifecycle, and current limitations.
+- This document owns only `omp-telegram` implementation contracts: canonical managed identity, executable ABI, Telegram wire syntax, state timeline, installation/replacement, bounded ports, callback routing, delivery, lifecycle, and current limitations.
 - [`generated-control-surface`](../skills/generated-control-surface/SKILL.md) owns the separate ephemeral control-surface operating protocol.
 
 Keep conceptual guidance out of this document and Telegram runtime mechanics out of the Generative Apps Skill.
 
 ## Canonical Layout And Identity
 
-Generative Apps live under the active Pi agent directory, never in package installation files or temporary storage:
+Generative Apps live under the active OMP agent directory, never in package installation files or temporary storage:
 
 ```text
 <agent-dir>/genapps/
@@ -85,7 +85,7 @@ Equivalent JSON:
 
 `app` is not a button property. Both representations normalize to the same prompt string, and routing happens afterward. The shared [button grammar](./compact-matrix-literal.md) also supports disabled controls: `{Call|||1}` or JSON `{"label":"Call","disabled":true}`. A disabled cell needs no method prompt or selected style; `{|||1}` is an intentional blank disabled cell. These remain visible but register no callback or bound action. App methods must still validate current state when invoked through an enabled control or another supported entrypoint; disabled presentation is not an authorization boundary.
 
-The double colon is the inference-bypass operator: it routes a generated prompt control to a registered deterministic owner before Pi queue admission. Native extension callbacks retain their existing single-colon grammar:
+The double colon is the inference-bypass operator: it routes a generated prompt control to a registered deterministic owner before OMP queue admission. Native extension callbacks retain their existing single-colon grammar:
 
 ```text
 myext:action:payload   native callback_data namespace
@@ -98,7 +98,7 @@ An absent, stale, or invalid bound app fails closed and never degrades into an a
 
 ## `telegram_bind` Tool
 
-One agent Tool owns installation and deliberate invocation through two mutually exclusive shapes. Its optional `argument` schema explicitly describes JSON values (`null`, boolean, number, string, array, or object) as a bounded union nested four container levels deep rather than using an unconstrained subschema. Pi keeps the same JSON semantics, while schema aggregators cannot lower this field to a bare `true` schema that some llama-server grammars reject. The union is built through standard schema builders and serialized inline with no `$ref`/`$defs` recursion, so provider tool APIs that reject recursive or reference-resolved schemas (OpenAI) accept it alongside providers strict about unknown schema fields (Gemini).
+One agent Tool owns installation and deliberate invocation through two mutually exclusive shapes. Its optional `argument` schema explicitly describes JSON values (`null`, boolean, number, string, array, or object) as a bounded union nested four container levels deep rather than using an unconstrained subschema. OMP keeps the same JSON semantics, while schema aggregators cannot lower this field to a bare `true` schema that some llama-server grammars reject. The union is built through standard schema builders and serialized inline with no `$ref`/`$defs` recursion, so provider tool APIs that reject recursive or reference-resolved schemas (OpenAI) accept it alongside providers strict about unknown schema fields (Gemini).
 
 Install an external self-contained module and initialize it:
 
@@ -179,7 +179,7 @@ The runtime context may contain only bounded capabilities required by the contra
 - A bounded non-shell process port for coherent CLI adapters.
 - Redacted app/target metadata needed for diagnostics and rendering ownership.
 
-The runtime does not pass a raw Telegram client, bot token, Pi extension context, arbitrary transport operation, or mutable queue/session state.
+The runtime does not pass a raw Telegram client, bot token, OMP extension context, arbitrary transport operation, or mutable queue/session state.
 
 A method result contains:
 
@@ -277,7 +277,7 @@ Telegram does not reliably report deletion of every ordinary private bot message
 Generative Apps are trusted local code and therefore an explicit capability grant, not a sandbox promise. The runtime still narrows accidental authority and operational failure:
 
 - Installation validates canonical paths and rejects traversal, symlinks outside the managed root, identity mismatch, and silent replacement; explicit replacement stages and initializes the new app before swapping it under the same app.
-- App execution cannot own Telegram polling, credentials, raw transport, Pi queue state, or another app's files through the provided contract.
+- App execution cannot own Telegram polling, credentials, raw transport, OMP queue state, or another app's files through the provided contract.
 - Per-app transitions serialize and compare immutable installation generation plus state revision so stale buttons cannot cross replacement or mutate newer state.
 - State commit and Telegram effect ordering are explicit; ambiguous non-idempotent transport outcomes never replay blindly.
 - Time, output, state-size, refresh-rate, and process bounds prevent one app from monopolizing the extension.
@@ -301,7 +301,7 @@ Implementation is not complete until evidence covers:
 - Canonical path identity, direct app discovery, copy/install, explicit replacement with failure preservation, removal, and traversal rejection.
 - Mandatory `init`, named method dispatch, no-argument and strict-JSON argument parsing, missing exports, and result validation.
 - Transactional initialization, state/history equality, concurrent/stale actions, partial journal recovery, and output-only methods.
-- CML and full JSON button equivalence, inference bypass before Pi queue admission, absent-owner failure, and unchanged native callback routing.
+- CML and full JSON button equivalence, inference bypass before OMP queue admission, absent-owner failure, and unchanged native callback routing.
 - Direct classic, leader, and follower target delivery with generation fencing and no model turn.
 - CLI process timeout, cancellation, output bounds, stderr diagnostics, and arbitrary-shell rejection.
 - Live-view handle retention, unchanged-frame suppression, two-second minimum, non-overlap, coalescing, Telegram backoff, deletion invalidation, message-not-found handling, and lifecycle cancellation.

@@ -305,7 +305,7 @@ Set `recover` on a retried node to run cleanup after a failed attempt and before
   "failure": "branch",
   "retry": 3,
   "recover": "git -C {work_dir} reset --hard HEAD",
-  "template": ["pi -p --tools read,edit,bash {scope_file}", "npm test"]
+  "template": ["omp -p --tools=read,edit,bash {scope_file}", "npm test"]
 }
 ```
 
@@ -358,7 +358,7 @@ Hosts may surface lightweight warnings for these obvious high-risk shapes. Warni
 
 ## Tool Boundary
 
-Agent tools are a separate abstraction. A tool name is not a portable command template because the pi extension API exposes tool registration metadata, not a public extension-to-extension `executeTool(name, args)` contract. Until such an API exists, extensions should use command templates for deterministic local automation.
+Agent tools are a separate abstraction. A tool name is not a portable command template because the OMP extension API exposes tool registration metadata, not a public extension-to-extension `executeTool(name, args)` contract. Until such an API exists, extensions should use command templates for deterministic local automation.
 
 ## Compatibility
 

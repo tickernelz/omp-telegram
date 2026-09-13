@@ -14,7 +14,7 @@ import {
   editTelegramView,
   sendTelegramChatAction,
   sendTelegramView,
-} from "@llblab/pi-telegram/delivery";
+} from "@tickernelz/omp-telegram/delivery";
 ```
 
 ## Ownership Boundary
@@ -26,7 +26,7 @@ Consumer extension code owns:
 - Its own settings and callback policy.
 - Retaining a returned handle only for the current live extension generation.
 
-pi-telegram owns:
+omp-telegram owns:
 
 - Active-turn and current-instance target resolution.
 - Pairing and target authorization.
@@ -158,7 +158,7 @@ export function sendTelegramChatAction(
 
 ## Runtime Binding
 
-The public functions resolve a process-local runtime binding on every call. They never capture a Pi `ExtensionContext` or command context.
+The public functions resolve a process-local runtime binding on every call. They never capture an OMP `ExtensionContext` or command context.
 
 The bridge constructs and binds a genuinely fresh delivery runtime during every `session_start`. It unbinds and shuts down the current runtime during `session_shutdown` before session-bound transport state is discarded; binding an unexpected replacement also shuts down the displaced runtime. Reload and session replacement therefore produce these outcomes:
 
@@ -169,7 +169,7 @@ The bridge constructs and binds a genuinely fresh delivery runtime during every 
 - An already-issued Telegram request may resolve during shutdown, but the old operation returns `runtime-unavailable` and cannot issue another edit, delete, chunk, or chat action afterward.
 - Old operations never adopt the replacement generation implicitly.
 
-The binding uses the same `globalThis` membrane pattern as other extension registries so package load order does not expose bridge internals. Only pi-telegram may bind or replace the runtime port.
+The binding uses the same `globalThis` membrane pattern as other extension registries so package load order does not expose bridge internals. Only omp-telegram may bind or replace the runtime port.
 
 ## Ordering And Delivery Semantics
 
@@ -181,7 +181,7 @@ The binding uses the same `globalThis` membrane pattern as other extension regis
 - Edit growth sends additional chunks; edit shrink deletes surplus chunks; delete removes every chunk in handle order.
 - A partial send failure returns the ids already sent. A partial edit failure returns the original surviving ids plus every newly sent id, minus any surplus ids already deleted during shrink. The returned handle therefore remains sufficient for deterministic retry or cleanup.
 - The API does not participate in assistant preview/final deduplication and does not mutate the Telegram turn queue.
-- A successful operational send does not imply agent work, create a Pi prompt, or alter terminal status.
+- A successful operational send does not imply agent work, create an OMP prompt, or alter terminal status.
 
 ## Diagnostics
 
@@ -198,9 +198,9 @@ The API does not expose:
 - A second polling loop.
 - Cross-profile delivery.
 - Unrestricted cross-instance targeting.
-- Session replacement, reload, process launch, or Pi slash-command dispatch.
+- Session replacement, reload, process launch, or OMP slash-command dispatch.
 - File/media uploads in the first 0.21 slice.
-- Captured Pi contexts or mutable queue/session state.
+- Captured OMP contexts or mutable queue/session state.
 
 Extension consumers remain trusted local code, but the contract still preserves product ownership boundaries so accidental misuse cannot silently bypass Threaded Mode routing or target identity.
 

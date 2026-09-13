@@ -85,7 +85,7 @@ jobs:
           writeFileSync("release-title.txt", `${title}\n`);
           writeFileSync("release-notes.md", `${notes}\n`);
           NODE
-      - name: Verify npm supports Trusted Publisher
+      - name: Verify npm supports provenance
         run: |
           node --input-type=module <<'NODE'
           import { execFileSync } from "node:child_process";
@@ -97,16 +97,16 @@ jobs:
             major < 11 ||
             (major === 11 && (minor < 5 || (minor === 5 && patch < 1)))
           ) {
-            throw new Error(`npm ${version} cannot use Trusted Publisher; require npm >= 11.5.1.`);
+            throw new Error(`npm ${version} cannot attach provenance; require npm >= 11.5.1.`);
           }
-          console.log(`npm ${version} supports Trusted Publisher.`);
+          console.log(`npm ${version} supports provenance.`);
           NODE
       - name: Install exact dependencies
         run: npm ci
       - name: Resolve npm publication state
         id: npm-state
         env:
-          PACKAGE_NAME: "omp-telegram"
+          PACKAGE_NAME: "@tickernelz/omp-telegram"
           TAG_COMMIT: ${{ steps.preflight.outputs.tag_commit }}
           VERSION: ${{ steps.preflight.outputs.version }}
         run: |
@@ -131,12 +131,14 @@ jobs:
             cat npm-existing.err >&2
             exit "$status"
           fi
-      - name: Publish npm package through Trusted Publisher
+      - name: Publish npm package
         if: steps.npm-state.outputs.publish == 'true'
         run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Verify public npm package and packed manifest
         env:
-          PACKAGE_NAME: "omp-telegram"
+          PACKAGE_NAME: "@tickernelz/omp-telegram"
           TAG_COMMIT: ${{ steps.preflight.outputs.tag_commit }}
           VERSION: ${{ steps.preflight.outputs.version }}
         run: |

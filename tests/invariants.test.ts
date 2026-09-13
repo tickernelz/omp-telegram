@@ -53,7 +53,7 @@ test("Unreleased changelog respects the project release-entry budget", () => {
   );
 });
 
-test("Release CI validates exact tags and publishes through npm Trusted Publisher", () => {
+test("Release CI validates exact tags and publishes a provenance-signed package", () => {
   assert.match(validateWorkflowSource, /^  workflow_call:$/m);
   assert.match(
     releaseWorkflowSource,
@@ -89,7 +89,10 @@ test("Release CI validates exact tags and publishes through npm Trusted Publishe
     releaseWorkflowSource,
     /gh release view[\s\S]*gh release edit[\s\S]*gh release create/,
   );
-  assert.doesNotMatch(releaseWorkflowSource, /NPM_TOKEN|NODE_AUTH_TOKEN/);
+  assert.match(
+    releaseWorkflowSource,
+    /NODE_AUTH_TOKEN: \$\{\{ secrets\.NPM_TOKEN \}\}/,
+  );
 });
 
 function getProjectSourceFiles(): string[] {

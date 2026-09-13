@@ -32,17 +32,17 @@ test("Public package subpaths expose the stable extension API", async () => {
     voice,
     keyboard,
   ] = await Promise.all([
-    import("omp-telegram"),
-    import("omp-telegram/inbound"),
-    import("omp-telegram/outbound"),
-    import("omp-telegram/delivery"),
-    import("omp-telegram/activity"),
-    import("omp-telegram/updates"),
-    import("omp-telegram/commands"),
-    import("omp-telegram/sections"),
-    import("omp-telegram/status"),
-    import("omp-telegram/voice"),
-    import("omp-telegram/keyboard"),
+    import("@tickernelz/omp-telegram"),
+    import("@tickernelz/omp-telegram/inbound"),
+    import("@tickernelz/omp-telegram/outbound"),
+    import("@tickernelz/omp-telegram/delivery"),
+    import("@tickernelz/omp-telegram/activity"),
+    import("@tickernelz/omp-telegram/updates"),
+    import("@tickernelz/omp-telegram/commands"),
+    import("@tickernelz/omp-telegram/sections"),
+    import("@tickernelz/omp-telegram/status"),
+    import("@tickernelz/omp-telegram/voice"),
+    import("@tickernelz/omp-telegram/keyboard"),
   ]);
 
   assert.deepEqual(Object.keys(root), ["default"]);
@@ -113,7 +113,7 @@ test("Activity API declares the OMP lifecycle compatibility floor", async () => 
 });
 
 test("Package-private lib implementation paths are not exported", async () => {
-  await assertPackagePathNotExported("omp-telegram/lib/updates.ts");
-  await assertPackagePathNotExported("omp-telegram/lib/sections.ts");
-  await assertPackagePathNotExported("omp-telegram/api/updates.ts");
+  await assertPackagePathNotExported("@tickernelz/omp-telegram/lib/updates.ts");
+  await assertPackagePathNotExported("@tickernelz/omp-telegram/lib/sections.ts");
+  await assertPackagePathNotExported("@tickernelz/omp-telegram/api/updates.ts");
 });
