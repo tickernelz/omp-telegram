@@ -801,7 +801,7 @@ export function createTelegramMenuActionRuntime<
           await deps.sendTextReply(
             chatId,
             replyToMessageId,
-            "<b>⏳ Cannot open status while Pi is busy. Send /abort, /next, or /stop.</b>",
+            "<b>⏳ Cannot open status while OMP is busy. Send /abort, /next, or /stop.</b>",
             { target: { chatId, threadId }, parseMode: "HTML" },
           );
         },
@@ -838,7 +838,7 @@ export function createTelegramMenuActionRuntime<
           await deps.sendTextReply(
             chatId,
             replyToMessageId,
-            "<b>⏳ Cannot switch model while Pi is busy. Send /abort, /next, or /stop.</b>",
+            "<b>⏳ Cannot switch model while OMP is busy. Send /abort, /next, or /stop.</b>",
             { target: { chatId, threadId }, parseMode: "HTML" },
           );
         },

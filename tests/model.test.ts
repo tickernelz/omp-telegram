@@ -127,6 +127,7 @@ test("Current model update runtime stores selections and refreshes status", () =
 
 test("Model helpers match models, detect thinking levels, and expose constants", () => {
   assert.deepEqual(THINKING_LEVELS, [
+    "inherit",
     "off",
     "minimal",
     "low",
@@ -148,6 +149,7 @@ test("Model helpers match models, detect thinking levels, and expose constants",
   );
   assert.equal(getCanonicalModelId(createModelTestModel()), "openai/gpt-5");
   assert.equal(isThinkingLevel("high"), true);
+  assert.equal(isThinkingLevel("inherit"), true);
   assert.equal(isThinkingLevel("impossible"), false);
 });
 

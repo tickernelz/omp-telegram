@@ -288,13 +288,13 @@ export const TELEGRAM_BUILTIN_BOT_COMMANDS: readonly TelegramBotCommandDefinitio
     },
     {
       command: "abort",
-      description: formatTelegramBotCommandDescription("abort", "Abort Pi"),
+      description: formatTelegramBotCommandDescription("abort", "Abort OMP"),
     },
     {
       command: "stop",
       description: formatTelegramBotCommandDescription(
         "stop",
-        "Abort Pi & Clear queue",
+        "Abort OMP & Clear queue",
       ),
     },
   ];
@@ -486,7 +486,7 @@ function formatTelegramTakeoverPrompt(
   const action = theme.fg("warning", "move singleton lock here?");
   const from = theme.fg("muted", "from:");
   const to = theme.fg("muted", "to:");
-  const source = owner ?? "another Pi instance";
+  const source = owner ?? "another OMP instance";
   return `${action}\n\n${from} ${source}\n${to} ${ctx.cwd}`;
 }
 
@@ -587,7 +587,7 @@ export function registerTelegramBridgeCommands(
             return {
               ok: false,
               message:
-                "Telegram temporary state was recovered, but the bridge could not restart. Restart this Pi instance and run /telegram-connect again.",
+                "Telegram temporary state was recovered, but the bridge could not restart. Restart this OMP instance and run /telegram-connect again.",
             };
           }
         }
@@ -629,7 +629,7 @@ export function registerTelegramBridgeCommands(
       if (threadName) {
         const confirmed = await ctx.ui.confirm(
           ctx.ui.theme.fg("accent", "pi-telegram"),
-          `Delete Telegram thread ${ctx.ui.theme.fg("warning", threadName)} and disconnect this Pi session?`,
+          `Delete Telegram thread ${ctx.ui.theme.fg("warning", threadName)} and disconnect this OMP session?`,
         );
         if (!confirmed) {
           ctx.ui.notify("Telegram disconnect cancelled.", "info");
@@ -644,7 +644,7 @@ export function registerTelegramBridgeCommands(
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
         ctx.ui.notify(
-          `Telegram disconnect did not complete: ${detail} Keep this Pi session open, restore leader connectivity, inspect /telegram-status --debug, and retry /telegram-disconnect.`,
+          `Telegram disconnect did not complete: ${detail} Keep this OMP session open, restore leader connectivity, inspect /telegram-status --debug, and retry /telegram-disconnect.`,
           "warning",
         );
         throw error;
@@ -1201,15 +1201,15 @@ export interface TelegramCommandRuntimeDeps<
 }
 
 export const TELEGRAM_APP_MENU_INTRO_HTML = [
-  "<b>Pi Telegram</b>",
+  "<b>OMP Telegram</b>",
   "",
   `${formatTelegramCommandEmojiPrefix("start")}/start — Open menu / Pair bridge`,
   `${formatTelegramCommandEmojiPrefix("name")}/name Name — Rename this thread`,
   `${formatTelegramCommandEmojiPrefix("compact")}/compact — Compact current session`,
   `${formatTelegramCommandEmojiPrefix("next")}/next — Force next turn`,
   `${formatTelegramCommandEmojiPrefix("continue")}/continue — Queue continue prompt`,
-  `${formatTelegramCommandEmojiPrefix("abort")}/abort — Abort Pi`,
-  `${formatTelegramCommandEmojiPrefix("stop")}/stop — Abort Pi & Clear queue`,
+  `${formatTelegramCommandEmojiPrefix("abort")}/abort — Abort OMP`,
+  `${formatTelegramCommandEmojiPrefix("stop")}/stop — Abort OMP & Clear queue`,
 ].join("\n");
 
 function escapeTelegramCommandMenuHtml(text: string): string {
@@ -1242,7 +1242,7 @@ function buildTelegramAppMenuIntroHtml(): string {
   const extensionLines = buildTelegramExtensionCommandMenuLines();
   if (extensionLines.length === 0) return TELEGRAM_APP_MENU_INTRO_HTML;
   return [
-    "<b>Pi Telegram</b>",
+    "<b>OMP Telegram</b>",
     "",
     `${formatTelegramCommandEmojiPrefix("start")}/start — Open menu / Pair bridge`,
     `${formatTelegramCommandEmojiPrefix("name")}/name Name — Rename this thread`,
@@ -1250,8 +1250,8 @@ function buildTelegramAppMenuIntroHtml(): string {
     ...extensionLines,
     `${formatTelegramCommandEmojiPrefix("next")}/next — Force next turn`,
     `${formatTelegramCommandEmojiPrefix("continue")}/continue — Queue continue prompt`,
-    `${formatTelegramCommandEmojiPrefix("abort")}/abort — Abort Pi`,
-    `${formatTelegramCommandEmojiPrefix("stop")}/stop — Abort Pi & Clear queue`,
+    `${formatTelegramCommandEmojiPrefix("abort")}/abort — Abort OMP`,
+    `${formatTelegramCommandEmojiPrefix("stop")}/stop — Abort OMP & Clear queue`,
   ].join("\n");
 }
 
@@ -1454,7 +1454,7 @@ export async function handleTelegramNextCommand(deps: {
     await deps.sendTextReply(
       formatTelegramInformationHeading(
         "⏳",
-        "Pi is busy. Send /abort or /stop first.",
+        "OMP is busy. Send /abort or /stop first.",
       ),
       { parseMode: "HTML" },
     );
@@ -1581,7 +1581,7 @@ export async function handleTelegramCompactCommand(
     await deps.sendTextReply(
       formatTelegramInformationHeading(
         "⏳",
-        "Cannot compact while Pi or the Telegram queue is busy. Wait for queued turns to finish or send /abort first.",
+        "Cannot compact while OMP or the Telegram queue is busy. Wait for queued turns to finish or send /abort first.",
       ),
       { parseMode: "HTML" },
     );

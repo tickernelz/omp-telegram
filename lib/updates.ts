@@ -1474,7 +1474,7 @@ export async function executeTelegramUpdatePlan<
               assertExecutionCurrent();
               await deps.answerCallbackQuery(
                 callbackQueryId,
-                "This Telegram message belongs to another Pi instance.",
+                "This Telegram message belongs to another OMP instance.",
               );
             }
           } finally {

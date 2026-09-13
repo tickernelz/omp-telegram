@@ -106,7 +106,7 @@ jobs:
       - name: Resolve npm publication state
         id: npm-state
         env:
-          PACKAGE_NAME: "@llblab/pi-telegram"
+          PACKAGE_NAME: "omp-telegram"
           TAG_COMMIT: ${{ steps.preflight.outputs.tag_commit }}
           VERSION: ${{ steps.preflight.outputs.version }}
         run: |
@@ -136,14 +136,14 @@ jobs:
         run: npm publish --access public --provenance
       - name: Verify public npm package and packed manifest
         env:
-          PACKAGE_NAME: "@llblab/pi-telegram"
+          PACKAGE_NAME: "omp-telegram"
           TAG_COMMIT: ${{ steps.preflight.outputs.tag_commit }}
           VERSION: ${{ steps.preflight.outputs.version }}
         run: |
           verified=false
           # Trusted Publisher may finish before the new version reaches public registry reads.
           for attempt in $(seq 1 120); do
-            if npm view "$PACKAGE_NAME@$VERSION" --json version gitHead pi --prefer-online > npm-published.json 2> npm-published.err &&
+            if npm view "$PACKAGE_NAME@$VERSION" --json version gitHead omp pi --prefer-online > npm-published.json 2> npm-published.err &&
                npm pack "$PACKAGE_NAME@$VERSION" --dry-run --json --prefer-online > npm-pack.json 2> npm-pack.err &&
                node --input-type=module <<'NODE'
           import { readFileSync } from "node:fs";
@@ -152,9 +152,10 @@ jobs:
           if (published.version !== process.env.VERSION || published.gitHead !== process.env.TAG_COMMIT) {
             throw new Error(`Published npm identity does not match the release tag: ${JSON.stringify(published)}.`);
           }
-          if (!published.pi?.extensions?.includes("./index.ts") ||
-              !published.pi?.skills?.includes("./skills")) {
-            throw new Error("Published npm metadata is missing the Pi extension or skill manifest.");
+          const manifest = published.omp ?? published.pi;
+          if (!manifest?.extensions?.includes("./index.ts") ||
+              !manifest?.skills?.includes("./skills")) {
+            throw new Error("Published npm metadata is missing the OMP extension or skill manifest.");
           }
           const packed = JSON.parse(readFileSync("npm-pack.json", "utf8"))[0];
           const paths = new Set((packed?.files ?? []).map((file) => file.path));

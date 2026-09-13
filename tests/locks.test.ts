@@ -1340,7 +1340,7 @@ test("Locked polling runtime prevents inherited child sessions from polling the 
       canTakeover: true,
       owner: "pid 10, cwd /repo",
       message:
-        "Telegram bridge is active in another Pi instance (pid 10, cwd /repo).",
+        "Telegram bridge is active in another OMP instance (pid 10, cwd /repo).",
     });
     assert.deepEqual(events, ["parent:start", "parent:status"]);
     assert.deepEqual(readLocks(temp.path)[TELEGRAM_LOCK_KEY], {
@@ -1429,7 +1429,7 @@ test("Locked polling runtime falls back to takeover when follower registration i
     const blocked = await runtime.start({ cwd: "/repo" });
     assert.equal(blocked.ok, false);
     assert.equal(blocked.canTakeover, true);
-    assert.match(blocked.message, /active in another Pi instance/);
+    assert.match(blocked.message, /active in another OMP instance/);
   } finally {
     rmSync(temp.dir, { recursive: true, force: true });
   }
@@ -1574,7 +1574,7 @@ test("Locked polling runtime can force takeover of live polling owners", async (
       canTakeover: true,
       owner: "pid 99, cwd /old",
       message:
-        "Telegram bridge is active in another Pi instance (pid 99, cwd /old).",
+        "Telegram bridge is active in another OMP instance (pid 99, cwd /old).",
     });
     const moved = await runtime.start({ cwd: "/new" }, { force: true });
     assert.deepEqual(moved, {
@@ -1854,7 +1854,7 @@ test("Locked polling runtime refuses start when run mode disallows polling", asy
       canStartPolling: (ctx: { cwd: string; mode?: string }) =>
         ctx.mode !== "print",
       formatStartBlockedMessage: (ctx) =>
-        `Telegram polling is unavailable in Pi ${ctx.mode} mode.`,
+        `Telegram polling is unavailable in OMP ${ctx.mode} mode.`,
       startPolling: async () => {
         events.push("start");
       },
@@ -1868,7 +1868,7 @@ test("Locked polling runtime refuses start when run mode disallows polling", asy
     const started = await runtime.start({ cwd: "/repo", mode: "print" });
     assert.deepEqual(started, {
       ok: false,
-      message: "Telegram polling is unavailable in Pi print mode.",
+      message: "Telegram polling is unavailable in OMP print mode.",
     });
     assert.deepEqual(events, []);
     assert.deepEqual(readLocks(temp.path), {});

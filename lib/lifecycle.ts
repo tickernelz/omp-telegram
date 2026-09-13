@@ -639,9 +639,25 @@ export function registerTelegramLifecycleHooks(
     if (!isActive(ctx)) return;
     await deps.onSessionCompact?.(event, ctx);
   });
-  pi.on("session_compact_failed", async (event, ctx) => {
+  let lastAutoCompactionReason: "threshold" | "overflow" = "threshold";
+  pi.on("auto_compaction_start", (event) => {
+    lastAutoCompactionReason =
+      event.reason === "overflow" ? "overflow" : "threshold";
+  });
+  pi.on("auto_compaction_end", async (event, ctx) => {
     if (!isActive(ctx)) return;
-    await deps.onSessionCompactFailed?.(event, ctx);
+    if (event.result !== undefined || event.skipped === true) return;
+    await deps.onSessionCompactFailed?.(
+      {
+        type: "session_compact_failed",
+        reason: lastAutoCompactionReason,
+        errorMessage: event.errorMessage,
+        aborted: event.aborted,
+        willRetry: event.willRetry,
+        fromExtension: false,
+      },
+      ctx,
+    );
   });
   // The Pi SDK still types this result as a string; compatible runtimes may
   // preserve ordered system prompt blocks through the same public hook.
@@ -654,10 +670,6 @@ export function registerTelegramLifecycleHooks(
   ) => void;
   registerBeforeAgentStart("before_agent_start", async (event, ctx) => {
     return deps.onBeforeAgentStart(event, ctx);
-  });
-  pi.on("model_select", async (event, ctx) => {
-    if (!isActive(ctx)) return;
-    await deps.onModelSelect(event, ctx);
   });
   pi.on("agent_start", async (event, ctx) => {
     if (!isActive(ctx)) return;
@@ -687,19 +699,21 @@ export function registerTelegramLifecycleHooks(
     if (!isActive(ctx)) return;
     await deps.onMessageEnd?.(event, ctx);
   });
-  pi.on("ui_prompt_start", async (event, ctx) => {
+  pi.on("tool_approval_requested", async (event, ctx) => {
     if (!isActive(ctx)) return;
-    await deps.onUiPromptStart?.(event, ctx);
+    await deps.onUiPromptStart?.(
+      { type: "ui_prompt_start", kind: "confirm", title: event.toolName },
+      ctx,
+    );
   });
-  pi.on("ui_prompt_end", async (event, ctx) => {
+  pi.on("tool_approval_resolved", async (_event, ctx) => {
     if (!isActive(ctx)) return;
-    await deps.onUiPromptEnd?.(event, ctx);
+    await deps.onUiPromptEnd?.({ type: "ui_prompt_end" }, ctx);
   });
   pi.on("agent_end", async (event, ctx) => {
     if (!isActive(ctx)) return;
     await deps.onAgentEnd(event, ctx);
-  });
-  pi.on("agent_settled", async (event, ctx) => {
+    if (event.willContinue === true) return;
     if (!isActive(ctx)) return;
     await deps.onAgentSettled?.(event, ctx);
   });

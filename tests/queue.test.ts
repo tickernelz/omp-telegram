@@ -2113,7 +2113,7 @@ test("Agent end runtime edits the Guest Mode ACK message with the failure notice
     },
   });
   assert.deepEqual(events, [
-    "edit:Telegram bridge: Pi failed while processing the request.",
+    "edit:Telegram bridge: OMP failed while processing the request.",
     "record:guest-ack-edited",
     "dispatch",
   ]);

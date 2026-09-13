@@ -1121,7 +1121,7 @@ export interface TelegramBusLocalServer {
 }
 
 const TELEGRAM_ACTIVE_LOCAL_SERVERS = Symbol.for(
-  "@llblab/pi-telegram/active-local-servers",
+  "omp-telegram/active-local-servers",
 );
 type TelegramBusServerGlobal = typeof globalThis & {
   [TELEGRAM_ACTIVE_LOCAL_SERVERS]?: Map<string, TelegramBusLocalServer>;

@@ -50,14 +50,30 @@ await test("resolveAgentDir", async (t) => {
     );
   });
 
-  await t.test(
-    "returns ~/.pi/agent as fallback when no env and no OMP runtime",
-    () => {
-      assert.equal(
-        resolveAgentDir({ env: {}, execPath: "/usr/bin/node", argv: ["node"] }),
-        join(homedir(), ".pi", "agent"),
-      );
-    },
+  await t.test("returns ~/.pi/agent only for a legacy OMP runtime", () => {
+    assert.equal(
+      resolveAgentDir({ env: {}, execPath: "/usr/bin/pi", argv: ["pi"] }),
+      join(homedir(), ".pi", "agent"),
+    );
+  });
+
+  await t.test("defaults to ~/.omp/agent when the runtime is unrecognised", () => {
+    assert.equal(
+      resolveAgentDir({ env: {}, execPath: "/usr/bin/node", argv: ["node"] }),
+      join(homedir(), ".omp", "agent"),
+    );
+  });
+});
+
+await test("diagnostics display paths track the resolved agent dir", () => {
+  const display = getTelegramDiagnosticsDisplayPaths();
+  assert.ok(
+    display.state.startsWith("~/.omp/agent/tmp/telegram/"),
+    `state display path should sit under the OMP agent dir, got ${display.state}`,
+  );
+  assert.ok(
+    display.logs.startsWith("~/.omp/agent/tmp/telegram/"),
+    `logs display path should sit under the OMP agent dir, got ${display.logs}`,
   );
 });
 

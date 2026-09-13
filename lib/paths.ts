@@ -1,5 +1,5 @@
 /**
- * Telegram bridge path resolution for Pi-compatible runtimes
+ * Telegram bridge path resolution for OMP-compatible runtimes
  * Zones: telemetry paths, filesystem, runtime identity
  * Owns agent-dir detection and extension-local path derivation
  *
@@ -20,13 +20,13 @@ export interface TelegramAgentDirResolutionInput {
 }
 
 /**
- * Resolve the agent data directory for the current Pi-compatible runtime.
+ * Resolve the agent data directory for the current OMP-compatible runtime.
  *
  * Precedence:
- * 1. `PI_CODING_AGENT_DIR` env variable, when explicitly set.
- * 2. Detect Pi-compatible runtime identity from the executable or argv[1]
- *    (e.g. OMP vs standard Pi agent).
- * 3. Fallback: `~/.pi/agent`.
+ * 1. `PI_CODING_AGENT_DIR` env variable, which OMP itself rewrites when a
+ *    named profile is active, so this also covers `omp --profile <name>`.
+ * 2. Detect a legacy Pi runtime from the executable or argv[1].
+ * 3. Fallback: `~/.omp/agent`.
  */
 export function resolveAgentDir(
   input: TelegramAgentDirResolutionInput = {},
@@ -37,10 +37,17 @@ export function resolveAgentDir(
   const argv = input.argv ?? process.argv;
   const execBasename = execPath.toLowerCase().split(/[\\/]/u).pop() ?? "";
   const argv1Last = (argv[1] ?? "").toLowerCase().split(/[\\/]/u).pop() ?? "";
-  if (execBasename.startsWith("omp") || argv1Last.startsWith("omp")) {
-    return join(homedir(), ".omp", "agent");
+  if (execBasename.startsWith("pi") || argv1Last.startsWith("pi")) {
+    return join(homedir(), ".pi", "agent");
   }
-  return join(homedir(), ".pi", "agent");
+  return join(homedir(), ".omp", "agent");
+}
+
+function toDisplayPath(absolutePath: string): string {
+  const home = homedir();
+  return absolutePath.startsWith(home)
+    ? `~${absolutePath.slice(home.length)}`
+    : absolutePath;
 }
 
 /** Telegram bridge configuration file (<agentDir>/telegram.json). */
@@ -81,9 +88,10 @@ export function getTelegramDiagnosticsDisplayPaths(profileName?: string): {
 } {
   const suffix = getTelegramProfilePathSuffix(profileName);
   const profileSlug = suffix.slice(1);
+  const tempDir = toDisplayPath(resolveTelegramTempDir());
   return {
-    state: `~/.pi/agent/tmp/telegram/state${suffix}.json`,
-    logs: `~/.pi/agent/tmp/telegram/logs${profileSlug ? `.${profileSlug}` : ""}.jsonl`,
+    state: `${tempDir}/state${suffix}.json`,
+    logs: `${tempDir}/logs${profileSlug ? `.${profileSlug}` : ""}.jsonl`,
   };
 }
 

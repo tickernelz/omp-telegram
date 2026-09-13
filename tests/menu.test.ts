@@ -71,7 +71,11 @@ import {
   updateTelegramStatusMessage,
   updateTelegramThinkingMenuMessage,
 } from "../lib/menu.ts";
-import type { MenuModel } from "../lib/model.ts";
+import {
+  type MenuModel,
+  THINKING_LEVELS,
+  type ThinkingLevel,
+} from "../lib/model.ts";
 import type { TelegramQueueItem } from "../lib/queue.ts";
 import { createTelegramExtensionSectionRegistry } from "../lib/sections.ts";
 
@@ -626,7 +630,7 @@ test("Menu helpers build model callback plans for paging, page menu, selection, 
       canRestartBusyRun: false,
       hasActiveToolExecutions: false,
     }),
-    { kind: "answer", text: "Pi is busy. Send /abort, /next, or /stop." },
+    { kind: "answer", text: "OMP is busy. Send /abort, /next, or /stop." },
   );
 });
 
@@ -1020,8 +1024,7 @@ test("Menu runtime routes stored callback queries through callback action ports"
     allModels: [{ model, thinkingLevel: "high" }],
     mode: "status",
   };
-  let thinkingLevel:
-    "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" = "medium";
+  let thinkingLevel: ThinkingLevel = "medium";
   await handleTelegramMenuCallbackRuntime(
     { id: "callback-1", data: "menu:thinking", message: { message_id: 2 } },
     { idle: true },
@@ -1578,7 +1581,7 @@ test("Menu action runtime opens and updates interactive menu messages", async ()
   await runtime.openModelMenu(1, 2, "ctx");
   assert.equal(
     events[7],
-    "text:HTML:<b>⏳ Cannot switch model while Pi is busy. Send /abort, /next, or /stop.</b>",
+    "text:HTML:<b>⏳ Cannot switch model while OMP is busy. Send /abort, /next, or /stop.</b>",
   );
 });
 
@@ -2183,19 +2186,13 @@ test("Menu helpers build model, thinking, and status UI payloads", () => {
     thinkingMarkup.inline_keyboard[0]?.[0]?.callback_data,
     "menu:back",
   );
-  assert.deepEqual(thinkingMarkup.inline_keyboard.slice(1), [
-    [{ text: "off", callback_data: "thinking:set:off" }],
-    [
-      { text: "minimal", callback_data: "thinking:set:minimal" },
-      { text: "low", callback_data: "thinking:set:low" },
-      { text: "🟢 medium", callback_data: "thinking:set:medium" },
-    ],
-    [
-      { text: "high", callback_data: "thinking:set:high" },
-      { text: "xhigh", callback_data: "thinking:set:xhigh" },
-      { text: "max", callback_data: "thinking:set:max" },
-    ],
-  ]);
+  assert.deepEqual(
+    thinkingMarkup.inline_keyboard.slice(1).flat(),
+    THINKING_LEVELS.map((level) => ({
+      text: level === "medium" ? `🟢 ${level}` : level,
+      callback_data: `thinking:set:${level}`,
+    })),
+  );
   const statusMarkup = buildStatusReplyMarkup(modelA, "medium", 3);
   const statusCallbackData = statusMarkup.inline_keyboard.flatMap((row) =>
     row.map((button) => button.callback_data),

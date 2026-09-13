@@ -124,6 +124,8 @@ export function buildThinkingMenuText(): string {
   return "<b>🧠 Choose a thinking level:</b>";
 }
 
+const THINKING_MENU_ROW_SIZE = 3;
+
 export function buildThinkingMenuReplyMarkup(
   currentThinkingLevel: ThinkingLevel,
 ): TelegramReplyMarkup {
@@ -132,11 +134,9 @@ export function buildThinkingMenuReplyMarkup(
     text: level === currentThinkingLevel ? `🟢 ${level}` : level,
     callback_data: `thinking:set:${level}`,
   }));
-  rows.push(
-    levelButtons.slice(0, 1),
-    levelButtons.slice(1, 4),
-    levelButtons.slice(4, 7),
-  );
+  for (let index = 0; index < levelButtons.length; index += THINKING_MENU_ROW_SIZE) {
+    rows.push(levelButtons.slice(index, index + THINKING_MENU_ROW_SIZE));
+  }
   return { inline_keyboard: rows };
 }
 

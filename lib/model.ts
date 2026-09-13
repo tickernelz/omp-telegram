@@ -15,7 +15,14 @@ export interface MenuModel {
 }
 
 export type ThinkingLevel =
-  "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+  | "inherit"
+  | "off"
+  | "minimal"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh"
+  | "max";
 
 export interface ScopedTelegramModel<TModel extends MenuModel = MenuModel> {
   model: TModel;
@@ -23,6 +30,7 @@ export interface ScopedTelegramModel<TModel extends MenuModel = MenuModel> {
 }
 
 export const THINKING_LEVELS: readonly ThinkingLevel[] = [
+  "inherit",
   "off",
   "minimal",
   "low",
@@ -122,6 +130,29 @@ export function getCanonicalModelId(
 
 export function isThinkingLevel(value: string): value is ThinkingLevel {
   return THINKING_LEVELS.includes(value as ThinkingLevel);
+}
+
+export interface TelegramThinkingLevelPortDeps<THostLevel extends string> {
+  getThinkingLevel: () => THostLevel | undefined;
+  setThinkingLevel: (level: THostLevel) => void;
+}
+
+export interface TelegramThinkingLevelPorts {
+  getThinkingLevel: () => ThinkingLevel;
+  setThinkingLevel: (level: ThinkingLevel) => void;
+}
+
+/** Normalizes the host thinking selector, whose unset state means `inherit`. */
+export function createTelegramThinkingLevelPorts<THostLevel extends string>(
+  deps: TelegramThinkingLevelPortDeps<THostLevel>,
+): TelegramThinkingLevelPorts {
+  return {
+    getThinkingLevel: () => {
+      const level = deps.getThinkingLevel();
+      return level !== undefined && isThinkingLevel(level) ? level : "inherit";
+    },
+    setThinkingLevel: (level) => deps.setThinkingLevel(level as THostLevel),
+  };
 }
 
 export function parseTelegramScopedModelPatternList(value: string): string[] {

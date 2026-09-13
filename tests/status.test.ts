@@ -23,6 +23,7 @@ import {
   registerTelegramStatusLineProvider,
   type TelegramRuntimeEvent,
 } from "../lib/status.ts";
+import { getTelegramDiagnosticsDisplayPaths } from "../lib/paths.ts";
 
 test("Status helpers build runtime log scope and persisted snapshot projections", () => {
   const state = {
@@ -832,6 +833,10 @@ test("Bridge status runtime builds status state from live ports", () => {
       { at: 1000, category: "api", message: "ok" },
     ],
     getRuntimeLockState: () => "active here",
+    getDiagnosticPaths: () => ({
+      state: "~/.omp/agent/tmp/telegram/state.json",
+      logs: "~/.omp/agent/tmp/telegram/logs.jsonl",
+    }),
   });
   runtime.updateStatus({
     ui: {
@@ -862,13 +867,13 @@ test("Bridge status runtime builds status state from live ports", () => {
     "- pending model switch: yes",
     "",
     "diagnostics:",
-    "- state: ~/.pi/agent/tmp/telegram/state.json",
-    "- logs: ~/.pi/agent/tmp/telegram/logs.jsonl",
+    "- state: ~/.omp/agent/tmp/telegram/state.json",
+    "- logs: ~/.omp/agent/tmp/telegram/logs.jsonl",
     "- full dump: /telegram-status --debug",
   ]);
 });
 
-test("Bridge status lines render named-profile diagnostic paths", () => {
+test("Bridge status lines render injected diagnostic paths verbatim", () => {
   const lines = buildTelegramBridgeStatusLines({
     activeProfileName: "work",
     botUsername: "work_bot",
@@ -879,12 +884,27 @@ test("Bridge status lines render named-profile diagnostic paths", () => {
     pendingModelSwitch: false,
     queuedItems: [],
     recentRuntimeEvents: [],
+    diagnosticPaths: getTelegramDiagnosticsDisplayPaths("work"),
   });
-  assert.ok(
-    lines.includes("- state: ~/.pi/agent/tmp/telegram/state.work.json"),
-  );
-  assert.ok(
-    lines.includes("- logs: ~/.pi/agent/tmp/telegram/logs.work.jsonl"),
+  assert.ok(lines.includes(`- state: ${getTelegramDiagnosticsDisplayPaths("work").state}`));
+  assert.ok(lines.includes(`- logs: ${getTelegramDiagnosticsDisplayPaths("work").logs}`));
+});
+
+test("Bridge status lines omit diagnostic paths when none were injected", () => {
+  const lines = buildTelegramBridgeStatusLines({
+    botUsername: "work_bot",
+    pollingActive: false,
+    pendingDispatch: false,
+    compactionInProgress: false,
+    activeToolExecutions: 0,
+    pendingModelSwitch: false,
+    queuedItems: [],
+    recentRuntimeEvents: [],
+  });
+  assert.deepEqual(
+    lines.slice(lines.indexOf("diagnostics:")),
+    ["diagnostics:", "- full dump: /telegram-status --debug"],
+    "a pure renderer must not invent filesystem paths it was never given",
   );
 });
 

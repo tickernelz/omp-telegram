@@ -1525,7 +1525,7 @@ test("Routing runtime preserves active follower topics when the follower is not 
     assert.deepEqual(telegramQueueStore.getQueuedItems(), []);
     assert.equal(
       events.includes(
-        "reply:Instance Beacon is not currently registered with the Telegram bus. This thread is preserved; retry shortly. If it does not recover, run <code>/telegram-connect</code> in that Pi instance.",
+        "reply:Instance Beacon is not currently registered with the Telegram bus. This thread is preserved; retry shortly. If it does not recover, run <code>/telegram-connect</code> in that OMP instance.",
       ),
       true,
     );
@@ -1629,7 +1629,7 @@ test("Routing runtime refuses threadless prompts in multi-instance thread mode",
     assert.deepEqual(telegramQueueStore.getQueuedItems(), []);
     assert.equal(
       events.includes(
-        "reply:This bot is in threaded multi-instance mode. Send prompts in a bound Pi thread tab so they route to the right instance.",
+        "reply:This bot is in threaded multi-instance mode. Send prompts in a bound OMP thread tab so they route to the right instance.",
       ),
       true,
     );
@@ -2821,7 +2821,7 @@ test("Routing runtime treats All menu commands as threaded target chooser", asyn
     for (const chooser of chooserMessages) {
       assert.match(chooser, /<b>🧵 Choose target thread:<\/b>/);
       assert.match(chooser, /You used <code>\/(?:start|status)<\/code> from the <b>All<\/b> tab\./);
-      assert.match(chooser, /Select the Pi thread that should handle it:/);
+      assert.match(chooser, /Select the OMP thread that should handle it:/);
       assert.doesNotMatch(chooser, /<code>active<\/code>/);
       assert.doesNotMatch(chooser, /<code>starting<\/code>/);
     }
@@ -2989,7 +2989,7 @@ test("Routing runtime treats extension and prompt-template commands as All choos
           {
             name: "fix-tests",
             source: "prompt",
-            sourceInfo: { path: "/tmp/fix-tests.md" },
+            path: "/tmp/fix-tests.md",
           },
         ],
       });
@@ -3377,10 +3377,10 @@ test("Routing runtime retries stale-epoch and chooser cleanup without redispatch
     ]);
     assert.deepEqual(telegramQueueStore.getQueuedItems(), []);
     const chooser = events.find((event) => event.startsWith("interactive:"));
-    assert.match(chooser ?? "", /New thread is not a Pi instance/);
+    assert.match(chooser ?? "", /New thread is not an OMP instance/);
     assert.match(chooser ?? "", /To create a bound Telegram tab:/);
     assert.match(chooser ?? "", /Your message is still in this Telegram thread\./);
-    assert.match(chooser ?? "", /Select the Pi thread that should handle it:/);
+    assert.match(chooser ?? "", /Select the OMP thread that should handle it:/);
     const markup = events.find((event) => event.startsWith("markup:"));
     assert.match(markup ?? "", /"callback_data":"reroute:1:7"/);
     assert.match(markup ?? "", /"callback_data":"rerouterestore:1"/);
@@ -4592,9 +4592,9 @@ test("Routing runtime defers unbound guidance until user content in created topi
     });
 
     const chooser = events.find((event) => event.startsWith("interactive:"));
-    assert.match(chooser ?? "", /New thread is not a Pi instance/);
+    assert.match(chooser ?? "", /New thread is not an OMP instance/);
     assert.match(chooser ?? "", /Your message is still in this Telegram thread\./);
-    assert.match(chooser ?? "", /Select the Pi thread that should handle it:/);
+    assert.match(chooser ?? "", /Select the OMP thread that should handle it:/);
     assert.doesNotMatch(chooser ?? "", /<code>active<\/code>/);
   });
 });
@@ -4629,7 +4629,7 @@ test("Routing runtime keeps known-command unbound threads open with chooser", as
     const chooser = events.find((event) => event.startsWith("interactive:"));
     assert.match(chooser ?? "", /<b>🧵 Choose target thread:<\/b>/);
     assert.match(chooser ?? "", /You used <code>\/status<\/code> from the <b>All<\/b> tab\./);
-    assert.doesNotMatch(chooser ?? "", /New thread is not a Pi instance/);
+    assert.doesNotMatch(chooser ?? "", /New thread is not an OMP instance/);
     const options = events.find((event) => event.startsWith("interactive-options:"));
     assert.equal(
       options,

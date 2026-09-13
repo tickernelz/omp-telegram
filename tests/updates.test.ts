@@ -1839,7 +1839,7 @@ test("Update runtime keeps callback authority after its error answer", async () 
     /forwarder-unavailable/u,
   );
   assert.deepEqual(events, [
-    "answer:cb-foreign:This Telegram message belongs to another Pi instance.",
+    "answer:cb-foreign:This Telegram message belongs to another OMP instance.",
   ]);
 });
 

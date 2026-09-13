@@ -13,8 +13,8 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
-const PI_CLI_AVAILABLE = (() => {
-  const result = spawnSync("pi", ["--version"], { stdio: "ignore" });
+const OMP_CLI_AVAILABLE = (() => {
+  const result = spawnSync("omp", ["--version"], { stdio: "ignore" });
   return !result.error && result.status === 0;
 })();
 
@@ -83,7 +83,7 @@ async function waitForFileText(
   assert.fail(`Timed out waiting for ${path}. Current text: ${text}`);
 }
 
-function runPiPrint(
+function runOmpPrint(
   args: string[],
   options: { env?: NodeJS.ProcessEnv; timeoutMs?: number } = {},
 ): Promise<{
@@ -92,7 +92,7 @@ function runPiPrint(
   stdout: string;
   stderr: string;
 }> {
-  const child = spawn("pi", args, {
+  const child = spawn("omp", args, {
     cwd: REPO_ROOT,
     env: { ...process.env, ...options.env },
     stdio: ["ignore", "pipe", "pipe"],
@@ -111,7 +111,7 @@ function runPiPrint(
     const timeout = setTimeout(() => {
       child.kill("SIGKILL");
       reject(
-        new Error(`pi -p did not exit. stdout=${stdout} stderr=${stderr}`),
+        new Error(`omp -p did not exit. stdout=${stdout} stderr=${stderr}`),
       );
     }, options.timeoutMs ?? 20_000);
     timeout.unref?.();
@@ -126,13 +126,13 @@ function runPiPrint(
   });
 }
 
-async function createPiPrintFixtureExtension(tempDir: string): Promise<string> {
+async function createOmpPrintFixtureExtension(tempDir: string): Promise<string> {
   const fixturePath = join(tempDir, "fixture-provider.ts");
   await writeFile(
     fixturePath,
     `import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";\n` +
       `import { join } from "node:path";\n` +
-      `import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";\n\n` +
+      `import { createAssistantMessageEventStream } from "@oh-my-pi/pi-ai";\n\n` +
       `export default function (pi) {\n` +
       `  const agentDir = process.env.PI_CODING_AGENT_DIR;\n` +
       `  if (process.env.PI_TELEGRAM_TEST_LOCK_MODE === "owner" && agentDir) {\n` +
@@ -141,8 +141,6 @@ async function createPiPrintFixtureExtension(tempDir: string): Promise<string> {
       `    writeFileSync(join(ownersDir, "owners.json"), JSON.stringify({ default: { pid: process.pid } }) + "\\n");\n` +
       `  }\n` +
       `  pi.on("session_start", (_event, ctx) => {\n` +
-      `    const forcedMode = process.env.PI_TELEGRAM_TEST_CTX_MODE;\n` +
-      `    if (forcedMode && ctx.mode === undefined) ctx.mode = forcedMode;\n` +
       `    const methodMarker = process.env.PI_TELEGRAM_TEST_METHOD_MARKER;\n` +
       `    if (methodMarker) appendFileSync(methodMarker, "session-mode:" + String(ctx.mode) + "\\n");\n` +
       `  });\n` +
@@ -193,11 +191,11 @@ async function createPiPrintFixtureExtension(tempDir: string): Promise<string> {
   return fixturePath;
 }
 
-async function createPiPrintAgentDir(
+async function createOmpPrintAgentDir(
   config: Record<string, unknown>,
   locks: Record<string, unknown> = {},
 ): Promise<string> {
-  const agentDir = await mkdtemp(join(tmpdir(), "pi-telegram-pi-print-"));
+  const agentDir = await mkdtemp(join(tmpdir(), "omp-telegram-print-agent-"));
   await writeFile(
     join(agentDir, "telegram.json"),
     JSON.stringify(config, null, "\t") + "\n",
@@ -213,29 +211,25 @@ async function createPiPrintAgentDir(
   return agentDir;
 }
 
-async function runPiPrintWithTelegram(
+async function runOmpPrintWithTelegram(
   agentDir: string,
   fixtureExtension: string,
   env: NodeJS.ProcessEnv = {},
 ) {
-  return runPiPrint(
+  return runOmpPrint(
     [
       "-p",
-      "--offline",
       "--no-extensions",
       "--no-skills",
-      "--no-prompt-templates",
-      "--no-themes",
-      "--no-context-files",
+      "--no-rules",
       "--no-session",
+      "--no-title",
       "--extension",
       fixtureExtension,
       "--extension",
       join(REPO_ROOT, "index.ts"),
-      "--provider",
-      "fixture",
       "--model",
-      "echo",
+      "fixture/echo",
       "Say OK.",
     ],
     { env: { PI_CODING_AGENT_DIR: agentDir, ...env } },
@@ -243,10 +237,10 @@ async function runPiPrintWithTelegram(
 }
 
 test("Child process sharing the agent dir does not poll while parent owns Telegram lock", async () => {
-  const tempDir = await mkdtemp(join(tmpdir(), "pi-telegram-process-lock-"));
+  const tempDir = await mkdtemp(join(tmpdir(), "omp-telegram-process-lock-"));
   const markerPath = join(tempDir, "telegram-methods.log");
   const stopPath = join(tempDir, "stop");
-  const agentDir = await createPiPrintAgentDir({
+  const agentDir = await createOmpPrintAgentDir({
     botToken: "123:abc",
     allowedUserId: 77,
     lastUpdateId: 0,
@@ -419,11 +413,11 @@ test("Child process sharing the agent dir does not poll while parent owns Telegr
 });
 
 test("Direct Telegram tools refuse delivery from a non-owner process", async () => {
-  const tempDir = await mkdtemp(join(tmpdir(), "pi-telegram-direct-owner-"));
+  const tempDir = await mkdtemp(join(tmpdir(), "omp-telegram-direct-owner-"));
   const markerPath = join(tempDir, "telegram-methods.log");
   const attachmentPath = join(tempDir, "demo.txt");
   await writeFile(attachmentPath, "demo", "utf8");
-  const agentDir = await createPiPrintAgentDir(
+  const agentDir = await createOmpPrintAgentDir(
     {
       botToken: "123:abc",
       allowedUserId: 77,
@@ -505,11 +499,11 @@ test("Direct Telegram tools refuse delivery from a non-owner process", async () 
     assert.equal(result.code, 0, result.stderr);
     assert.match(
       result.stdout,
-      /telegram_message:\nTelegram direct delivery requires this Pi instance to own \/telegram-connect/,
+      /telegram_message:\nTelegram direct delivery requires this OMP instance to own \/telegram-connect/,
     );
     assert.match(
       result.stdout,
-      /telegram_attach:\nTelegram direct delivery requires this Pi instance to own \/telegram-connect/,
+      /telegram_attach:\nTelegram direct delivery requires this OMP instance to own \/telegram-connect/,
     );
     await assert.rejects(() => readFile(markerPath, "utf8"), {
       code: "ENOENT",
@@ -521,18 +515,18 @@ test("Direct Telegram tools refuse delivery from a non-owner process", async () 
 });
 
 test(
-  "pi -p with Telegram extension and no active lock exits",
-  { skip: !PI_CLI_AVAILABLE },
+  "omp -p with Telegram extension and no active lock exits",
+  { skip: !OMP_CLI_AVAILABLE },
   async () => {
-    const tempDir = await mkdtemp(join(tmpdir(), "pi-telegram-pi-print-"));
-    const fixtureExtension = await createPiPrintFixtureExtension(tempDir);
-    const agentDir = await createPiPrintAgentDir({
+    const tempDir = await mkdtemp(join(tmpdir(), "omp-telegram-print-"));
+    const fixtureExtension = await createOmpPrintFixtureExtension(tempDir);
+    const agentDir = await createOmpPrintAgentDir({
       botToken: "123:abc",
       allowedUserId: 77,
       lastUpdateId: 0,
     });
     try {
-      const result = await runPiPrintWithTelegram(agentDir, fixtureExtension);
+      const result = await runOmpPrintWithTelegram(agentDir, fixtureExtension);
       assert.equal(result.code, 0, result.stderr);
       assert.equal(result.signal, null, result.stderr);
       assert.match(result.stdout, /fixture ok/);
@@ -544,27 +538,27 @@ test(
 );
 
 test(
-  "pi -p with Telegram-owned lock stays passive and does not poll",
-  { skip: !PI_CLI_AVAILABLE },
+  "omp -p with Telegram-owned lock stays passive and does not poll",
+  { skip: !OMP_CLI_AVAILABLE },
   async () => {
-    const tempDir = await mkdtemp(join(tmpdir(), "pi-telegram-pi-print-"));
-    const fixtureExtension = await createPiPrintFixtureExtension(tempDir);
+    const tempDir = await mkdtemp(join(tmpdir(), "omp-telegram-print-"));
+    const fixtureExtension = await createOmpPrintFixtureExtension(tempDir);
     const markerPath = join(tempDir, "telegram-methods.log");
-    const agentDir = await createPiPrintAgentDir({
+    const agentDir = await createOmpPrintAgentDir({
       botToken: "123:abc",
       allowedUserId: 77,
       lastUpdateId: 0,
     });
     try {
-      const result = await runPiPrintWithTelegram(agentDir, fixtureExtension, {
-        PI_TELEGRAM_TEST_CTX_MODE: "print",
+      const result = await runOmpPrintWithTelegram(agentDir, fixtureExtension, {
         PI_TELEGRAM_TEST_LOCK_MODE: "owner",
         PI_TELEGRAM_TEST_METHOD_MARKER: markerPath,
       });
       assert.equal(result.code, 0, result.stderr);
       assert.equal(result.signal, null, result.stderr);
       assert.match(result.stdout, /fixture ok/);
-      const methods = await readFile(markerPath, "utf8").catch(() => "");
+      const methods = await readFile(markerPath, "utf8");
+      assert.match(methods, /^session-mode:print$/mu);
       assert.doesNotMatch(methods, /deleteWebhook/);
       assert.doesNotMatch(methods, /getUpdates/);
     } finally {
@@ -575,19 +569,19 @@ test(
 );
 
 test(
-  "pi -p with proactive config and Telegram-owned lock exits",
-  { skip: !PI_CLI_AVAILABLE },
+  "omp -p with proactive config and Telegram-owned lock exits",
+  { skip: !OMP_CLI_AVAILABLE },
   async () => {
-    const tempDir = await mkdtemp(join(tmpdir(), "pi-telegram-pi-print-"));
-    const fixtureExtension = await createPiPrintFixtureExtension(tempDir);
-    const agentDir = await createPiPrintAgentDir({
+    const tempDir = await mkdtemp(join(tmpdir(), "omp-telegram-print-"));
+    const fixtureExtension = await createOmpPrintFixtureExtension(tempDir);
+    const agentDir = await createOmpPrintAgentDir({
       botToken: "123:abc",
       allowedUserId: 77,
       lastUpdateId: 0,
       assistant: { proactivePush: true },
     });
     try {
-      const result = await runPiPrintWithTelegram(agentDir, fixtureExtension, {
+      const result = await runOmpPrintWithTelegram(agentDir, fixtureExtension, {
         PI_TELEGRAM_TEST_LOCK_MODE: "owner",
       });
       assert.equal(result.code, 0, result.stderr);
@@ -601,13 +595,13 @@ test(
 );
 
 test(
-  "pi -p non-owner skips proactive Telegram result",
-  { skip: !PI_CLI_AVAILABLE },
+  "omp -p non-owner skips proactive Telegram result",
+  { skip: !OMP_CLI_AVAILABLE },
   async () => {
-    const tempDir = await mkdtemp(join(tmpdir(), "pi-telegram-pi-print-"));
-    const fixtureExtension = await createPiPrintFixtureExtension(tempDir);
+    const tempDir = await mkdtemp(join(tmpdir(), "omp-telegram-print-"));
+    const fixtureExtension = await createOmpPrintFixtureExtension(tempDir);
     const markerPath = join(tempDir, "send-marker.json");
-    const agentDir = await createPiPrintAgentDir(
+    const agentDir = await createOmpPrintAgentDir(
       {
         botToken: "123:abc",
         allowedUserId: 77,
@@ -622,7 +616,7 @@ test(
       },
     );
     try {
-      const result = await runPiPrintWithTelegram(agentDir, fixtureExtension, {
+      const result = await runOmpPrintWithTelegram(agentDir, fixtureExtension, {
         PI_TELEGRAM_TEST_SEND_MARKER: markerPath,
       });
       assert.equal(result.code, 0, result.stderr);
@@ -645,7 +639,7 @@ test("Extension session shutdown without active lock lets process exit", async (
     import { tmpdir } from "node:os";
     import { join } from "node:path";
 
-    const agentDir = await mkdtemp(join(tmpdir(), "pi-telegram-process-shutdown-"));
+    const agentDir = await mkdtemp(join(tmpdir(), "omp-telegram-process-shutdown-"));
     process.env.PI_CODING_AGENT_DIR = agentDir;
     await writeFile(
       join(agentDir, "telegram.json"),
@@ -693,7 +687,7 @@ test("Extension session shutdown lets an active polling owner process exit", asy
     import { tmpdir } from "node:os";
     import { join } from "node:path";
 
-    const agentDir = await mkdtemp(join(tmpdir(), "pi-telegram-process-shutdown-"));
+    const agentDir = await mkdtemp(join(tmpdir(), "omp-telegram-process-shutdown-"));
     process.env.PI_CODING_AGENT_DIR = agentDir;
     const cwd = "/repo/process-shutdown";
     await writeFile(

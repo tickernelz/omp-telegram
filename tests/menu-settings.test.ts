@@ -151,7 +151,7 @@ test("Thread display detail follows the setting-card style and marks only the cu
     assert.ok(text.startsWith(`<b>🧵 Thread display:</b> <code>${mode}</code>\n`));
     assert.deepEqual(getSettingsDescriptionOrder(text), values);
     assert.equal((text.match(/\(default\)/gu) ?? []).length, 1);
-    assert.match(text, /Choose how this bot profile labels Telegram tabs and Pi terminal status\. Each slot is unique across this bot profile\./u);
+    assert.match(text, /Choose how this bot profile labels Telegram tabs and OMP terminal status\. Each slot is unique across this bot profile\./u);
     assert.match(text, /<code>letters<\/code> \(default\):/u);
     assert.doesNotMatch(text, /manual <code>\/name Name<\/code>/u);
     for (const example of ["A", "B", "Anchor", "Briar", "extensions", "extensions_a", "extensions_c"]) {

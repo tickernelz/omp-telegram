@@ -5,6 +5,7 @@
  */
 
 import * as AgentMessages from "./agent-messages.ts";
+import * as Ask from "./ask.ts";
 import * as Bindings from "./bindings.ts";
 import * as BusApi from "./bus-api.ts";
 import * as BusFollower from "./bus-follower.ts";
@@ -74,12 +75,12 @@ export default function (pi: Pi.ExtensionAPI) {
   const {
     getActiveTools,
     getCommands,
-    getThinkingLevel,
     sendUserMessage,
     setActiveTools,
     setModel,
-    setThinkingLevel,
   } = piRuntime;
+  const { getThinkingLevel, setThinkingLevel } =
+    Model.createTelegramThinkingLevelPorts(piRuntime);
   const bridgeRuntime = Runtime.createTelegramBridgeRuntime();
   const runtimeDiagnostics =
     Logging.createTelegramRuntimeDiagnosticsRuntime<Pi.ExtensionContext>();
@@ -1620,6 +1621,14 @@ export default function (pi: Pi.ExtensionAPI) {
       }
     },
   }.reset);
+  const askRuntime = Ask.createTelegramAskRuntime({
+    getActiveTurn: activeTurnRuntime.get,
+    getDefaultTarget: proactivePushTargetGetter,
+    answerCallbackQuery,
+    recordRuntimeEvent,
+  });
+  askRuntime.register(pi);
+  Updates.registerTelegramUpdateHandler(askRuntime.resolveFromUpdate);
   Bindings.registerTelegramCommandsAndTools({
     pi,
     agentDir: Paths.resolveAgentDir(),
@@ -1801,6 +1810,13 @@ export default function (pi: Pi.ExtensionAPI) {
     sessionLifecycleRuntime: {
       ...sessionLifecycleRuntime,
       onModelSelect: currentModelRuntime.onModelSelect,
+      async onSessionShutdown(
+        event: Parameters<typeof sessionLifecycleRuntime.onSessionShutdown>[0],
+        ctx: Parameters<typeof sessionLifecycleRuntime.onSessionShutdown>[1],
+      ) {
+        askRuntime.cancelAll("Telegram session shut down");
+        await sessionLifecycleRuntime.onSessionShutdown(event, ctx);
+      },
     },
     activityRuntime,
     activityVerbosityRuntime,

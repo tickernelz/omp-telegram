@@ -316,11 +316,14 @@ test("Project source avoids empty interface-extension shells", () => {
   assert.deepEqual(emptyInterfaceExtensions, []);
 });
 
-test("Pi SDK imports stay centralized in the pi adapter", () => {
+test("OMP SDK imports stay centralized in the pi adapter", () => {
   const directSdkImportFiles = getProjectSourceFiles().filter((file) => {
     if (file === normalize(join("lib", "pi.ts"))) return false;
     const source = readFileSync(join(PROJECT_ROOT, file), "utf8");
     const piSdkPackages = [
+      "@oh-my-pi/pi-coding-agent",
+      "@oh-my-pi/pi-agent-core",
+      "@oh-my-pi/pi-ai",
       "@mariozechner/pi-coding-agent",
       "@earendil-works/pi-coding-agent",
       "@earendil-works/pi-agent-core",

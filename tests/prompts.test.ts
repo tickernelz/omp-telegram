@@ -17,7 +17,23 @@ import {
   TELEGRAM_ATTACH_PROMPT_SNIPPET,
   TELEGRAM_CONNECTED_CONTEXT_MESSAGE,
   TELEGRAM_DISCONNECTED_CONTEXT_MESSAGE,
+  TELEGRAM_MESSAGE_PROMPT_GUIDELINES,
+  TELEGRAM_MESSAGE_PROMPT_SNIPPET,
 } from "../lib/prompts.ts";
+
+const TELEGRAM_TOOL_GUIDANCE_LINES = [
+  `- telegram_attach: ${TELEGRAM_ATTACH_PROMPT_SNIPPET}`,
+  `- telegram_message: ${TELEGRAM_MESSAGE_PROMPT_SNIPPET}`,
+  ...TELEGRAM_ATTACH_PROMPT_GUIDELINES.map((line) => `- ${line}`),
+  ...TELEGRAM_MESSAGE_PROMPT_GUIDELINES.map((line) => `- ${line}`),
+];
+
+function assertToolGuidance(systemPrompt: string, present: boolean): void {
+  const lines = new Set(systemPrompt.split("\n"));
+  for (const line of TELEGRAM_TOOL_GUIDANCE_LINES) {
+    assert.equal(lines.has(line), present, line);
+  }
+}
 
 type BeforeAgentStartHookEvent = Parameters<
   ReturnType<typeof createTelegramBeforeAgentStartHook>
@@ -96,7 +112,7 @@ test("Prompt helpers preserve ordered system prompt blocks", () => {
   );
 });
 
-test("Prompt helpers keep local prompts on compact safety guidance only", () => {
+test("Prompt helpers give local prompts connected context and tool guidance", () => {
   const result = createTelegramBeforeAgentStartHook()(
     createBeforeAgentStartEvent("local hello", "base"),
   ).systemPrompt;
@@ -125,9 +141,8 @@ test("Prompt helpers keep local prompts on compact safety guidance only", () => 
     result,
     /Load a Skill only if its instructions are not already present in the current context/,
   );
+  assertToolGuidance(result, true);
   assert.doesNotMatch(result, /telegram_help/);
-  assert.doesNotMatch(result, /telegram_attach/);
-  assert.doesNotMatch(result, /telegram_message/);
   assert.doesNotMatch(result, /37 visible cells/);
   assert.doesNotMatch(result, /telegram_voice text="Short summary"/);
   assert.doesNotMatch(result, /The current user message came from Telegram/);
@@ -182,6 +197,7 @@ test("Prompt helpers add full Telegram-turn guidance for Telegram prompts", () =
     /Follow the applicable bundled Telegram Skills in routing order/,
   );
   assert.match(defaultSystemPrompt, /load only missing instructions/);
+  assertToolGuidance(defaultSystemPrompt, true);
   assert.doesNotMatch(defaultSystemPrompt, /telegram_help/);
   assert.doesNotMatch(defaultSystemPrompt, /mobile Telegram/);
   assert.doesNotMatch(defaultSystemPrompt, /\$\.\.\.\$.*\$\$\.\.\.\$\$/);
@@ -196,8 +212,6 @@ test("Prompt helpers add full Telegram-turn guidance for Telegram prompts", () =
     defaultSystemPrompt,
     /`\[voice\]` gives reply-mode policy/,
   );
-  assert.doesNotMatch(defaultSystemPrompt, /telegram_attach/);
-  assert.doesNotMatch(defaultSystemPrompt, /telegram_message/);
   assert.doesNotMatch(defaultSystemPrompt, /telegram_voice: Speak this/);
   assert.doesNotMatch(defaultSystemPrompt, /\/telegram_voice/);
   assert.doesNotMatch(defaultSystemPrompt, /state\.json/);
@@ -249,16 +263,25 @@ test("Prompt helpers skip suffix injection when Telegram transport is unavailabl
     }),
     isAvailable: () => false,
   });
-  const stalePrompt = [
-    "base",
-    `- telegram_attach: ${TELEGRAM_ATTACH_PROMPT_SNIPPET}`,
-    ...TELEGRAM_ATTACH_PROMPT_GUIDELINES.map((line) => `- ${line}`),
-  ].join("\n");
+  const stalePrompt = ["base", ...TELEGRAM_TOOL_GUIDANCE_LINES, "tail"].join(
+    "\n",
+  );
   const result = await hook(
     createBeforeAgentStartEvent("[telegram] hello", stalePrompt),
     "ctx",
   );
-  assert.deepEqual(result, { systemPrompt: "base" });
+  assert.deepEqual(result, { systemPrompt: "base\ntail" });
+
+  const injected = createTelegramBeforeAgentStartHook()(
+    createBeforeAgentStartEvent("[telegram] hello", "base"),
+  ).systemPrompt;
+  assert.ok(typeof injected === "string");
+  assertToolGuidance(injected, true);
+  const stripped = (
+    await hook(createBeforeAgentStartEvent("[telegram] hello", injected), "ctx")
+  ).systemPrompt;
+  assert.ok(typeof stripped === "string");
+  assertToolGuidance(stripped, false);
 });
 
 test("Prompt helpers strip unavailable Telegram tools from each ordered block", async () => {
@@ -370,7 +393,7 @@ test("Model-context availability defers active-tool mutation during an in-flight
   assert.deepEqual(activeTools, ["read"]);
 });
 
-test("Model-context availability preserves operator subset across Pi reload defaults", () => {
+test("Model-context availability preserves operator subset across OMP reload defaults", () => {
   let activeTools = ["read", "telegram_message"];
   const memory = { suspended: false, toolNames: new Set<string>() };
   const createRuntime = (isAvailable: () => boolean) =>

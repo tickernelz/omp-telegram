@@ -760,12 +760,12 @@ test("Direct Telegram tools require local polling lock ownership", async () => {
       }),
     {
       message:
-        /requires this Pi instance to own \/telegram-connect or be registered/,
+        /requires this OMP instance to own \/telegram-connect or be registered/,
     },
   );
   await assert.rejects(() => toolsMessageWithoutOwnership(), {
     message:
-      /requires this Pi instance to own \/telegram-connect or be registered/,
+      /requires this OMP instance to own \/telegram-connect or be registered/,
   });
 });
 

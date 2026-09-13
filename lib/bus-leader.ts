@@ -445,7 +445,7 @@ export function createTelegramBusLeaderRuntimeAssembly<TContext>(
       instanceId: deps.instanceId,
     });
     if (typeof record?.target.threadId !== "number") {
-      throw new Error("No Workspace Thread is bound to this Pi instance.");
+      throw new Error("No Workspace Thread is bound to this OMP instance.");
     }
     if (expectedTarget && (record.target.chatId !== expectedTarget.chatId ||
         record.target.threadId !== expectedTarget.threadId)) {
@@ -550,7 +550,7 @@ export function createTelegramBusLeaderRuntimeAssembly<TContext>(
       instanceId: deps.instanceId,
     });
     if (!record || typeof record.target.threadId !== "number") {
-      throw new Error("No Workspace Thread is bound to this Pi instance.");
+      throw new Error("No Workspace Thread is bound to this OMP instance.");
     }
     if (record.target.chatId !== expectedTarget.chatId ||
         record.target.threadId !== expectedTarget.threadId) {

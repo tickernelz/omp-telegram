@@ -221,7 +221,7 @@ test("Generated filesystem reference preserves bounded structural navigation", a
   }
 });
 
-test("Bridge diagnosis distinguishes Pi commands from the agent file fallback", async () => {
+test("Bridge diagnosis distinguishes OMP commands from the agent file fallback", async () => {
   const diagnosis = await readSkillReference("telegram-bridge", "diagnosis.md");
   assert.match(diagnosis, /`\/telegram-status`/u);
   assert.match(diagnosis, /`\/telegram-status --debug`/u);

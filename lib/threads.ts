@@ -3446,7 +3446,7 @@ export function getTelegramTopicName(
   const name = applyTopicNameTemplate(template, request, slot)
     .replace(/\s+/g, " ")
     .trim();
-  return (name || slot || "Pi").slice(0, 128);
+  return (name || slot || "OMP").slice(0, 128);
 }
 
 function asInteger(value: unknown): number | undefined {
@@ -4472,7 +4472,7 @@ export function getTelegramTopicTitleForThreadName(
   return getTelegramTopicName(
     {
       instanceId: "",
-      profileKey: normalizeTelegramTopicTargetThreadName(threadName) || "Pi",
+      profileKey: normalizeTelegramTopicTargetThreadName(threadName) || "OMP",
       threadName,
     },
     template,

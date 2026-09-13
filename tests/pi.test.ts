@@ -4,6 +4,7 @@
  */
 
 import assert from "node:assert/strict";
+import { join } from "node:path";
 import test from "node:test";
 
 import {
@@ -11,6 +12,7 @@ import {
   compactExtensionContext,
   createExtensionApiRuntimePorts,
   createScopedModelPatternPersister,
+  createSettingsManager,
   type ExtensionContext,
   getExtensionContextCwd,
   formatPollingStartBlockedByRunMode,
@@ -21,6 +23,15 @@ import {
   isExtensionContextPassiveRunMode,
   normalizeSettingsManager,
 } from "../lib/pi.ts";
+import {
+  installHostSdkSettingsHook,
+  readHostSettingsFlushes,
+  readHostSettingsWrites,
+  resetHostSettingsStub,
+  settings as hostSettings,
+} from "./fixtures/host-settings.ts";
+
+installHostSdkSettingsHook();
 
 type PiRuntimeApiHarness = Parameters<
   typeof createExtensionApiRuntimePorts
@@ -30,6 +41,10 @@ type PiRuntimeApiHarness = Parameters<
 
 type PiRuntimeModel = Parameters<PiRuntimeApiHarness["setModel"]>[0];
 
+type PiRuntimeThinkingLevel = NonNullable<
+  ReturnType<PiRuntimeApiHarness["getThinkingLevel"]>
+>;
+
 function createHarnessModel(id: string): PiRuntimeModel {
   return { id } as PiRuntimeModel;
 }
@@ -38,7 +53,7 @@ function getHarnessModelId(model: PiRuntimeModel): string {
   return String(Reflect.get(Object(model), "id"));
 }
 
-test("Pi context mode helpers feature-detect passive run modes", () => {
+test("OMP context mode helpers feature-detect passive run modes", () => {
   assert.equal(getExtensionContextMode({ mode: "print" }), "print");
   assert.equal(getExtensionContextMode({ mode: "bogus" }), undefined);
   assert.equal(isExtensionContextPassiveRunMode({ mode: "print" }), true);
@@ -52,11 +67,11 @@ test("Pi context mode helpers feature-detect passive run modes", () => {
   assert.equal(canStartPollingInExtensionContext({}), true);
   assert.equal(
     formatPollingStartBlockedByRunMode({ mode: "json" }),
-    "Telegram polling is unavailable in Pi json mode. Use /telegram-connect from a long-lived Pi session.",
+    "Telegram polling is unavailable in OMP json mode. Use /telegram-connect from a long-lived OMP session.",
   );
 });
 
-test("Pi API runtime ports bind methods without losing receiver context", async () => {
+test("OMP API runtime ports bind methods without losing receiver context", async () => {
   const api: PiRuntimeApiHarness = {
     events: [],
     sendUserMessage(content, options) {
@@ -74,7 +89,7 @@ test("Pi API runtime ports bind methods without losing receiver context", async 
     },
     getThinkingLevel() {
       this.events.push("get-thinking");
-      return "high";
+      return "high" as PiRuntimeThinkingLevel;
     },
     setThinkingLevel(level) {
       this.events.push(`thinking:${String(level)}`);
@@ -83,7 +98,7 @@ test("Pi API runtime ports bind methods without losing receiver context", async 
       this.events.push("get-tools");
       return ["read"];
     },
-    setActiveTools(names) {
+    async setActiveTools(names) {
       this.events.push(`set-tools:${names.join(",")}`);
     },
     async setModel(model) {
@@ -101,7 +116,7 @@ test("Pi API runtime ports bind methods without losing receiver context", async 
   });
   assert.deepEqual(runtime.getCommands(), []);
   assert.equal(runtime.getThinkingLevel(), "high");
-  runtime.setThinkingLevel("low");
+  runtime.setThinkingLevel("low" as PiRuntimeThinkingLevel);
   assert.deepEqual(runtime.getActiveTools(), ["read"]);
   runtime.setActiveTools(["read", "telegram_attach"]);
   assert.equal(await runtime.setModel(createHarnessModel("gpt-5")), true);
@@ -117,7 +132,7 @@ test("Pi API runtime ports bind methods without losing receiver context", async 
   ]);
 });
 
-test("Pi settings adapter preserves legacy and generic host capabilities", async () => {
+test("OMP settings adapter preserves legacy and generic host capabilities", async () => {
   const legacyEvents: string[] = [];
   const legacy = normalizeSettingsManager({
     reload: async () => legacyEvents.push("reload"),
@@ -156,7 +171,7 @@ test("Pi settings adapter preserves legacy and generic host capabilities", async
   ]);
 });
 
-test("Pi scoped model persister invalidates cached inputs without clearing live menus", async () => {
+test("OMP scoped model persister invalidates cached inputs without clearing live menus", async () => {
   const events: string[] = [];
   const persist = createScopedModelPatternPersister({
     createSettingsManager: async (cwd) => ({
@@ -181,7 +196,40 @@ test("Pi scoped model persister invalidates cached inputs without clearing live 
   ]);
 });
 
-test("Pi context helpers expose model, idle, pending-message, and compact adapters", () => {
+test("OMP settings manager adapts the host instance and clones it per cwd", async () => {
+  resetHostSettingsStub();
+  const ambientCwd = hostSettings.getCwd();
+  const ambient = await createSettingsManager(ambientCwd);
+  assert.equal(ambient.getEnabledModels(), undefined);
+  ambient.setEnabledModels(["openai/gpt-5"]);
+  assert.deepEqual(ambient.getEnabledModels(), ["openai/gpt-5"]);
+  ambient.setEnabledModels(undefined);
+  assert.deepEqual(ambient.getEnabledModels(), []);
+  await ambient.reload();
+  await ambient.flush();
+
+  const scoped = await createSettingsManager(join(ambientCwd, "scoped-project"));
+  scoped.setEnabledModels(["anthropic/claude-sonnet-4"]);
+  await scoped.flush();
+  assert.deepEqual(scoped.getEnabledModels(), ["anthropic/claude-sonnet-4"]);
+  assert.deepEqual(ambient.getEnabledModels(), []);
+
+  assert.deepEqual(readHostSettingsWrites(), [
+    { cwd: ambientCwd, key: "enabledModels", value: ["openai/gpt-5"] },
+    { cwd: ambientCwd, key: "enabledModels", value: [] },
+    {
+      cwd: join(ambientCwd, "scoped-project"),
+      key: "enabledModels",
+      value: ["anthropic/claude-sonnet-4"],
+    },
+  ]);
+  assert.deepEqual(readHostSettingsFlushes(), [
+    ambientCwd,
+    join(ambientCwd, "scoped-project"),
+  ]);
+});
+
+test("OMP context helpers expose model, idle, pending-message, and compact adapters", () => {
   const model = { provider: "openai", id: "gpt-5", name: "GPT-5" };
   const events: string[] = [];
   const ctx = {

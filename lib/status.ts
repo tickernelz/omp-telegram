@@ -41,7 +41,7 @@ interface TelegramContextUsage {
 export interface TelegramStatusActiveModel {
   provider?: string;
   id?: string;
-  contextWindow?: number;
+  contextWindow?: number | null;
 }
 
 export interface TelegramStatusLineProviderContext {
@@ -1359,17 +1359,7 @@ function buildTelegramBridgeCompactStatusLines(
     : state.activeSourceMessageIds?.length
       ? "active"
       : "idle";
-  const diagnosticsProfileName =
-    state.activeProfileName === TELEGRAM_STATUS_DEFAULT_PROFILE_NAME
-      ? undefined
-      : state.activeProfileName;
-  const profileSuffix = diagnosticsProfileName
-    ? `.${diagnosticsProfileName.replace(/[^a-zA-Z0-9._-]+/g, "_")}`
-    : "";
-  const diagnosticsPaths = state.diagnosticPaths ?? {
-    state: `~/.pi/agent/tmp/telegram/state${profileSuffix}.json`,
-    logs: `~/.pi/agent/tmp/telegram/logs${profileSuffix}.jsonl`,
-  };
+  const diagnosticsPaths = state.diagnosticPaths;
   return [
     "connection:",
     `- bot: ${formatTelegramBridgeBotStatus(state)}`,
@@ -1406,8 +1396,9 @@ function buildTelegramBridgeCompactStatusLines(
     ...buildTelegramThreadReconciliationLines(state),
     "",
     "diagnostics:",
-    `- state: ${diagnosticsPaths.state}`,
-    `- logs: ${diagnosticsPaths.logs}`,
+    ...(diagnosticsPaths
+      ? [`- state: ${diagnosticsPaths.state}`, `- logs: ${diagnosticsPaths.logs}`]
+      : []),
     "- full dump: /telegram-status --debug",
   ];
 }

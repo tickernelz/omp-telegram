@@ -1,34 +1,38 @@
 /**
- * pi SDK adapter boundary
- * Zones: pi agent sdk boundary, shared adapters
- * Owns direct pi SDK imports and exposes narrow bridge-facing helpers/types for the extension composition layer
+ * OMP SDK adapter boundary
+ * Zones: omp agent sdk boundary, shared adapters
+ * Owns direct OMP SDK imports and exposes narrow bridge-facing helpers/types for the extension composition layer
  */
 
-import type { AssistantMessageEvent } from "@earendil-works/pi-ai";
-import {
-  type AgentEndEvent,
-  type AgentSettledEvent,
-  type AgentStartEvent,
-  type BeforeAgentStartEvent,
-  type ExtensionAPI,
-  type ExtensionCommandContext,
-  type ExtensionContext,
-  type InputEvent,
-  type MessageEndEvent,
-  type SessionBeforeCompactEvent,
-  type SessionCompactEvent,
-  type SessionShutdownEvent,
-  type SessionStartEvent,
-  type SlashCommandInfo,
-  type UIPromptEndEvent,
-  type UIPromptStartEvent,
-  SettingsManager,
-} from "@earendil-works/pi-coding-agent";
+import { normalize as normalizeFilesystemPath } from "node:path";
+import type { AssistantMessageEvent } from "@oh-my-pi/pi-ai";
+import type {
+  AgentEndEvent,
+  AgentStartEvent,
+  AgentToolResult,
+  AgentToolUpdateCallback,
+  BeforeAgentStartEvent,
+  ExtensionAPI,
+  ExtensionCommandContext,
+  ExtensionContext,
+  InputEvent,
+  MessageEndEvent,
+  SessionBeforeCompactEvent,
+  SessionCompactEvent,
+  SessionShutdownEvent,
+  SessionStartEvent,
+  Settings,
+  SlashCommandInfo,
+  ToolApprovalRequestedEvent,
+  ToolApprovalResolvedEvent,
+  ToolDefinition,
+} from "@oh-my-pi/pi-coding-agent";
 
 export type {
   AgentEndEvent,
-  AgentSettledEvent,
   AgentStartEvent,
+  AgentToolResult,
+  AgentToolUpdateCallback,
   AssistantMessageEvent,
   BeforeAgentStartEvent,
   ExtensionAPI,
@@ -41,9 +45,29 @@ export type {
   SessionShutdownEvent,
   SessionStartEvent,
   SlashCommandInfo,
-  UIPromptEndEvent,
-  UIPromptStartEvent,
+  ToolApprovalRequestedEvent,
+  ToolApprovalResolvedEvent,
+  ToolDefinition,
 };
+
+export type AgentSettledEvent = AgentEndEvent;
+
+export type UIPromptKind =
+  | "select"
+  | "confirm"
+  | "input"
+  | "editor"
+  | "custom";
+
+export interface UIPromptStartEvent {
+  type: "ui_prompt_start";
+  kind: UIPromptKind;
+  title?: string;
+}
+
+export interface UIPromptEndEvent {
+  type: "ui_prompt_end";
+}
 
 export interface SessionCompactFailedEvent {
   type: "session_compact_failed";
@@ -113,8 +137,8 @@ export function canStartPollingInExtensionContext(ctx: unknown): boolean {
 export function formatPollingStartBlockedByRunMode(ctx: unknown): string {
   const mode = getExtensionContextMode(ctx);
   return mode
-    ? `Telegram polling is unavailable in Pi ${mode} mode. Use /telegram-connect from a long-lived Pi session.`
-    : "Telegram polling is unavailable in this Pi run mode.";
+    ? `Telegram polling is unavailable in OMP ${mode} mode. Use /telegram-connect from a long-lived OMP session.`
+    : "Telegram polling is unavailable in this OMP run mode.";
 }
 
 export function getSessionCompactionReason(
@@ -165,10 +189,6 @@ export function createExtensionApiRuntimePorts(
     setModel: (model) => api.setModel(model),
   };
 }
-
-type PiSettingsManagerFactory = {
-  create: (cwd: string) => unknown | PromiseLike<unknown>;
-};
 
 type HostSettingsManager = {
   reload?: () => void | PromiseLike<void>;
@@ -224,14 +244,34 @@ export function normalizeSettingsManager(manager: unknown): PiSettingsManager {
   };
 }
 
+/** Loaded on demand so importing this boundary never pulls the host SDK into the module graph. */
+async function resolveSettingsForCwd(cwd: string): Promise<Settings> {
+  const { settings } = await import("@oh-my-pi/pi-coding-agent");
+  const scoped = normalizeFilesystemPath(cwd);
+  return normalizeFilesystemPath(settings.getCwd()) === scoped
+    ? settings
+    : await settings.cloneForCwd(scoped);
+}
+
+function createHostSettingsAdapter(instance: Settings): HostSettingsManager {
+  return {
+    reload: () => instance.reloadFromDisk(),
+    flush: () => instance.flush(),
+    getEnabledModels: () =>
+      instance.isConfigured("enabledModels")
+        ? instance.get("enabledModels")
+        : undefined,
+    setEnabledModels: (patterns) =>
+      instance.set("enabledModels", patterns ?? []),
+  };
+}
+
 export async function createSettingsManager(
   cwd: string,
 ): Promise<PiSettingsManager> {
-  // Pi returns its legacy settings surface synchronously. Compatible hosts may
-  // resolve a generic settings service asynchronously; normalize both once at
-  // the SDK boundary instead of leaking host distinctions into menu domains.
-  const factory = SettingsManager as unknown as PiSettingsManagerFactory;
-  return normalizeSettingsManager(await factory.create(cwd));
+  return normalizeSettingsManager(
+    createHostSettingsAdapter(await resolveSettingsForCwd(cwd)),
+  );
 }
 
 export function createScopedModelPatternPersister(deps: {

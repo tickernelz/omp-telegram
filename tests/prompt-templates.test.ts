@@ -26,12 +26,7 @@ function createCommand(
     name,
     description,
     source,
-    sourceInfo: {
-      path: `/prompts/${name}.md`,
-      source: "local",
-      scope: "project",
-      origin: "top-level",
-    },
+    path: `/prompts/${name}.md`,
   };
 }
 

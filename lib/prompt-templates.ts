@@ -116,7 +116,7 @@ export function getTelegramPromptTemplateCommands(
     if (!telegramCommand) continue;
     if (reservedNames.has(telegramCommand)) continue;
     if (seen.has(telegramCommand)) continue;
-    const sourcePath = command.sourceInfo?.path;
+    const sourcePath = command.path;
     if (!sourcePath) continue;
     seen.add(telegramCommand);
     promptCommands.push({

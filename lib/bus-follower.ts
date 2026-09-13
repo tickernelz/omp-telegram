@@ -1945,7 +1945,7 @@ export function createTelegramBusFollowerRegistrationRuntime<
         )
       ) {
         throw new Error(
-          "The active Telegram leader does not support Workspace Thread rename. Update or restart that Pi instance.",
+          "The active Telegram leader does not support Workspace Thread rename. Update or restart that OMP instance.",
         );
       }
       const expectedLeaderSocketPath = activeLeaderSocketPath;
@@ -2014,7 +2014,7 @@ export function createTelegramBusFollowerRegistrationRuntime<
         TELEGRAM_BUS_CAPABILITY_WORKSPACE_THREAD_RENAME,
       )) {
         throw new Error(
-          "The active Telegram leader does not support Workspace Thread reset. Update or restart that Pi instance.",
+          "The active Telegram leader does not support Workspace Thread reset. Update or restart that OMP instance.",
         );
       }
       const expectedLeaderSocketPath = activeLeaderSocketPath;

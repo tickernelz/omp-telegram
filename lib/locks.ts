@@ -356,7 +356,7 @@ function isAbandonedLockTransaction(path: string): boolean {
 const TELEGRAM_TRANSACTION_RECLAIM_PATTERN =
   /^owner\.reclaim\.(\d+)\.([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.json$/u;
 const TELEGRAM_ACTIVE_TRANSACTION_RECLAIMS = Symbol.for(
-  "@llblab/pi-telegram/active-transaction-reclaims",
+  "omp-telegram/active-transaction-reclaims",
 );
 
 type TelegramTransactionGlobal = typeof globalThis & {
@@ -1302,7 +1302,7 @@ export function createTelegramLockedPollingRuntime<
     deps.canStartPolling?.(ctx) ?? true;
   const formatStartBlockedMessage = (ctx: TContext): string =>
     deps.formatStartBlockedMessage?.(ctx) ??
-    "Telegram polling is unavailable in this Pi run mode.";
+    "Telegram polling is unavailable in this OMP run mode.";
   return {
     start: async (ctx, options = {}) => {
       if (!deps.hasBotToken()) {
@@ -1381,7 +1381,7 @@ export function createTelegramLockedPollingRuntime<
               ok: false,
               canTakeover: false,
               owner,
-              message: `Telegram bridge is active in another Pi instance (${owner}); follower registration failed: ${formatTelegramFollowerRegistrationFailure(failureMessage)}.`,
+              message: `Telegram bridge is active in another OMP instance (${owner}); follower registration failed: ${formatTelegramFollowerRegistrationFailure(failureMessage)}.`,
             };
           }
         }
@@ -1390,7 +1390,7 @@ export function createTelegramLockedPollingRuntime<
           ok: false,
           canTakeover: true,
           owner,
-          message: `Telegram bridge is active in another Pi instance (${owner}).`,
+          message: `Telegram bridge is active in another OMP instance (${owner}).`,
         };
       }
       takeoverCandidate = undefined;
@@ -1413,7 +1413,7 @@ export function createTelegramLockedPollingRuntime<
       const state = deps.lock.release();
       deps.onTransportAvailabilityChanged?.();
       if (state.kind === "active-elsewhere") {
-        return `Telegram bridge is active in another Pi instance (${formatTelegramLockEntry(state.lock)}).`;
+        return `Telegram bridge is active in another OMP instance (${formatTelegramLockEntry(state.lock)}).`;
       }
       if (state.kind === "stale") {
         return `Removed stale Telegram bridge lock (${formatTelegramLockEntry(state.lock)}).`;
@@ -1447,7 +1447,7 @@ export function createTelegramLockedPollingRuntime<
         .finally(() => {
           ownershipStop = undefined;
           deps.recordRuntimeEvent?.("polling", ownership === "lost"
-            ? "Telegram transport stopped: local ownership lost; check for another Pi instance."
+            ? "Telegram transport stopped: local ownership lost; check for another OMP instance."
             : "Telegram transport stopped: competing getUpdates client or ownership mismatch.", {
             phase: "persistent-conflict", count, ownership,
             ...(cleanupErrors.length ? { cleanupErrors } : {}),

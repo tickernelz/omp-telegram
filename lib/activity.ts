@@ -415,7 +415,7 @@ export function createTelegramActivityBridgeRuntime(deps: {
         observeEvent: deps.observeEvent,
         recordObserverFailure: deps.recordFailure
           ? (event, error) =>
-              deps.recordFailure!("@llblab/pi-telegram/proactive", event, error)
+              deps.recordFailure!("omp-telegram/proactive", event, error)
           : undefined,
         now: deps.now,
       });

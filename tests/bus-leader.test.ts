@@ -2153,7 +2153,7 @@ test("Display-mode follower creation and stale replacement acknowledge the initi
         } });
         assert.equal(response?.kind, "bus.ack");
         if (response?.kind !== "bus.ack") throw new Error("missing ACK");
-        assert.equal(response.ok, true, response.message);
+        assert.equal(response.ok, true, response.message ?? "bus ack reported failure");
         const expected = mode === "letters" ? "A" : mode === "names" ? "Anchor"
           : replacing ? "extensions_a" : "extensions";
         assert.equal((response.result as { displayTitle?: string }).displayTitle, expected);

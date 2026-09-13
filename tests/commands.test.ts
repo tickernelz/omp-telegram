@@ -162,11 +162,11 @@ test("Command helpers expose Telegram bot command definitions", () => {
     },
     {
       command: "abort",
-      description: "⏹️ Abort Pi",
+      description: "⏹️ Abort OMP",
     },
     {
       command: "stop",
-      description: "🟥 Abort Pi & Clear queue",
+      description: "🟥 Abort OMP & Clear queue",
     },
   ];
   assert.deepEqual(TELEGRAM_BOT_COMMANDS, expectedBuiltins);
@@ -599,7 +599,7 @@ test("Command helpers keep failed disconnects actionable and retryable", async (
     /deletion was not confirmed/,
   );
   assert.equal(statusUpdates, 1);
-  assert.match(notifications[0] ?? "", /Keep this Pi session open/);
+  assert.match(notifications[0] ?? "", /Keep this OMP session open/);
   assert.match(notifications[0] ?? "", /telegram-status --debug/);
   assert.match(notifications[0] ?? "", /retry \/telegram-disconnect/);
 });
@@ -747,7 +747,7 @@ test("Connect converts a failed post-recovery retry into one restart instruction
   assert.equal(starts, 2);
   assert.equal(recoveries, 1);
   assert.equal(notifications.length, 1);
-  assert.match(notifications[0] ?? "", /Restart this Pi instance/);
+  assert.match(notifications[0] ?? "", /Restart this OMP instance/);
 });
 
 test("Connect preserves unrelated startup errors outside the recovery classifier", async () => {
@@ -1415,7 +1415,7 @@ test("Command helpers guard and complete compact command flow", async () => {
   });
   complete?.();
   assert.deepEqual(events, [
-    "reply:<b>⏳ Cannot compact while Pi or the Telegram queue is busy. Wait for queued turns to finish or send /abort first.</b>",
+    "reply:<b>⏳ Cannot compact while OMP or the Telegram queue is busy. Wait for queued turns to finish or send /abort first.</b>",
     "set:true",
     "status",
     "typing:start",

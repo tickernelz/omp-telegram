@@ -32,17 +32,17 @@ test("Public package subpaths expose the stable extension API", async () => {
     voice,
     keyboard,
   ] = await Promise.all([
-    import("@llblab/pi-telegram"),
-    import("@llblab/pi-telegram/inbound"),
-    import("@llblab/pi-telegram/outbound"),
-    import("@llblab/pi-telegram/delivery"),
-    import("@llblab/pi-telegram/activity"),
-    import("@llblab/pi-telegram/updates"),
-    import("@llblab/pi-telegram/commands"),
-    import("@llblab/pi-telegram/sections"),
-    import("@llblab/pi-telegram/status"),
-    import("@llblab/pi-telegram/voice"),
-    import("@llblab/pi-telegram/keyboard"),
+    import("omp-telegram"),
+    import("omp-telegram/inbound"),
+    import("omp-telegram/outbound"),
+    import("omp-telegram/delivery"),
+    import("omp-telegram/activity"),
+    import("omp-telegram/updates"),
+    import("omp-telegram/commands"),
+    import("omp-telegram/sections"),
+    import("omp-telegram/status"),
+    import("omp-telegram/voice"),
+    import("omp-telegram/keyboard"),
   ]);
 
   assert.deepEqual(Object.keys(root), ["default"]);
@@ -90,26 +90,30 @@ test("Public package subpaths expose the stable extension API", async () => {
   assert.deepEqual(Object.keys(keyboard), []);
 });
 
-test("Activity API declares the Pi lifecycle compatibility floor", async () => {
+test("Activity API declares the OMP lifecycle compatibility floor", async () => {
   const packageJson = JSON.parse(
     await readFile(new URL("../package.json", import.meta.url), "utf8"),
   ) as { peerDependencies?: Record<string, string> };
   assert.equal(
+    packageJson.peerDependencies?.["@oh-my-pi/pi-coding-agent"],
+    ">=17.4.2",
+  );
+  assert.equal(
+    packageJson.peerDependencies?.["@oh-my-pi/pi-agent-core"],
+    ">=17.4.2",
+  );
+  assert.equal(
+    packageJson.peerDependencies?.["@oh-my-pi/pi-ai"],
+    ">=17.4.2",
+  );
+  assert.equal(
     packageJson.peerDependencies?.["@earendil-works/pi-coding-agent"],
-    ">=0.84.4",
-  );
-  assert.equal(
-    packageJson.peerDependencies?.["@earendil-works/pi-agent-core"],
-    ">=0.84.4",
-  );
-  assert.equal(
-    packageJson.peerDependencies?.["@earendil-works/pi-ai"],
-    ">=0.84.4",
+    undefined,
   );
 });
 
 test("Package-private lib implementation paths are not exported", async () => {
-  await assertPackagePathNotExported("@llblab/pi-telegram/lib/updates.ts");
-  await assertPackagePathNotExported("@llblab/pi-telegram/lib/sections.ts");
-  await assertPackagePathNotExported("@llblab/pi-telegram/api/updates.ts");
+  await assertPackagePathNotExported("omp-telegram/lib/updates.ts");
+  await assertPackagePathNotExported("omp-telegram/lib/sections.ts");
+  await assertPackagePathNotExported("omp-telegram/api/updates.ts");
 });

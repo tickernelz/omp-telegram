@@ -45,6 +45,9 @@ import {
   type TelegramApiClient,
   type TelegramBridgeApiRuntime,
 } from "../lib/telegram-api.ts";
+import { installHostSdkSettingsHook } from "./fixtures/host-settings.ts";
+
+installHostSdkSettingsHook();
 
 type RuntimeTestHandler = (context: TestContext) => void | Promise<void>;
 type RuntimeTelegramExtension = (typeof import("../index.ts"))["default"];
@@ -1123,10 +1126,13 @@ test("v0.27.12 artifacts and graceful tab cleanup preserve same-directory auto-c
     const deleteCall = methods.find(
       (entry) => entry.method === "deleteForumTopic",
     );
-    assert.deepEqual(deleteCall?.body, {
+    if (!deleteCall) {
+      assert.fail(await getRuntimeIntegrationDiagnostics(methods));
+    }
+    assert.deepEqual(deleteCall.body, {
       chat_id: 77,
       message_thread_id: 42,
-    }, deleteCall ? undefined : await getRuntimeIntegrationDiagnostics(methods));
+    });
   } finally {
     restoreFetch();
     await telegramConfig.restore();
@@ -3140,7 +3146,7 @@ test("Extension startup preserves queued authority owned by another process", as
   }
 });
 
-test("Extension runtime coalesces a cross-batch forward comment into one Pi turn", async () => {
+test("Extension runtime coalesces a cross-batch forward comment into one OMP turn", async () => {
   const telegramConfig = await createRuntimeTelegramConfigFixture();
   const sentMessages: RuntimeHarnessMessage[] = [];
   let resolveDispatch!: (value: RuntimeHarnessMessage) => void;
@@ -3657,11 +3663,12 @@ test("Extension runtime ignores the retired proactive opt-out while Telegram is 
       cwd: "/repo/proactive-disabled-owner",
     });
     await handlers.get("session_start")?.({}, ctx);
-    assert.deepEqual(getActiveTools(), ["read", "foreign_tool"]);
+    assert.deepEqual(getActiveTools(), ["read", "foreign_tool", "ask"]);
     await commands.get("telegram-connect")?.handler("", ctx);
     assert.deepEqual(getActiveTools(), [
       "read",
       "foreign_tool",
+      "ask",
       "telegram_attach",
       "telegram_bind",
       "telegram_channel_post",
@@ -3715,7 +3722,7 @@ test("Extension runtime ignores the retired proactive opt-out while Telegram is 
       ctx,
     );
     await commands.get("telegram-disconnect")?.handler("", ctx);
-    assert.deepEqual(getActiveTools(), ["read", "foreign_tool"]);
+    assert.deepEqual(getActiveTools(), ["read", "foreign_tool", "ask"]);
     assert.deepEqual(
       await handlers.get("before_agent_start")?.(
         { prompt: "local after disconnect", systemPrompt: "base" },
@@ -4730,7 +4737,7 @@ test("Extension runtime handles immediate status before queued prompt after agen
     );
     await waitForCondition(() => runtimeEvents.length >= 3);
     assert.equal(runtimeEvents[0], "dispatch:[telegram] first request");
-    assert.match(runtimeEvents[1] ?? "", /^send:<b>Pi Telegram<\/b>/);
+    assert.match(runtimeEvents[1] ?? "", /^send:<b>OMP Telegram<\/b>/);
     assert.equal(
       runtimeEvents[2],
       "dispatch:[telegram] follow up after status",
@@ -5219,18 +5226,52 @@ test(`Extension runtime delivers the final answer before observed auto-compactio
       { signal: new AbortController().signal },
       ctx,
     );
-    await handlers.get("session_compact_failed")?.(
+    const autoCompactionBaseline = runtimeEvents.length;
+    await handlers.get("auto_compaction_start")?.(
+      { type: "auto_compaction_start", reason: "threshold", action: "context-full" },
+      ctx,
+    );
+    await handlers.get("auto_compaction_end")?.(
       {
-        reason: "threshold",
+        type: "auto_compaction_end",
+        action: "context-full",
+        result: { summary: "compacted" },
+        aborted: true,
+        willRetry: false,
+      },
+      ctx,
+    );
+    await handlers.get("auto_compaction_end")?.(
+      {
+        type: "auto_compaction_end",
+        action: "context-full",
+        result: undefined,
+        aborted: true,
+        willRetry: false,
+        skipped: true,
+      },
+      ctx,
+    );
+    await flushMicrotasks(20);
+    await handlers.get("auto_compaction_end")?.(
+      {
+        type: "auto_compaction_end",
+        action: "context-full",
+        result: undefined,
         aborted: false,
         willRetry: false,
-        fromExtension: false,
         errorMessage: "Auto-compaction failed: boom",
       },
       ctx,
     );
     await waitForCondition(() =>
       runtimeEvents.includes("send:**⚠️ Compaction failed.**"),
+    );
+    assert.deepEqual(
+      runtimeEvents
+        .slice(autoCompactionBaseline)
+        .filter((event) => event.startsWith("send:**⚠️")),
+      ["send:**⚠️ Compaction failed.**"],
     );
     assert.equal(
       runtimeEvents.lastIndexOf("send:**🗜 Compaction started.**") <
@@ -5825,7 +5866,7 @@ test("Extension runtime applies idle model picks immediately and refreshes statu
     assert.equal(
       runtimeEvents.some(
         (event) =>
-          event.startsWith("edit:<b>Pi Telegram</b>") ||
+          event.startsWith("edit:<b>OMP Telegram</b>") ||
           event.startsWith("edit:<b>🤖 Choose a model:</b>"),
       ),
       true,

@@ -14,6 +14,7 @@ import {
   openTelegramThinkingMenu,
   updateTelegramThinkingMenuMessage,
 } from "../lib/menu-thinking.ts";
+import { THINKING_LEVELS } from "../lib/model.ts";
 
 const reasoningModel = {
   provider: "openai",
@@ -27,19 +28,28 @@ test("Thinking menu text and reply markup expose all levels with current marker"
   const markup = buildThinkingMenuReplyMarkup("medium");
   assert.equal(markup.inline_keyboard[0]?.[0]?.text, "⬆️ Main menu");
   assert.equal(markup.inline_keyboard[0]?.[0]?.callback_data, "menu:back");
-  assert.deepEqual(markup.inline_keyboard.slice(1), [
-    [{ text: "off", callback_data: "thinking:set:off" }],
-    [
-      { text: "minimal", callback_data: "thinking:set:minimal" },
-      { text: "low", callback_data: "thinking:set:low" },
-      { text: "🟢 medium", callback_data: "thinking:set:medium" },
-    ],
-    [
-      { text: "high", callback_data: "thinking:set:high" },
-      { text: "xhigh", callback_data: "thinking:set:xhigh" },
-      { text: "max", callback_data: "thinking:set:max" },
-    ],
-  ]);
+
+  const levelButtons = markup.inline_keyboard.slice(1).flat();
+  assert.deepEqual(
+    levelButtons.map((button) => button.callback_data),
+    THINKING_LEVELS.map((level) => `thinking:set:${level}`),
+  );
+  assert.deepEqual(
+    levelButtons.map((button) => button.text),
+    THINKING_LEVELS.map((level) =>
+      level === "medium" ? `🟢 ${level}` : level,
+    ),
+  );
+
+  for (const current of THINKING_LEVELS) {
+    const marked = buildThinkingMenuReplyMarkup(current)
+      .inline_keyboard.slice(1)
+      .flat()
+      .filter((button) => button.text.startsWith("🟢 "));
+    assert.deepEqual(marked.map((button) => button.callback_data), [
+      `thinking:set:${current}`,
+    ]);
+  }
 });
 
 test("Thinking callback sets valid levels and reports current level", async () => {

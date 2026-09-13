@@ -12,11 +12,11 @@ export const TELEGRAM_CONNECTED_CONTEXT_MESSAGE =
 export const TELEGRAM_DISCONNECTED_CONTEXT_MESSAGE =
   "Telegram session disconnected. Do not use Telegram delivery, actions, or Telegram-specific reply features unless the user reconnects it.";
 
-const LOCAL_SYSTEM_PROMPT_SUFFIX = `
+const LOCAL_SYSTEM_PROMPT_INTRO = `
 
 ${TELEGRAM_CONNECTED_CONTEXT_MESSAGE} For Telegram work, consult bundled Skills in routing order: \`telegram-bridge\` for the transport and turn protocol, \`show-me\` when a user needs a truthful visual explanation of work or behavior, \`generated-control-surface\` when contextual controls materially shorten feedback, then \`generative-apps\` when the interaction warrants a reusable deterministic app. Load a Skill only if its instructions are not already present in the current context. Do not use Telegram-specific features from unrelated local/TUI prompts.`;
 
-const TELEGRAM_TURN_SYSTEM_PROMPT_SUFFIX = `
+const TELEGRAM_TURN_SYSTEM_PROMPT_INTRO = `
 
 Telegram turn note: Follow the applicable bundled Telegram Skills in routing order; load only missing instructions.`;
 
@@ -28,14 +28,14 @@ export const TELEGRAM_ATTACH_PROMPT_GUIDELINES = [
   "For an explicit thread target, provide chat_id plus thread_id; registered multi-instance followers default to their assigned thread target.",
 ] as const;
 export const TELEGRAM_MESSAGE_PROMPT_SNIPPET =
-  "Send direct Telegram Markdown text when the user explicitly asks for Telegram delivery to a concrete chat, channel, or live Pi Thread outside the normal reply flow.";
+  "Send direct Telegram Markdown text when the user explicitly asks for Telegram delivery to a concrete chat, channel, or live OMP Thread outside the normal reply flow.";
 export const TELEGRAM_MESSAGE_PROMPT_GUIDELINES = [
   "Use telegram_message only when the user explicitly asks to send a message to Telegram from the local/TUI side, or names a concrete Telegram delivery target.",
   "For an explicitly requested channel post, pass its exact numeric id or public @username as chat_id; no local channel registry is required, and Telegram remains the authority on the bot's posting permission.",
   "For an explicitly requested channel media post, pass one local .jpg/.jpeg/.png/.webp photo or .mp4 video as media; the text becomes its caption (max 1024 characters), and albums or other media types are rejected.",
-  "For a live Pi thread target, provide thread as its case-insensitive name or numeric id; the bridge sends visibly and admits one attributed turn to that live instance. Unknown, ambiguous, same, or offline targets fail before sending.",
+  "For a live OMP thread target, provide thread as its case-insensitive name or numeric id; the bridge sends visibly and admits one attributed turn to that live instance. Unknown, ambiguous, same, or offline targets fail before sending.",
   "Add buttons by embedding the same top-level telegram_button HTML comments used in normal Telegram replies; Telegram does not support standalone buttons.",
-  "During an active Telegram turn, omit telegram_message for the current target and answer normally; use thread only when the user requests delivery to a different live Pi thread.",
+  "During an active Telegram turn, omit telegram_message for the current target and answer normally; use thread only when the user requests delivery to a different live OMP thread.",
 ] as const;
 
 const TELEGRAM_TOOL_METADATA_LINES = Object.fromEntries(
@@ -47,6 +47,18 @@ const TELEGRAM_TOOL_METADATA_LINES = Object.fromEntries(
   ].map((line) => [line, true]),
 ) as Record<string, true>;
 
+const TELEGRAM_TOOL_GUIDANCE_BLOCK = Object.keys(
+  TELEGRAM_TOOL_METADATA_LINES,
+).join("\n");
+
+const LOCAL_SYSTEM_PROMPT_SUFFIX = `${LOCAL_SYSTEM_PROMPT_INTRO}
+
+${TELEGRAM_TOOL_GUIDANCE_BLOCK}`;
+
+const TELEGRAM_TURN_SYSTEM_PROMPT_SUFFIX = `${TELEGRAM_TURN_SYSTEM_PROMPT_INTRO}
+
+${TELEGRAM_TOOL_GUIDANCE_BLOCK}`;
+
 const TELEGRAM_MODEL_CONTEXT_TOOL_NAMES = new Set([
   "telegram_attach",
   "telegram_bind",
@@ -55,7 +67,7 @@ const TELEGRAM_MODEL_CONTEXT_TOOL_NAMES = new Set([
   "telegram_message",
 ]);
 const TELEGRAM_MODEL_CONTEXT_MEMORY_KEY = Symbol.for(
-  "@llblab/pi-telegram:model-context-suspended-tools",
+  "omp-telegram:model-context-suspended-tools",
 );
 
 export interface TelegramModelContextAvailabilityMemory {

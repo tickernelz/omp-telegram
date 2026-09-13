@@ -74,7 +74,7 @@ test("Delivery API fails softly while no runtime is bound", async () => {
   assert.deepEqual(result, {
     ok: false,
     reason: "runtime-unavailable",
-    message: "Telegram delivery runtime is unavailable in this Pi session.",
+    message: "Telegram delivery runtime is unavailable in this OMP session.",
   });
 });
 

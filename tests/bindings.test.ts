@@ -1132,7 +1132,7 @@ test("Named setup preserves a display preference changed while the token form wa
   }
 });
 
-test("Lifecycle binding disconnects only graceful quit and preserves cleanup after failure", async () => {
+test("Lifecycle binding disconnects on every shutdown and preserves cleanup after failure", async () => {
   const events: string[] = [];
   let disconnectFails = false;
   let automaticCleanupEnabled = true;
@@ -1252,27 +1252,14 @@ test("Lifecycle binding disconnects only graceful quit and preserves cleanup aft
     harness.handlers,
     "session_shutdown",
   );
-  await shutdown(
-    { type: "session_shutdown", reason: "reload" },
-    {} as ExtensionContext,
-  );
-  await shutdown(
-    { type: "session_shutdown", reason: "quit" },
-    {} as ExtensionContext,
-  );
+  await shutdown({ type: "session_shutdown" }, {} as ExtensionContext);
   disconnectFails = true;
-  await shutdown(
-    { type: "session_shutdown", reason: "quit" },
-    {} as ExtensionContext,
-  );
+  await shutdown({ type: "session_shutdown" }, {} as ExtensionContext);
+  disconnectFails = false;
   automaticCleanupEnabled = false;
-  await shutdown(
-    { type: "session_shutdown", reason: "quit" },
-    {} as ExtensionContext,
-  );
+  await shutdown({ type: "session_shutdown" }, {} as ExtensionContext);
 
   assert.deepEqual(events, [
-    "composed-shutdown",
     "disconnect-on-quit",
     "composed-shutdown",
     "disconnect-on-quit",
@@ -1402,14 +1389,17 @@ test("Lifecycle binding routes native typing, previews, and normalized activity"
     { abort: () => undefined } as ExtensionContext,
   );
   activeTurn = true;
-  await getRequiredBindingHandler(harness.handlers, "ui_prompt_start")(
-    { kind: "confirm", title: "Approve?" },
+  await getRequiredBindingHandler(
+    harness.handlers,
+    "tool_approval_requested",
+  )(
+    { type: "tool_approval_requested", toolName: "bash" },
     {} as ExtensionContext,
   );
-  await getRequiredBindingHandler(harness.handlers, "ui_prompt_end")(
-    {},
-    {} as ExtensionContext,
-  );
+  await getRequiredBindingHandler(
+    harness.handlers,
+    "tool_approval_resolved",
+  )({ type: "tool_approval_resolved" }, {} as ExtensionContext);
   await getRequiredBindingHandler(harness.handlers, "message_start")(
     { message: {} },
     {} as ExtensionContext,
@@ -1451,14 +1441,17 @@ test("Lifecycle binding routes native typing, previews, and normalized activity"
     { type: "session_before_compact" },
     {} as ExtensionContext,
   );
-  await getRequiredBindingHandler(harness.handlers, "ui_prompt_start")(
-    { kind: "confirm", title: "Approve compaction?" },
+  await getRequiredBindingHandler(
+    harness.handlers,
+    "tool_approval_requested",
+  )(
+    { type: "tool_approval_requested", toolName: "edit" },
     {} as ExtensionContext,
   );
-  await getRequiredBindingHandler(harness.handlers, "ui_prompt_end")(
-    {},
-    {} as ExtensionContext,
-  );
+  await getRequiredBindingHandler(
+    harness.handlers,
+    "tool_approval_resolved",
+  )({ type: "tool_approval_resolved" }, {} as ExtensionContext);
   await getRequiredBindingHandler(harness.handlers, "session_compact")(
     { type: "session_compact" },
     {} as ExtensionContext,
@@ -1468,7 +1461,7 @@ test("Lifecycle binding routes native typing, previews, and normalized activity"
   const expected = [
     "activity:agent-start:none",
     "typing:42:8",
-    "activity:ui-start:confirm:Approve?",
+    "activity:ui-start:confirm:bash",
     "activity:ui-end",
     "typing:42:9",
     "typing:42:9",
@@ -1485,10 +1478,11 @@ test("Lifecycle binding routes native typing, previews, and normalized activity"
     "activity:compact-end:unknown",
     "send:**✅ Compaction completed.**",
     "activity:agent-end",
+    "activity:agent-settled",
     "activity:compact-start:unknown",
     "typing:42:8",
     "send:**🗜 Compaction started.**",
-    "activity:ui-start:confirm:Approve compaction?",
+    "activity:ui-start:confirm:edit",
     "activity:ui-end",
     "typing:42:8",
     "activity:compact-end:unknown",

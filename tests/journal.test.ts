@@ -2248,7 +2248,7 @@ test("Input custody offer reserves dead-donor recovery through complete cleanup 
   });
 });
 
-test("Input custody atomically replaces exact running claims with one grouped Pi queue receipt", async context => {
+test("Input custody atomically replaces exact running claims with one grouped OMP queue receipt", async context => {
   await withInputCustodyFixture(context, async ({ options, setOwner, ledger }) => {
     const store = createTelegramInputJournalStore(options);
     store.appendBatch([{ update_id: 1, message: { text: "one" } },

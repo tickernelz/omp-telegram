@@ -1,6 +1,6 @@
 /**
  * Regression tests for Telegram lifecycle hook helpers
- * Covers pi lifecycle hook registration and hook composition ordering
+ * Covers host lifecycle hook registration and hook composition ordering
  */
 
 import assert from "node:assert/strict";
@@ -13,6 +13,7 @@ import {
   createTelegramSessionGenerationFence,
   createTelegramMessageActivityTypingHooks,
   registerTelegramLifecycleHooks,
+  type TelegramLifecycleRegistrationDeps,
 } from "../lib/lifecycle.ts";
 import type { ExtensionAPI, ExtensionContext } from "../lib/pi.ts";
 import {
@@ -46,6 +47,73 @@ function getRequiredLifecycleHandler(
 
 function createLifecycleContext(): ExtensionContext {
   return {} as ExtensionContext;
+}
+
+function createRecordingLifecycleDeps(
+  events: string[],
+  overrides: Partial<TelegramLifecycleRegistrationDeps> = {},
+): TelegramLifecycleRegistrationDeps {
+  return {
+    onInput: () => {
+      events.push("input");
+    },
+    onSessionStart: async () => {
+      events.push("session-start");
+    },
+    onSessionShutdown: async () => {
+      events.push("session-shutdown");
+    },
+    onSessionBeforeCompact: () => {
+      events.push("session-before-compact");
+    },
+    onSessionCompact: () => {
+      events.push("session-compact");
+    },
+    onSessionCompactFailed: () => {
+      events.push("session-compact-failed");
+    },
+    onBeforeAgentStart: (event) => {
+      events.push("before-agent-start");
+      return { systemPrompt: event.systemPrompt };
+    },
+    onModelSelect: () => {
+      events.push("model-select");
+    },
+    onAgentStart: async () => {
+      events.push("agent-start");
+    },
+    onToolExecutionStart: () => {
+      events.push("tool-start");
+    },
+    onToolExecutionUpdate: () => {
+      events.push("tool-update");
+    },
+    onToolExecutionEnd: () => {
+      events.push("tool-end");
+    },
+    onMessageStart: async () => {
+      events.push("message-start");
+    },
+    onMessageUpdate: async () => {
+      events.push("message-update");
+    },
+    onMessageEnd: () => {
+      events.push("message-end");
+    },
+    onUiPromptStart: () => {
+      events.push("ui-prompt-start");
+    },
+    onUiPromptEnd: () => {
+      events.push("ui-prompt-end");
+    },
+    onAgentEnd: async () => {
+      events.push("agent-end");
+    },
+    onAgentSettled: () => {
+      events.push("agent-settled");
+    },
+    ...overrides,
+  };
 }
 
 test("Session generation fence ignores delayed shutdown from a replaced context", async () => {
@@ -541,63 +609,24 @@ test("Message activity hooks preserve typing after transient preview errors", as
   ]);
 });
 
-test("Lifecycle helpers register pi hooks and delegate to handlers", async () => {
+test("Lifecycle helpers register only the host events OMP emits", async () => {
   const harness = createLifecycleApiHarness();
   const events: string[] = [];
-  registerTelegramLifecycleHooks(harness.api, {
-    onSessionStart: async () => {
-      events.push("session-start");
-    },
-    onSessionShutdown: async () => {
-      events.push("session-shutdown");
-    },
-    onSessionBeforeCompact: () => {
-      events.push("session-before-compact");
-    },
-    onSessionCompact: () => {
-      events.push("session-compact");
-    },
-    onSessionCompactFailed: () => {
-      events.push("session-compact-failed");
-    },
-    onBeforeAgentStart: (event) => {
-      events.push("before-agent-start");
-      return { systemPrompt: event.systemPrompt };
-    },
-    onModelSelect: () => {
-      events.push("model-select");
-    },
-    onAgentStart: async () => {
-      events.push("agent-start");
-    },
-    onToolExecutionStart: () => {
-      events.push("tool-start");
-    },
-    onToolExecutionUpdate: () => {
-      events.push("tool-update");
-    },
-    onToolExecutionEnd: () => {
-      events.push("tool-end");
-    },
-    onMessageStart: async () => {
-      events.push("message-start");
-    },
-    onMessageUpdate: async () => {
-      events.push("message-update");
-    },
-    onMessageEnd: () => {
-      events.push("message-end");
-    },
-    onUiPromptStart: () => {
-      events.push("ui-prompt-start");
-    },
-    onUiPromptEnd: () => {
-      events.push("ui-prompt-end");
-    },
-    onAgentEnd: async () => {
-      events.push("agent-end");
-    },
-  });
+  const uiPromptStarts: unknown[] = [];
+  const uiPromptEnds: unknown[] = [];
+  registerTelegramLifecycleHooks(
+    harness.api,
+    createRecordingLifecycleDeps(events, {
+      onUiPromptStart: (event) => {
+        events.push("ui-prompt-start");
+        uiPromptStarts.push(event);
+      },
+      onUiPromptEnd: (event) => {
+        events.push("ui-prompt-end");
+        uiPromptEnds.push(event);
+      },
+    }),
+  );
   assert.deepEqual(
     [...harness.handlers.keys()],
     [
@@ -606,9 +635,9 @@ test("Lifecycle helpers register pi hooks and delegate to handlers", async () =>
       "session_shutdown",
       "session_before_compact",
       "session_compact",
-      "session_compact_failed",
+      "auto_compaction_start",
+      "auto_compaction_end",
       "before_agent_start",
-      "model_select",
       "agent_start",
       "tool_execution_start",
       "tool_execution_update",
@@ -616,10 +645,9 @@ test("Lifecycle helpers register pi hooks and delegate to handlers", async () =>
       "message_start",
       "message_update",
       "message_end",
-      "ui_prompt_start",
-      "ui_prompt_end",
+      "tool_approval_requested",
+      "tool_approval_resolved",
       "agent_end",
-      "agent_settled",
     ],
   );
   const ctx = createLifecycleContext();
@@ -637,15 +665,10 @@ test("Lifecycle helpers register pi hooks and delegate to handlers", async () =>
     {},
     ctx,
   );
-  await getRequiredLifecycleHandler(
-    harness.handlers,
-    "session_compact_failed",
-  )({}, ctx);
   const beforeAgentStartResult = await getRequiredLifecycleHandler(
     harness.handlers,
     "before_agent_start",
   )({ systemPrompt: ["base", "project context"] }, ctx);
-  await getRequiredLifecycleHandler(harness.handlers, "model_select")({}, ctx);
   await getRequiredLifecycleHandler(harness.handlers, "agent_start")({}, ctx);
   await getRequiredLifecycleHandler(harness.handlers, "tool_execution_start")(
     {},
@@ -665,24 +688,25 @@ test("Lifecycle helpers register pi hooks and delegate to handlers", async () =>
     ctx,
   );
   await getRequiredLifecycleHandler(harness.handlers, "message_end")({}, ctx);
-  await getRequiredLifecycleHandler(harness.handlers, "ui_prompt_start")(
-    {},
-    ctx,
-  );
-  await getRequiredLifecycleHandler(harness.handlers, "ui_prompt_end")({}, ctx);
+  await getRequiredLifecycleHandler(
+    harness.handlers,
+    "tool_approval_requested",
+  )({ type: "tool_approval_requested", toolName: "bash" }, ctx);
+  await getRequiredLifecycleHandler(
+    harness.handlers,
+    "tool_approval_resolved",
+  )({ type: "tool_approval_resolved", approved: true }, ctx);
   await getRequiredLifecycleHandler(harness.handlers, "agent_end")({}, ctx);
-  await getRequiredLifecycleHandler(harness.handlers, "agent_settled")({}, ctx);
   assert.deepEqual(beforeAgentStartResult, {
     systemPrompt: ["base", "project context"],
   });
   assert.deepEqual(events, [
+    "input",
     "session-start",
     "session-shutdown",
     "session-before-compact",
     "session-compact",
-    "session-compact-failed",
     "before-agent-start",
-    "model-select",
     "agent-start",
     "tool-start",
     "tool-update",
@@ -693,5 +717,50 @@ test("Lifecycle helpers register pi hooks and delegate to handlers", async () =>
     "ui-prompt-start",
     "ui-prompt-end",
     "agent-end",
+    "agent-settled",
+  ]);
+  assert.deepEqual(uiPromptStarts, [
+    { type: "ui_prompt_start", kind: "confirm", title: "bash" },
+  ]);
+  assert.deepEqual(uiPromptEnds, [{ type: "ui_prompt_end" }]);
+});
+
+test("Agent end settles the turn only when it will not continue", async () => {
+  const harness = createLifecycleApiHarness();
+  const events: string[] = [];
+  registerTelegramLifecycleHooks(
+    harness.api,
+    createRecordingLifecycleDeps(events),
+  );
+  const ctx = createLifecycleContext();
+  const agentEnd = getRequiredLifecycleHandler(harness.handlers, "agent_end");
+  await agentEnd({ willContinue: true }, ctx);
+  assert.deepEqual(events, ["agent-end"]);
+  events.length = 0;
+  await agentEnd({}, ctx);
+  assert.deepEqual(events, ["agent-end", "agent-settled"]);
+  events.length = 0;
+  await agentEnd({ willContinue: false }, ctx);
+  assert.deepEqual(events, ["agent-end", "agent-settled"]);
+});
+
+test("Inactive sessions short-circuit every guarded lifecycle handler", async () => {
+  const harness = createLifecycleApiHarness();
+  const events: string[] = [];
+  registerTelegramLifecycleHooks(
+    harness.api,
+    createRecordingLifecycleDeps(events, { isSessionActive: () => false }),
+  );
+  const ctx = createLifecycleContext();
+  for (const name of [...harness.handlers.keys()]) {
+    await getRequiredLifecycleHandler(harness.handlers, name)(
+      { systemPrompt: "base", toolName: "bash" },
+      ctx,
+    );
+  }
+  assert.deepEqual(events, [
+    "session-start",
+    "session-shutdown",
+    "before-agent-start",
   ]);
 });

@@ -2341,7 +2341,7 @@ test("Thread renamer edits the Telegram topic and persists a manual override", a
   });
   const rename = createTelegramTopicTargetRenamer({
     store,
-    topicNameTemplate: "Pi {threadName}",
+    topicNameTemplate: "OMP {threadName}",
     async callApi<TResponse>(method: string, body: Record<string, unknown>) {
       calls.push({ method, body });
       return {} as TResponse;
@@ -2364,7 +2364,7 @@ test("Thread renamer edits the Telegram topic and persists a manual override", a
       body: {
         chat_id: -1001,
         message_thread_id: 42,
-        name: "Pi BlueUnit",
+        name: "OMP BlueUnit",
       },
     },
   ]);
@@ -3287,7 +3287,7 @@ test("Thread provisioner creates a new topic for new or stale profiles", async (
     topicChatId: -1001,
     store,
     getNowMs: () => 2000,
-    topicNameTemplate: "Pi {threadName} {instanceId}",
+    topicNameTemplate: "OMP {threadName} {instanceId}",
     async callApi<TResponse>(method: string, body: Record<string, unknown>) {
       calls.push({ method, body });
       return { message_thread_id: 77 } as TResponse;
@@ -3305,7 +3305,7 @@ test("Thread provisioner creates a new topic for new or stale profiles", async (
   assert.deepEqual(calls, [
     {
       method: "createForumTopic",
-      body: { chat_id: -1001, name: "Pi Atlas inst-c" },
+      body: { chat_id: -1001, name: "OMP Atlas inst-c" },
     },
   ]);
   assert.deepEqual(store.getByProfileKey("cwd:/repo"), {
@@ -4119,10 +4119,10 @@ test("Thread titles are trimmed and capped to Telegram's 128 character limit", (
       profileKey: "cwd:/repo",
       threadName: `repo ${"x".repeat(200)}`,
     },
-    "  Pi   {threadName}  ",
+    "  OMP   {threadName}  ",
   );
   assert.equal(name.length, 128);
-  assert.match(name, /^Pi repo x+/);
+  assert.match(name, /^OMP repo x+/);
 });
 
 test("Own bus topic provisioner assigns a leader topic through the common provisioner", async () => {

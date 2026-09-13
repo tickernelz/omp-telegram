@@ -1,14 +1,15 @@
 {
-  "name": "@llblab/pi-telegram",
-  "version": "0.45.8",
+  "name": "omp-telegram",
+  "version": "0.1.0",
   "private": false,
   "publishConfig": {
     "access": "public"
   },
-  "description": "Telegram runtime adapter for Pi",
+  "description": "Telegram runtime adapter for OMP",
   "keywords": [
-    "pi-package",
-    "pi",
+    "omp-package",
+    "omp",
+    "oh-my-pi",
     "telegram",
     "bot",
     "extension"
@@ -17,11 +18,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/llblab/pi-telegram.git"
+    "url": "https://github.com/tickernelz/omp-telegram.git"
   },
-  "homepage": "https://github.com/llblab/pi-telegram",
+  "homepage": "https://github.com/tickernelz/omp-telegram",
   "bugs": {
-    "url": "https://github.com/llblab/pi-telegram/issues"
+    "url": "https://github.com/tickernelz/omp-telegram/issues"
   },
   "engines": {
     "node": ">=22.19.0"
@@ -61,6 +62,15 @@
     "./voice": "./api/voice.ts",
     "./keyboard": "./api/keyboard.ts"
   },
+  "omp": {
+    "extensions": [
+      "./index.ts"
+    ],
+    "skills": [
+      "./skills"
+    ],
+    "image": "https://raw.githubusercontent.com/tickernelz/omp-telegram/main/screenshot.png"
+  },
   "pi": {
     "extensions": [
       "./index.ts"
@@ -68,12 +78,12 @@
     "skills": [
       "./skills"
     ],
-    "image": "https://raw.githubusercontent.com/llblab/pi-telegram/main/screenshot.png"
+    "image": "https://raw.githubusercontent.com/tickernelz/omp-telegram/main/screenshot.png"
   },
   "peerDependencies": {
-    "@earendil-works/pi-agent-core": ">=0.84.4",
-    "@earendil-works/pi-ai": ">=0.84.4",
-    "@earendil-works/pi-coding-agent": ">=0.84.4",
+    "@oh-my-pi/pi-agent-core": ">=17.4.2",
+    "@oh-my-pi/pi-ai": ">=17.4.2",
+    "@oh-my-pi/pi-coding-agent": ">=17.4.2",
     "@sinclair/typebox": "*"
   },
   "devDependencies": {

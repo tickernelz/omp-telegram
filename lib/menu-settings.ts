@@ -179,7 +179,7 @@ export function buildThreadDisplaySettingsText(mode: TelegramThreadDisplayMode):
   return [
     `${THREAD_DISPLAY_SETTINGS_TITLE} <code>${mode}</code>`,
     "",
-    "Choose how this bot profile labels Telegram tabs and Pi terminal status. Each slot is unique across this bot profile.",
+    "Choose how this bot profile labels Telegram tabs and OMP terminal status. Each slot is unique across this bot profile.",
     "",
     "<code>-</code> <code>letters</code> (default): show the unique slot, such as <b><i>A</i></b> or <b><i>B</i></b>.",
     "<code>-</code> <code>names</code>: show the generated dictionary name for the slot, such as <b><i>Anchor</i></b> or <b><i>Briar</i></b>.",
@@ -193,7 +193,7 @@ export function buildAutomaticThreadCleanupSettingsText(
   return [
     `${AUTOMATIC_THREAD_CLEANUP_SETTINGS_TITLE} <code>${enabled ? "on" : "off"}</code>`,
     "",
-    "Delete this Pi instance's Telegram tab when Pi quits normally.",
+    "Delete this OMP instance's Telegram tab when OMP quits normally.",
     "",
     "<code>-</code> <code>on</code> (default): delete the bound thread and release Telegram authority on graceful quit.",
     "<code>-</code> <code>off</code>: preserve the tab as a restart hint; manual <code>/telegram-disconnect</code> still confirms and deletes it.",

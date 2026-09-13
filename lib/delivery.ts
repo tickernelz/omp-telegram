@@ -784,7 +784,7 @@ function getBoundTelegramDeliveryRuntime():
     runtime ??
     failure(
       "runtime-unavailable",
-      "Telegram delivery runtime is unavailable in this Pi session.",
+      "Telegram delivery runtime is unavailable in this OMP session.",
     )
   );
 }

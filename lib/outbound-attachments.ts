@@ -19,12 +19,6 @@ import {
 } from "./channel-posts.ts";
 import type { ExtensionAPI } from "./pi.ts";
 import {
-  TELEGRAM_ATTACH_PROMPT_GUIDELINES,
-  TELEGRAM_ATTACH_PROMPT_SNIPPET,
-  TELEGRAM_MESSAGE_PROMPT_GUIDELINES,
-  TELEGRAM_MESSAGE_PROMPT_SNIPPET,
-} from "./prompts.ts";
-import {
   withTelegramReplyParameters,
   normalizeTelegramNativeMarkdown,
 } from "./replies.ts";
@@ -381,7 +375,7 @@ function assertTelegramDirectDeliveryAllowed(
 ): void {
   if (canSendDirect?.()) return;
   throw new Error(
-    "Telegram direct delivery requires this Pi instance to own /telegram-connect or be registered with the Telegram multi-instance bus",
+    "Telegram direct delivery requires this OMP instance to own /telegram-connect or be registered with the Telegram multi-instance bus",
   );
 }
 
@@ -466,8 +460,6 @@ export function registerTelegramOutboundAttachmentTool(
     label: "Telegram Attach",
     description:
       "Queue one or more local files for the active Telegram reply, or send them immediately to Telegram when no Telegram turn is active.",
-    promptSnippet: TELEGRAM_ATTACH_PROMPT_SNIPPET,
-    promptGuidelines: [...TELEGRAM_ATTACH_PROMPT_GUIDELINES],
     parameters: Type.Object({
       paths: Type.Array(
         Type.String({ description: "Local file path to attach" }),
@@ -528,8 +520,6 @@ export function registerTelegramOutboundMessageTool(
     label: "Telegram Message",
     description:
       "Send Markdown text directly to the paired/default Telegram chat, an exact channel chat_id, or an explicit live target. Channel delivery supports one optional local photo or video upload with the text as its caption. Channel posting requires Telegram-granted bot permission. Hidden telegram_button comments become inline prompt buttons.",
-    promptSnippet: TELEGRAM_MESSAGE_PROMPT_SNIPPET,
-    promptGuidelines: [...TELEGRAM_MESSAGE_PROMPT_GUIDELINES],
     parameters: Type.Object({
       text: Type.String({ description: "Message text to send" }),
       media: Type.Optional(
@@ -556,7 +546,7 @@ export function registerTelegramOutboundMessageTool(
       thread: Type.Optional(
         Type.Union([Type.String(), Type.Number()], {
           description:
-            "Optional live Pi thread name or numeric id for visible delivery plus a target-agent turn",
+            "Optional live OMP thread name or numeric id for visible delivery plus a target-agent turn",
         }),
       ),
     }),

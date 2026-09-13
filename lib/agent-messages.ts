@@ -105,12 +105,12 @@ export function createTelegramAgentMessageRuntime<TContext, TUpdate>(
         sourceTitle
           ?.replace(/[\r\n\[\]]+/g, " ")
           .trim()
-          .slice(0, 64) || "Pi";
+          .slice(0, 64) || "OMP";
       const message = {
         message_id: input.message.messageId,
         date: Math.floor(getNowMs() / 1000),
         chat: { id: target.chatId, type: "private" as const },
-        from: { id: allowedChatId, is_bot: false, first_name: "Pi Agent" },
+        from: { id: allowedChatId, is_bot: false, first_name: "OMP Agent" },
         message_thread_id: target.threadId,
         pi_telegram_agent_source_thread: sourceLabel,
         text: input.message.text,

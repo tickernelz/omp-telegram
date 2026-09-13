@@ -1882,7 +1882,7 @@ export async function handleTelegramAgentEndRuntime<
     }
     if (turn.guestInlineMessageId && deps.editGuestReply) {
       const experimentText = assistant.errorMessage
-        ? "Telegram bridge: Pi failed while processing the request."
+        ? "Telegram bridge: OMP failed while processing the request."
         : finalText;
       if (experimentText) {
         try {
@@ -1913,7 +1913,7 @@ export async function handleTelegramAgentEndRuntime<
       try {
         await deps.answerGuestQuery?.(
           turn.guestQueryId,
-          "Telegram bridge: Pi failed while processing the request.",
+          "Telegram bridge: OMP failed while processing the request.",
         );
       } catch (error) {
         deps.recordRuntimeEvent?.("delivery", error, {
@@ -1992,7 +1992,7 @@ export async function handleTelegramAgentEndRuntime<
     }
     if (endPlan.shouldSendErrorMessage) {
       const errorMessage = assistant.errorMessage ||
-        "Telegram bridge: Pi failed while processing the request.";
+        "Telegram bridge: OMP failed while processing the request.";
       const isOperationAborted = errorMessage.trim().replace(/\.$/, "") ===
         "This operation was aborted";
       await deps.sendTextReply(

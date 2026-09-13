@@ -872,7 +872,7 @@ export function buildTelegramModelCallbackPlan<
     if (!params.canRestartBusyRun) {
       return {
         kind: "answer",
-        text: "Pi is busy. Send /abort, /next, or /stop.",
+        text: "OMP is busy. Send /abort, /next, or /stop.",
       };
     }
     return {
@@ -972,7 +972,7 @@ export async function handleTelegramModelMenuCallbackAction<
     if (!restarted) {
       await deps.answerCallbackQuery(
         callbackQueryId,
-        "Pi is busy. Send /abort, /next, or /stop.",
+        "OMP is busy. Send /abort, /next, or /stop.",
       );
       return true;
     }

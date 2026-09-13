@@ -242,7 +242,7 @@ function getRestoredThreadName(
   return record.threadName &&
     Threads.isTelegramTopicThreadNameValidForSlot(record.threadName, slot)
     ? record.threadName
-    : (Threads.chooseTelegramThreadName({ slot }) ?? "Pi");
+    : (Threads.chooseTelegramThreadName({ slot }) ?? "OMP");
 }
 
 function isTelegramLiveThreadTarget(
@@ -273,7 +273,7 @@ function formatTelegramAllTabMenuChooserText(command: string): string {
     "<b>🧵 Choose target thread:</b>",
     "",
     `You used <code>/${escapeHtml(command)}</code> from the <b>All</b> tab.`,
-    "Select the Pi thread that should handle it:",
+    "Select the OMP thread that should handle it:",
     "To restore into a new thread, send a plain message in that destination thread first.",
   ].join("\n");
 }
@@ -337,16 +337,16 @@ function formatTelegramUnboundRerouteRestoreChooserText(): string {
   return [
     "<b>🧵 Replace/restore Telegram thread:</b>",
     "",
-    "Choose the Pi instance to move to this new Telegram thread:",
+    "Choose the OMP instance to move to this new Telegram thread:",
   ].join("\n");
 }
 
 function formatTelegramUnboundTopicGuidance(): string {
   return [
-    "<b>⚠️ New thread is not a Pi instance.</b>",
+    "<b>⚠️ New thread is not an OMP instance.</b>",
     "",
     "To create a bound Telegram tab:",
-    "<code>1.</code> Start another Pi instance in your terminal.",
+    "<code>1.</code> Start another OMP instance in your terminal.",
     "<code>2.</code> Run <code>/telegram-connect</code> in that instance.",
     "<code>3.</code> The bridge will create and bind a fresh Telegram tab for it.",
   ].join("\n");
@@ -364,7 +364,7 @@ function formatTelegramUnboundRerouteChooserText(
     "<b>🧵 Choose target thread:</b>",
     "",
     "Your message is still in this Telegram thread.",
-    "Select the Pi thread that should handle it:",
+    "Select the OMP thread that should handle it:",
   ].join("\n");
   return options.includeGuidance === false
     ? rerouteText
@@ -2319,7 +2319,7 @@ export function createTelegramInboundRouteRuntime<
         message.message_id,
         [
           includeGuidance ? formatTelegramUnboundTopicGuidance() : undefined,
-          `This thread is not bound to a Pi instance. Open an active Pi thread or run ${Commands.formatTelegramPiCommandHtml("/telegram-connect")} from a Pi session to bind one.`,
+          `This thread is not bound to an OMP instance. Open an active OMP thread or run ${Commands.formatTelegramPiCommandHtml("/telegram-connect")} from an OMP session to bind one.`,
         ]
           .filter((line): line is string => typeof line === "string")
           .join("\n\n"),
@@ -2952,7 +2952,7 @@ export function createTelegramInboundRouteRuntime<
           await deps.sendTextReply(
             message.chat.id,
             message.message_id,
-            "This bot is in threaded multi-instance mode. Send prompts in a bound Pi thread tab so they route to the right instance.",
+            "This bot is in threaded multi-instance mode. Send prompts in a bound OMP thread tab so they route to the right instance.",
           );
           return;
         }
@@ -3033,7 +3033,7 @@ export function createTelegramInboundRouteRuntime<
             message.message_id,
             "Instance " +
               escapeHtml(getTelegramThreadRecordLabel(existing, deps.getDisplayTitle)) +
-              ` is not currently registered with the Telegram bus. This thread is preserved; retry shortly. If it does not recover, run ${Commands.formatTelegramPiCommandHtml("/telegram-connect")} in that Pi instance.`,
+              ` is not currently registered with the Telegram bus. This thread is preserved; retry shortly. If it does not recover, run ${Commands.formatTelegramPiCommandHtml("/telegram-connect")} in that OMP instance.`,
             { parseMode: "HTML", target },
           );
           return;
@@ -3045,7 +3045,7 @@ export function createTelegramInboundRouteRuntime<
             (existing.slot ?? "?") +
             " is " +
             existing.status +
-            ". Start a Pi instance to claim it.",
+            ". Start an OMP instance to claim it.",
           { target },
         );
         return;
@@ -3227,7 +3227,7 @@ export function createTelegramInboundRouteRuntime<
           priorLeaderRecord?.threadName ??
           identityThreadName ??
           Threads.chooseTelegramThreadName({ slot }) ??
-          "Pi";
+          "OMP";
         deps.threadStore.upsert({
           profileKey: leaderProfileKey,
           owner: {

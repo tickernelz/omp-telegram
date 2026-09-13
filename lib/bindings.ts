@@ -1201,7 +1201,7 @@ export function registerTelegramLifecycleRuntimeHooks({
       cancelPendingFinalPublication();
       uiPromptActive = false;
       compactionObserver.onSessionShutdown();
-      if (event.reason === "quit" && disconnectOnQuit) {
+      if (disconnectOnQuit) {
         try {
           const automaticCleanupEnabled =
             (await resolveAutomaticThreadCleanupEnabled?.()) ?? true;
