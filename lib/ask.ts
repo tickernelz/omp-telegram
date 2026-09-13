@@ -227,6 +227,12 @@ function getTelegramAskNativeDelegate(
   return (host.invokeTool as TelegramAskNativeDelegate).bind(host);
 }
 
+/** True when the host claims a local interactive surface, so a missing native ask is a degradation rather than headless operation. */
+function hasInteractiveSurface(ctx: unknown): boolean {
+  const host = ctx as { hasUI?: unknown } | undefined;
+  return host?.hasUI === true;
+}
+
 function normalizeTelegramAskQuestion(question: {
   id: string;
   question: string;
@@ -713,6 +719,15 @@ export function createTelegramAskRuntime(
           );
         }
         const delegateParams = params as unknown as Record<string, unknown>;
+        if (!nativeDelegate && scope && hasInteractiveSurface(ctx)) {
+          deps.recordRuntimeEvent?.(
+            "ask",
+            new Error(
+              "Native ask delegation is unavailable although this session reports an interactive surface; answering falls back to Telegram alone.",
+            ),
+            { phase: "surface-degraded", questions: params.questions.length },
+          );
+        }
         const arms: TelegramAskArm[] = [];
         if (nativeDelegate) {
           arms.push({
