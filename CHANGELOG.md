@@ -4,6 +4,11 @@
 
 ## Unreleased
 
+## 0.3.4: User Prompt Display And Entity Parse Fail-Safe
+
+- `User Prompt Display`: The active live progress tail bubble now displays the user's incoming message (`▰ 👤 Prompt`), keeping the exact task context visible in Telegram without needing to scroll or guess what prompt is being executed.
+- `HTML Entity Safety`: Fixed an issue where truncating long reasoning or message bodies sliced across HTML tags, producing unbalanced `</blockquote>` tags that triggered Telegram API `400 can't parse entities` errors and stalled progress updates. Added automatic plain-text fallback if an entity parse is ever rejected.
+
 ## 0.3.3: Direct Reasoning Display And Configurable Progress Interval
 
 - `Direct Reasoning Display`: The latest 1 to 2 reasoning paragraphs are now rendered directly as visible plain text beneath the Reasoning header without collapsible nesting, while earlier historical thoughts are neatly folded into an expandable blockquote.
