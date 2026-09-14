@@ -758,6 +758,14 @@ export function registerTelegramCommandsAndTools({
       await onTransportChanged?.();
       return true;
     },
+    settings: {
+      ...Config.createTelegramConfigControls(configStore),
+      getThreadDisplayMode: () => Config.resolveTelegramThreadDisplayMode(configStore.get()),
+      setThreadDisplayMode: async (mode) => {
+        await Config.setTelegramThreadDisplayMode(configStore, mode, () => true);
+      },
+      getActiveProfileName: () => configStore.getActiveProfileName() ?? "default",
+    },
   });
 }
 

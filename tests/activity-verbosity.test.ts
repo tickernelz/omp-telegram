@@ -329,7 +329,7 @@ test("thinking and tools modes isolate their activity classes in progress tail",
     await harness.runtime.waitForIdle();
     assert.equal(harness.sends.length, 1);
     const text = harness.sends[0]?.text ?? "";
-    assert.equal(text.includes("<blockquote expandable>"), mode === "thinking");
+    assert.equal(text.includes("▰ 💭 <b>Reasoning</b>"), mode === "thinking");
     assert.equal(text.includes("<b>read</b>"), mode === "tools");
   }
 });

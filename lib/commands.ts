@@ -12,6 +12,7 @@ import {
 import type { ExtensionAPI, ExtensionCommandContext } from "./pi.ts";
 import { escapeHtml } from "./rendering.ts";
 import type { TelegramBridgeStatusLineOptions } from "./status.ts";
+import * as MenuSettings from "./menu-settings.ts";
 import {
   createTelegramControlItemBuilder,
   createTelegramControlQueueController,
@@ -414,6 +415,7 @@ export interface TelegramBridgeCommandRegistrationDeps {
   generateThreadName?: (
     ctx: ExtensionCommandContext,
   ) => Promise<string | undefined>;
+  settings?: MenuSettings.TelegramSettingsCommandDeps;
 }
 
 export type TelegramThreadRenameRequest =
@@ -711,6 +713,21 @@ export function registerTelegramBridgeCommands(
           renamed.ok ? "info" : "error",
         );
         deps.updateStatus(ctx);
+      },
+    });
+  }
+  if (deps.settings) {
+    pi.registerCommand("telegram-settings", {
+      description:
+        "View and adjust Telegram bridge configuration settings.",
+      getArgumentCompletions: (prefix) =>
+        MenuSettings.getTelegramSettingsArgumentCompletions(prefix),
+      handler: async (args, ctx) => {
+        await MenuSettings.handleTelegramSettingsCommand(
+          args,
+          ctx,
+          deps.settings!,
+        );
       },
     });
   }

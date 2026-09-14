@@ -9,7 +9,9 @@ import test from "node:test";
 
 import {
   createTelegramProgressTailRuntime,
+  extractReasoningTail,
   extractShortToolArgs,
+  extractToolResultSummary,
   formatProgressTailHtml,
   type ProgressTailState,
 } from "../lib/progress-tail.ts";
@@ -277,3 +279,105 @@ test("Progress tail runtime: finalization freezes the live progress bubble with 
   assert.ok(edits.at(-1)?.text?.includes("✅ <b>Completed</b>"));
   assert.ok(edits[0]?.text?.includes("✓ <b>ast_grep</b>: <code>$A</code>"));
 });
+
+test("Progress tail runtime: ask completion freezes previous bubble and starts fresh on subsequent tools", async () => {
+  const sends: TelegramSendMessageBody[] = [];
+  const edits: TelegramEditMessageTextBody[] = [];
+  let now = 10_000;
+
+  const runtime = createTelegramProgressTailRuntime({
+    getActivityMode: () => "verbose",
+    getNowMs: () => now,
+    resolveTarget: (e) => e.target,
+    captureAuthority: () => 1,
+    isAuthorityActive: () => true,
+    async sendMessage(body) {
+      sends.push(body);
+      return { message_id: 100 + sends.length, date: 1, chat: { id: 42, type: "private" } };
+    },
+    async editMessageText(body) {
+      edits.push(body);
+      return "edited";
+    },
+    getModelName: () => "Opus 5",
+  });
+
+  runtime.accept(event("agent-start"));
+  runtime.accept(event("tool-start", { toolCallId: "ask-1", toolName: "ask", args: { questions: [{ id: "q1" }] } }));
+  await runtime.waitForIdle();
+  assert.equal(sends.length, 1, "initial bubble created before ask");
+
+  now = 12_000;
+  runtime.accept(event("tool-end", { toolCallId: "ask-1", toolName: "ask", isError: false, result: { details: { answeredVia: "telegram" } } }));
+  await runtime.waitForIdle();
+
+  assert.ok(edits.length >= 1, "ask completion must freeze the top bubble");
+  assert.ok(edits.at(-1)?.text?.includes("✅ <b>Completed</b>"));
+  assert.ok(edits.at(-1)?.text?.includes("✓ <b>ask</b>: <i>Answered via Telegram</i>"));
+
+  now = 14_000;
+  runtime.accept(event("tool-start", { toolCallId: "read-2", toolName: "read", args: { path: "package.json" } }));
+  await runtime.waitForIdle();
+
+  assert.equal(sends.length, 2, "activity after ask must start a fresh live bubble below the ask card");
+  assert.ok(sends[1]?.text?.includes("⟳ <b>read</b>: <code>package.json</code>"));
+
+  now = 16_000;
+  runtime.accept(event("tool-end", { toolCallId: "read-2", toolName: "read", isError: false, result: "ok" }));
+  runtime.accept(event("agent-end"));
+  await runtime.waitForIdle();
+
+  assert.ok(edits.at(-1)?.text?.includes("✅ <b>Completed</b>"));
+  assert.ok(edits.at(-1)?.text?.includes("✓ <b>read</b>: <code>package.json</code>"));
+});
+
+test("extractReasoningTail strips think tags and retains newest 1-3 paragraphs with omission notice", () => {
+  const raw = ["<think>", "First paragraph of thought.", "", "Second paragraph exploring options.", "", "Third paragraph evaluating tradeoffs.", "", "Fourth paragraph settling on design.", "</think>"].join("\n");
+  const tail = extractReasoningTail(raw, 3);
+  assert.equal(tail.includes("First paragraph"), false, "oldest paragraph must be omitted");
+  assert.ok(tail.includes("… [1 earlier paragraph(s) omitted]"));
+  assert.ok(tail.includes("Second paragraph exploring options."));
+  assert.ok(tail.includes("Third paragraph evaluating tradeoffs."));
+  assert.ok(tail.includes("Fourth paragraph settling on design."));
+  assert.equal(tail.includes("<think>"), false);
+  assert.equal(tail.includes("</think>"), false);
+});
+
+test("extractToolResultSummary extracts text content and truncates safely", () => {
+  const contentObj = { content: [{ type: "text", text: "Line 1 - Line 2 result" }] };
+  assert.equal(extractToolResultSummary("read", contentObj), "Line 1 - Line 2 result");
+
+  const outputObj = { output: "Command completed successfully" };
+  assert.equal(extractToolResultSummary("bash", outputObj), "Command completed successfully");
+
+  const longText = "a".repeat(800);
+  const truncated = extractToolResultSummary("bash", longText, false, 600);
+  assert.ok(truncated.includes("… [truncated]"));
+  assert.ok(truncated.length <= 620);
+});
+
+test("formatProgressTailHtml renders tool result in expandable blockquote and limits to 4 newest tools", () => {
+  const state: ProgressTailState = {
+    status: "working",
+    startedAtMs: 1000,
+    modelName: "Opus 5",
+    reasoningLines: [],
+    tools: [
+      { id: "1", name: "tool1", args: "arg1", status: "completed", resultSummary: "res1" },
+      { id: "2", name: "tool2", args: "arg2", status: "completed", resultSummary: "res2" },
+      { id: "3", name: "tool3", args: "arg3", status: "completed", resultSummary: "res3" },
+      { id: "4", name: "tool4", args: "arg4", status: "completed", resultSummary: "res4" },
+      { id: "5", name: "tool5", args: "arg5", status: "completed", resultSummary: "res5" },
+    ],
+    todoItems: [],
+  };
+
+  const html = formatProgressTailHtml(state);
+  assert.ok(html.includes("… [1 earlier tools omitted]"), "must show omitted count when > 4 tools");
+  assert.equal(html.includes("tool1"), false, "tool1 is the oldest and should be omitted");
+  assert.ok(html.includes("tool2"));
+  assert.ok(html.includes("tool5"));
+  assert.ok(html.includes("<blockquote expandable>res2</blockquote>"));
+  assert.ok(html.includes("<blockquote expandable>res5</blockquote>"));
+});
+

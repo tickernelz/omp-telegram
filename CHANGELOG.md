@@ -4,6 +4,13 @@
 
 ## Unreleased
 
+## 0.3.1: Progress Tail Enhancements And Settings Command
+
+- `Ask Roll-Over`: Answering an `ask` tool now freezes the previous progress tail bubble in-place and starts a fresh live progress bubble beneath the ask message on subsequent tool or reasoning activity, so the user never has to scroll up to see ongoing progress.
+- `Paragraph Reasoning`: Reasoning tail now normalizes think tags and extracts the newest 1 to 3 complete paragraphs into an expandable collapsible blockquote, preserving coherent thought units during live streaming.
+- `Detailed Tool History`: Displays the 4 latest tools with generous argument limits and collapsible `<blockquote expandable>` tool results, avoiding aggressive argument truncation while keeping the live tail clean.
+- `Settings Command`: Adds `/telegram-settings` with an interactive TUI menu, direct CLI argument updates (`/telegram-settings <key> <value>`), and tab autocompletions to adjust runtime options (mode, activity, drafts, rendering, voice, time, cleanup) without manual config edits.
+
 ## 0.3.0: Live Progress Tail Overhaul
 
 - `Progress Tail`: Overhauls the multi-bubble activity projection into a single live progress bubble that updates in-place during agent work. Lazy initiation keeps simple direct text replies clean with zero progress bubbles, while turns with tools or reasoning project a single live status card updated at a rate-safe 2.0 s cadence.

@@ -60,9 +60,15 @@ import {
 import { runTelegramPollLoop } from "../lib/polling.ts";
 import { createTelegramPollingStartRecoveryHandler } from "../lib/recovery.ts";
 import type { ExtensionAPI, ExtensionCommandContext } from "../lib/pi.ts";
+import type {
+  TelegramActivityVerbosity,
+  TelegramThreadDisplayMode,
+} from "../lib/config.ts";
 
 type RegisteredBridgeCommand = {
   handler: (args: string, ctx: ExtensionCommandContext) => Promise<void> | void;
+  description?: string;
+  getArgumentCompletions?: (prefix: string) => any;
 };
 
 function createCommandRegistrationApiHarness() {
@@ -2552,4 +2558,189 @@ test("Thread rename command stays unregistered when its ports are unwired", () =
   });
   assert.equal(harness.commands.has("telegram-rename"), false);
   assert.equal(harness.commands.has("telegram-connect"), true);
+});
+test("Telegram settings command displays overview when called in non-TUI mode or without custom UI", async () => {
+  const notifications: string[] = [];
+  const harness = createCommandRegistrationApiHarness();
+  let mode: TelegramThreadDisplayMode = "names";
+  let activity: TelegramActivityVerbosity = "verbose";
+  let drafts = true;
+
+  registerTelegramBridgeCommands(harness.api, {
+    promptForConfig: async () => {},
+    getStatusLines: () => [],
+    reloadConfig: async () => {},
+    hasBotToken: () => true,
+    startPolling: async () => {},
+    stopPolling: async () => {},
+    updateStatus: () => {},
+    settings: {
+      getThreadDisplayMode: () => mode,
+      setThreadDisplayMode: async (m) => { mode = m; },
+      areDraftPreviewsEnabled: () => drafts,
+      setDraftPreviewsEnabled: async (d) => { drafts = d; },
+      getAssistantRenderingMode: () => "rich",
+      setAssistantRenderingMode: async () => {},
+      getActivityVerbosity: () => activity,
+      setActivityVerbosity: async (a) => { activity = a; },
+      getVoiceReplyMode: () => "manual",
+      setVoiceReplyMode: async () => {},
+      getTimeInjectionMode: () => "always",
+      setTimeInjectionMode: async () => {},
+      isAutomaticThreadCleanupEnabled: () => true,
+      setAutomaticThreadCleanupEnabled: async () => {},
+      getActiveProfileName: () => "default",
+    },
+  });
+
+  const cmd = getRequiredCommand(harness.commands, "telegram-settings");
+  assert.ok(cmd);
+
+  const ctx = {
+    hasUI: false,
+    mode: "print" as const,
+    ui: {
+      notify(msg: string) { notifications.push(msg); },
+    },
+  } as unknown as ExtensionCommandContext;
+
+  await cmd.handler("", ctx);
+  assert.equal(notifications.length, 1);
+  assert.ok(notifications[0]?.includes("Telegram Bridge Settings (profile: default)"));
+  assert.ok(notifications[0]?.includes("• mode: names"));
+  assert.ok(notifications[0]?.includes("• activity: verbose"));
+
+  await cmd.handler("mode letters", ctx);
+  assert.equal(mode, "letters");
+  assert.ok(notifications[1]?.includes('✔ Updated mode to "letters"'));
+
+  await cmd.handler("activity quiet", ctx);
+  assert.equal(activity, "quiet");
+  assert.ok(notifications[2]?.includes('✔ Updated activity to "quiet"'));
+
+  await cmd.handler("drafts off", ctx);
+  assert.equal(drafts, false);
+  assert.ok(notifications[3]?.includes('✔ Updated drafts to "off"'));
+
+  await cmd.handler("mode invalid_mode", ctx);
+  assert.ok(notifications[4]?.includes('Invalid mode "invalid_mode"'));
+});
+
+test("Telegram settings argument completions provide keys and values", () => {
+  const harness = createCommandRegistrationApiHarness();
+  registerTelegramBridgeCommands(harness.api, {
+    promptForConfig: async () => {},
+    getStatusLines: () => [],
+    reloadConfig: async () => {},
+    hasBotToken: () => true,
+    startPolling: async () => {},
+    stopPolling: async () => {},
+    updateStatus: () => {},
+    settings: {
+      getThreadDisplayMode: () => "names",
+      setThreadDisplayMode: async () => {},
+      areDraftPreviewsEnabled: () => true,
+      setDraftPreviewsEnabled: async () => {},
+      getAssistantRenderingMode: () => "rich",
+      setAssistantRenderingMode: async () => {},
+      getActivityVerbosity: () => "verbose",
+      setActivityVerbosity: async () => {},
+      getVoiceReplyMode: () => "manual",
+      setVoiceReplyMode: async () => {},
+      getTimeInjectionMode: () => "always",
+      setTimeInjectionMode: async () => {},
+      isAutomaticThreadCleanupEnabled: () => true,
+      setAutomaticThreadCleanupEnabled: async () => {},
+    },
+  });
+
+  const cmd = getRequiredCommand(harness.commands, "telegram-settings");
+  assert.ok(cmd.getArgumentCompletions);
+  const keyCompletions = cmd.getArgumentCompletions("");
+  assert.ok(keyCompletions?.some((c: { value: string }) => c.value === "mode"));
+  assert.ok(keyCompletions?.some((c: { value: string }) => c.value === "activity"));
+  assert.ok(keyCompletions?.some((c: { value: string }) => c.value === "drafts"));
+
+  const modeCompletions = cmd.getArgumentCompletions("mode ");
+  assert.ok(modeCompletions?.some((c: { value: string }) => c.value === "mode names"));
+  assert.ok(modeCompletions?.some((c: { value: string }) => c.value === "mode letters"));
+});
+
+test("Telegram settings command opens interactive TUI when in TUI mode", async () => {
+  const harness = createCommandRegistrationApiHarness();
+  let customCalled = false;
+  let mode: TelegramThreadDisplayMode = "names";
+
+  registerTelegramBridgeCommands(harness.api, {
+    promptForConfig: async () => {},
+    getStatusLines: () => [],
+    reloadConfig: async () => {},
+    hasBotToken: () => true,
+    startPolling: async () => {},
+    stopPolling: async () => {},
+    updateStatus: () => {},
+    settings: {
+      loadTuiComponents: async () => ({
+        SettingsList: class {
+          items: any;
+          constructor(items: any) { this.items = items; }
+        },
+        Container: class {
+          children: any[];
+          constructor() { this.children = []; }
+          addChild(c: any) { this.children.push(c); }
+          clear() { this.children = []; }
+        },
+        Text: class {
+          text: string;
+          constructor(text: string) { this.text = text; }
+        },
+        Spacer: class {
+          size: number;
+          constructor(size: number) { this.size = size; }
+        },
+      }),
+      getThreadDisplayMode: () => mode,
+      setThreadDisplayMode: async (m) => { mode = m; },
+      areDraftPreviewsEnabled: () => true,
+      setDraftPreviewsEnabled: async () => {},
+      getAssistantRenderingMode: () => "rich",
+      setAssistantRenderingMode: async () => {},
+      getActivityVerbosity: () => "verbose",
+      setActivityVerbosity: async () => {},
+      getVoiceReplyMode: () => "manual",
+      setVoiceReplyMode: async () => {},
+      getTimeInjectionMode: () => "always",
+      setTimeInjectionMode: async () => {},
+      isAutomaticThreadCleanupEnabled: () => true,
+      setAutomaticThreadCleanupEnabled: async () => {},
+      getActiveProfileName: () => "default",
+    },
+  });
+
+  const cmd = getRequiredCommand(harness.commands, "telegram-settings");
+  const notifications: string[] = [];
+  const ctx = {
+    hasUI: true,
+    mode: "tui" as const,
+    ui: {
+      notify(msg: string) { notifications.push(msg); },
+      async custom(builder: any) {
+        customCalled = true;
+        const fakeTheme = {
+          bold: (s: string) => s,
+          fg: (_token: string, s: string) => s,
+        };
+        const fakeTui = {
+          requestRender() {},
+        };
+        const component = await builder(fakeTui, fakeTheme, {}, () => {});
+        assert.ok(component, "custom component must be built");
+      },
+    },
+  } as unknown as ExtensionCommandContext;
+
+  await cmd.handler("", ctx);
+  assert.equal(customCalled, true, "custom TUI must be opened");
+  assert.ok(notifications[0]?.includes("settings saved"));
 });

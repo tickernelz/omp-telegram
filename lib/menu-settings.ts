@@ -18,6 +18,7 @@ import {
   type TelegramSectionRegistry,
 } from "./sections.ts";
 import type { TelegramVoiceReplyMode } from "./voice.ts";
+import type { ExtensionCommandContext } from "./pi.ts";
 
 export type TelegramSettingsMenuReplyMarkup = TelegramInlineKeyboardMarkup;
 
@@ -953,4 +954,343 @@ export function createTelegramSettingsMenuRuntime<
       });
     },
   };
+}
+export interface TelegramSettingsCommandDeps {
+  getThreadDisplayMode?: () => TelegramThreadDisplayMode | undefined;
+  setThreadDisplayMode?: (mode: TelegramThreadDisplayMode) => Promise<void>;
+  areDraftPreviewsEnabled: () => boolean;
+  setDraftPreviewsEnabled: (enabled: boolean) => Promise<void>;
+  getAssistantRenderingMode: () => TelegramAssistantRenderingMode;
+  setAssistantRenderingMode: (mode: TelegramAssistantRenderingMode) => Promise<void>;
+  getActivityVerbosity: () => TelegramActivityVerbosity;
+  setActivityVerbosity: (mode: TelegramActivityVerbosity) => Promise<void>;
+  getVoiceReplyMode: () => TelegramVoiceReplyMode;
+  setVoiceReplyMode: (mode: TelegramVoiceReplyMode | undefined) => Promise<void>;
+  getTimeInjectionMode: () => TelegramTimeMode;
+  setTimeInjectionMode: (mode: TelegramTimeMode) => Promise<void>;
+  isAutomaticThreadCleanupEnabled: () => boolean;
+  setAutomaticThreadCleanupEnabled: (enabled: boolean) => Promise<void>;
+  getActiveProfileName?: () => string | undefined;
+  loadTuiComponents?: () => Promise<{
+    SettingsList: any;
+    Container: any;
+    Text: any;
+    Spacer: any;
+  }>;
+}
+
+export function formatTelegramSettingsOverview(
+  deps: TelegramSettingsCommandDeps,
+): string {
+  const profile = deps.getActiveProfileName?.() ?? "default";
+  const mode = deps.getThreadDisplayMode?.() ?? "names";
+  const activity = deps.getActivityVerbosity();
+  const drafts = deps.areDraftPreviewsEnabled() ? "on" : "off";
+  const rendering = deps.getAssistantRenderingMode();
+  const voice = deps.getVoiceReplyMode();
+  const time = deps.getTimeInjectionMode();
+  const cleanup = deps.isAutomaticThreadCleanupEnabled() ? "on" : "off";
+
+  return [
+    `Telegram Bridge Settings (profile: ${profile})`,
+    "",
+    `• mode: ${mode} [names | letters | directories]`,
+    "  Topic display naming style.",
+    "",
+    `• activity: ${activity} [verbose | tools | thinking | quiet]`,
+    "  Live progress tail detail in Telegram.",
+    "",
+    `• drafts: ${drafts} [on | off]`,
+    "  Stream draft previews before completion.",
+    "",
+    `• rendering: ${rendering} [rich | html]`,
+    "  Assistant message format.",
+    "",
+    `• voice: ${voice} [manual | mirror | always]`,
+    "  Audio voice reply mode.",
+    "",
+    `• time: ${time} [always | interval | hidden]`,
+    "  Timestamp injection mode.",
+    "",
+    `• cleanup: ${cleanup} [on | off]`,
+    "  Delete topic on clean session exit.",
+    "",
+    "To adjust a setting, run:",
+    "/telegram-settings <key> <value>",
+    "(e.g. /telegram-settings mode names)",
+  ].join("\n");
+}
+
+export function getTelegramSettingsArgumentCompletions(
+  prefix: string,
+): Array<{ value: string; label: string; description?: string }> {
+  const trimmed = prefix.trimStart();
+  const tokens = trimmed.split(/\s+/);
+  const keys = [
+    { value: "mode", label: "mode", description: "Topic display naming style (names, letters, directories)" },
+    { value: "activity", label: "activity", description: "Progress tail detail (verbose, tools, thinking, quiet)" },
+    { value: "drafts", label: "drafts", description: "Draft previews streaming (on, off)" },
+    { value: "rendering", label: "rendering", description: "Assistant message format (rich, html)" },
+    { value: "voice", label: "voice", description: "Voice reply mode (manual, mirror, always)" },
+    { value: "time", label: "time", description: "Timestamp injection mode (system, prompt, off)" },
+    { value: "cleanup", label: "cleanup", description: "Auto-cleanup topic on clean exit (on, off)" },
+  ];
+
+  if (tokens.length <= 1) {
+    const filter = tokens[0] ?? "";
+    return keys.filter((k) => k.value.startsWith(filter));
+  }
+
+  const key = tokens[0]?.toLowerCase();
+  const valFilter = tokens[1] ?? "";
+
+  const optionsByKey: Record<string, string[]> = {
+    mode: ["names", "letters", "directories"],
+    activity: ["verbose", "tools", "thinking", "quiet"],
+    drafts: ["on", "off"],
+    rendering: ["rich", "html"],
+    voice: ["manual", "mirror", "always"],
+    time: ["always", "interval", "hidden"],
+    cleanup: ["on", "off"],
+  };
+
+  const options = optionsByKey[key ?? ""] ?? [];
+  return options
+    .filter((opt) => opt.startsWith(valFilter))
+    .map((opt) => ({ value: `${key} ${opt}`, label: opt }));
+}
+
+export async function openTelegramSettingsTui(
+  ctx: ExtensionCommandContext,
+  deps: TelegramSettingsCommandDeps,
+): Promise<void> {
+  if (!ctx.hasUI || ctx.mode !== "tui" || !ctx.ui?.custom) {
+    ctx.ui?.notify?.(formatTelegramSettingsOverview(deps), "info");
+    return;
+  }
+
+  const loader = deps.loadTuiComponents ?? (() => import("@oh-my-pi/pi-tui"));
+  const { SettingsList, Container, Text, Spacer } = await loader();
+
+  type SettingItem = {
+    id: string;
+    label: string;
+    description?: string;
+    currentValue: string;
+    values?: string[];
+  };
+
+  await ctx.ui.custom<void>((tui, theme, _keybindings, done) => {
+    const buildItems = (): SettingItem[] => [
+      {
+        id: "mode",
+        label: "Topic Display Mode",
+        description: "Naming style for Telegram topics (names: word palette, letters: A-Z, directories: folder names)",
+        currentValue: deps.getThreadDisplayMode?.() ?? "names",
+        values: ["names", "letters", "directories"],
+      },
+      {
+        id: "activity",
+        label: "Progress Tail Detail",
+        description: "Detail level in the single live progress bubble (verbose: tools + reasoning, tools: tools only, thinking: reasoning only, quiet: disabled)",
+        currentValue: deps.getActivityVerbosity(),
+        values: ["verbose", "tools", "thinking", "quiet"],
+      },
+      {
+        id: "drafts",
+        label: "Draft Previews",
+        description: "Stream draft response previews to Telegram before turn completes",
+        currentValue: deps.areDraftPreviewsEnabled() ? "on" : "off",
+        values: ["on", "off"],
+      },
+      {
+        id: "rendering",
+        label: "Message Rendering",
+        description: "Assistant message format on Telegram (rich: formatted blocks, html: standard HTML)",
+        currentValue: deps.getAssistantRenderingMode(),
+        values: ["rich", "html"],
+      },
+      {
+        id: "voice",
+        label: "Voice Reply Mode",
+        description: "Audio voice reply mode (manual: explicit, mirror: reply voice to voice, always: all turns)",
+        currentValue: deps.getVoiceReplyMode(),
+        values: ["manual", "mirror", "always"],
+      },
+      {
+        id: "time",
+        label: "Time Injection",
+        description: "Timestamp prompt injection mode (always: every turn, interval: once per chat interval, hidden: disabled)",
+        currentValue: deps.getTimeInjectionMode(),
+        values: ["always", "interval", "hidden"],
+      },
+      {
+        id: "cleanup",
+        label: "Auto-Cleanup Thread",
+        description: "Delete instance topic on clean session quit",
+        currentValue: deps.isAutomaticThreadCleanupEnabled() ? "on" : "off",
+        values: ["on", "off"],
+      },
+    ];
+
+    const container = new Container();
+    const profile = deps.getActiveProfileName?.() ?? "default";
+    container.addChild(new Text(theme.bold(theme.fg("accent", `Telegram Bridge Settings (${profile})`)), 0, 0));
+    container.addChild(new Text(theme.fg("muted", "Enter / Space to cycle values · Type to filter · Esc to close"), 0, 0));
+    container.addChild(new Spacer(1));
+
+    const listContainer = new Container();
+    let items = buildItems();
+
+    const onChange = async (id: string, newValue: string) => {
+      if (id === "mode" && deps.setThreadDisplayMode) {
+        await deps.setThreadDisplayMode(newValue as TelegramThreadDisplayMode);
+      } else if (id === "activity") {
+        await deps.setActivityVerbosity(newValue as TelegramActivityVerbosity);
+      } else if (id === "drafts") {
+        await deps.setDraftPreviewsEnabled(newValue === "on");
+      } else if (id === "rendering") {
+        await deps.setAssistantRenderingMode(newValue as TelegramAssistantRenderingMode);
+      } else if (id === "voice") {
+        await deps.setVoiceReplyMode(newValue as TelegramVoiceReplyMode);
+      } else if (id === "time") {
+        await deps.setTimeInjectionMode(newValue as TelegramTimeMode);
+      } else if (id === "cleanup") {
+        await deps.setAutomaticThreadCleanupEnabled(newValue === "on");
+      }
+      items = buildItems();
+      listContainer.clear();
+      listContainer.addChild(createList());
+      tui.requestRender();
+    };
+
+    const createList = () =>
+      new SettingsList(
+        items as any,
+        Math.min(items.length, 12),
+        {
+          label: (text: string, selected: boolean) => (selected ? theme.bold(theme.fg("accent", text)) : text),
+          value: (text: string, selected: boolean) => (selected ? theme.fg("accent", text) : theme.fg("muted", text)),
+          description: (text: string) => theme.fg("muted", text),
+          cursor: theme.fg("accent", "❯ "),
+          hint: (text: string) => theme.fg("dim", text),
+        },
+        onChange,
+        () => done(),
+        { typeToSearch: true },
+      );
+
+    listContainer.addChild(createList());
+    container.addChild(listContainer);
+    return container;
+  });
+
+  ctx.ui?.notify?.("Telegram bridge settings saved.", "info");
+}
+
+export async function handleTelegramSettingsCommand(
+  args: string,
+  ctx: ExtensionCommandContext,
+  deps: TelegramSettingsCommandDeps,
+): Promise<void> {
+  const trimmed = args.trim();
+  if (!trimmed) {
+    await openTelegramSettingsTui(ctx, deps);
+    return;
+  }
+
+  const [keyRaw, ...valTokens] = trimmed.split(/\s+/);
+  const key = keyRaw?.toLowerCase();
+  const value = valTokens.join(" ").trim().toLowerCase();
+
+  if (!value) {
+    ctx.ui?.notify?.(formatTelegramSettingsOverview(deps), "info");
+    return;
+  }
+
+  if (key === "mode") {
+    if (["names", "letters", "directories"].includes(value)) {
+      if (deps.setThreadDisplayMode) {
+        await deps.setThreadDisplayMode(value as TelegramThreadDisplayMode);
+        ctx.ui?.notify?.(`✔ Updated mode to "${value}"`, "info");
+      } else {
+        ctx.ui?.notify?.("Setting mode is not supported on this session.", "error");
+      }
+      return;
+    }
+    ctx.ui?.notify?.(`Invalid mode "${value}". Options: names, letters, directories`, "error");
+    return;
+  }
+
+  if (key === "activity") {
+    if (["verbose", "tools", "thinking", "quiet"].includes(value)) {
+      await deps.setActivityVerbosity(value as TelegramActivityVerbosity);
+      ctx.ui?.notify?.(`✔ Updated activity to "${value}"`, "info");
+      return;
+    }
+    ctx.ui?.notify?.(`Invalid activity "${value}". Options: verbose, tools, thinking, quiet`, "error");
+    return;
+  }
+
+  if (key === "drafts") {
+    if (["on", "true", "yes", "1"].includes(value)) {
+      await deps.setDraftPreviewsEnabled(true);
+      ctx.ui?.notify?.('✔ Updated drafts to "on"', "info");
+      return;
+    }
+    if (["off", "false", "no", "0"].includes(value)) {
+      await deps.setDraftPreviewsEnabled(false);
+      ctx.ui?.notify?.('✔ Updated drafts to "off"', "info");
+      return;
+    }
+    ctx.ui?.notify?.(`Invalid drafts value "${value}". Options: on, off`, "error");
+    return;
+  }
+
+  if (key === "rendering") {
+    if (["rich", "html"].includes(value)) {
+      await deps.setAssistantRenderingMode(value as TelegramAssistantRenderingMode);
+      ctx.ui?.notify?.(`✔ Updated rendering to "${value}"`, "info");
+      return;
+    }
+    ctx.ui?.notify?.(`Invalid rendering "${value}". Options: rich, html`, "error");
+    return;
+  }
+
+  if (key === "voice") {
+    if (["manual", "mirror", "always"].includes(value)) {
+      await deps.setVoiceReplyMode(value as TelegramVoiceReplyMode);
+      ctx.ui?.notify?.(`✔ Updated voice to "${value}"`, "info");
+      return;
+    }
+    ctx.ui?.notify?.(`Invalid voice "${value}". Options: manual, mirror, always`, "error");
+    return;
+  }
+
+  if (key === "time") {
+    if (["always", "interval", "hidden"].includes(value)) {
+      await deps.setTimeInjectionMode(value as TelegramTimeMode);
+      ctx.ui?.notify?.(`✔ Updated time to "${value}"`, "info");
+      return;
+    }
+    ctx.ui?.notify?.(`Invalid time "${value}". Options: always, interval, hidden`, "error");
+    return;
+  }
+
+  if (key === "cleanup") {
+    if (["on", "true", "yes", "1"].includes(value)) {
+      await deps.setAutomaticThreadCleanupEnabled(true);
+      ctx.ui?.notify?.('✔ Updated cleanup to "on"', "info");
+      return;
+    }
+    if (["off", "false", "no", "0"].includes(value)) {
+      await deps.setAutomaticThreadCleanupEnabled(false);
+      ctx.ui?.notify?.('✔ Updated cleanup to "off"', "info");
+      return;
+    }
+    ctx.ui?.notify?.(`Invalid cleanup value "${value}". Options: on, off`, "error");
+    return;
+  }
+
+  ctx.ui?.notify?.(`Unknown setting "${key}". Available settings: mode, activity, drafts, rendering, voice, time, cleanup`, "error");
 }

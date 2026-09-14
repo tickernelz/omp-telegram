@@ -15,8 +15,10 @@ import type {
 } from "./telegram-api.ts";
 
 export const TELEGRAM_PROGRESS_TAIL_DEFAULT_INTERVAL_MS = 2_000;
-export const TELEGRAM_PROGRESS_TAIL_MAX_TOOLS = 10;
+export const TELEGRAM_PROGRESS_TAIL_MAX_TOOLS = 4;
 export const TELEGRAM_PROGRESS_TAIL_MAX_REASONING_LINES = 8;
+export const TELEGRAM_PROGRESS_TAIL_MAX_TOOL_ARG_CHARS = 240;
+export const TELEGRAM_PROGRESS_TAIL_MAX_TOOL_RESULT_CHARS = 600;
 export const TELEGRAM_PROGRESS_TAIL_MAX_MESSAGE_CHARS = 3_900;
 export const TELEGRAM_PROGRESS_TAIL_REASONING_BUFFER_MAX_CHARS = 2_400;
 
@@ -26,6 +28,7 @@ export interface ProgressTailToolItem {
   id: string;
   name: string;
   args: string;
+  resultSummary?: string;
   status: "running" | "completed" | "failed" | "waiting";
   askStatus?: "waiting" | "answered_telegram" | "answered_cli";
   isError?: boolean;
@@ -41,6 +44,7 @@ export interface ProgressTailState {
   startedAtMs: number;
   completedAtMs?: number;
   modelName?: string;
+  reasoningBuffer?: string;
   reasoningLines: string[];
   tools: ProgressTailToolItem[];
   todoItems: ProgressTailTodoItem[];
@@ -78,61 +82,174 @@ export interface TelegramProgressTailRuntime {
   waitForIdle: () => Promise<void>;
 }
 
-export function extractShortToolArgs(toolName: string, rawArgs: unknown): string {
+export function extractShortToolArgs(
+  toolName: string,
+  rawArgs: unknown,
+  maxChars = TELEGRAM_PROGRESS_TAIL_MAX_TOOL_ARG_CHARS,
+): string {
   if (rawArgs === undefined || rawArgs === null) return "";
   if (typeof rawArgs === "string") {
     const trimmed = rawArgs.replace(/\s+/g, " ").trim();
     if (!trimmed) return "";
     try {
-      return extractShortToolArgs(toolName, JSON.parse(trimmed));
+      return extractShortToolArgs(toolName, JSON.parse(trimmed), maxChars);
     } catch {
-      return trimmed.slice(0, 60);
+      return trimmed.slice(0, maxChars);
     }
   }
-  if (typeof rawArgs !== "object") return String(rawArgs).slice(0, 60);
+  if (typeof rawArgs !== "object") return String(rawArgs).slice(0, maxChars);
   if (Array.isArray(rawArgs)) {
     return `[${rawArgs.length} items]`;
   }
   const args = rawArgs as Record<string, unknown>;
   if (toolName === "read" || toolName === "write" || toolName === "edit") {
-    if (args.path) return String(args.path);
+    if (args.path) return String(args.path).slice(0, maxChars);
   }
   if (toolName === "glob") {
-    if (args.path) return String(args.path);
-    if (args.pattern) return String(args.pattern);
+    const p = args.path ? String(args.path) : "";
+    const pat = args.pattern ? String(args.pattern) : "";
+    if (p && pat) return `${p} (${pat})`.slice(0, maxChars);
+    if (p) return p.slice(0, maxChars);
+    if (pat) return pat.slice(0, maxChars);
   }
   if (toolName === "grep") {
-    if (args.query) return String(args.query);
-    if (args.pattern) return String(args.pattern);
+    const query = args.query ?? args.pattern;
+    const p = args.path ? ` in ${args.path}` : "";
+    if (query) return `${query}${p}`.slice(0, maxChars);
   }
   if (toolName === "bash") {
     const cmd = args.cmd ?? args.command;
-    if (cmd) return String(cmd).replace(/\s+/g, " ").trim().slice(0, 60);
+    if (cmd) return String(cmd).replace(/\s+/g, " ").trim().slice(0, maxChars);
+  }
+  if (toolName === "fabric_exec") {
+    if (args.code) {
+      return String(args.code).replace(/\s+/g, " ").trim().slice(0, maxChars);
+    }
   }
   if (toolName === "ast_grep") {
-    if (args.pat) return String(args.pat).replace(/\s+/g, " ").trim().slice(0, 60);
+    const pat = args.pat ? String(args.pat) : "";
+    const p = args.path ? ` in ${args.path}` : "";
+    if (pat) return `${pat}${p}`.replace(/\s+/g, " ").trim().slice(0, maxChars);
   }
   if (toolName === "ast_edit") {
-    if (args.paths) return String(args.paths).slice(0, 60);
+    if (args.paths) return String(args.paths).slice(0, maxChars);
   }
   if (toolName === "ask") {
     if (Array.isArray(args.questions)) return `${args.questions.length} question(s)`;
   }
   if (toolName === "todo") {
-    if (args.task) return `${args.task}`;
-    if (args.op) return `${args.op}`;
+    if (args.task) return `${args.task}`.slice(0, maxChars);
+    if (args.op) return `${args.op}`.slice(0, maxChars);
   }
-  const candidateKeys = ["path", "cmd", "command", "query", "pattern", "task", "url", "file", "name", "id"];
+  const candidateKeys = ["path", "cmd", "command", "query", "pattern", "task", "url", "file", "name", "id", "code"];
   for (const key of candidateKeys) {
     if (args[key] !== undefined && typeof args[key] !== "object") {
-      return `${String(args[key])}`.replace(/\s+/g, " ").trim().slice(0, 60);
+      return `${String(args[key])}`.replace(/\s+/g, " ").trim().slice(0, maxChars);
     }
   }
   const entries = Object.entries(args).filter(([, v]) => typeof v !== "object" && v !== undefined);
   if (entries.length > 0) {
-    return entries.slice(0, 2).map(([k, v]) => `${k}: ${v}`).join(", ").slice(0, 60);
+    return entries.slice(0, 3).map(([k, v]) => `${k}: ${v}`).join(", ").slice(0, maxChars);
   }
   return "";
+}
+
+export function extractToolResultSummary(
+  _toolName: string,
+  rawResult: unknown,
+  _isError = false,
+  maxChars = TELEGRAM_PROGRESS_TAIL_MAX_TOOL_RESULT_CHARS,
+): string {
+  if (rawResult === undefined || rawResult === null) return "";
+  let text = "";
+  if (typeof rawResult === "string") {
+    text = rawResult.trim();
+  } else if (typeof rawResult === "object") {
+    const obj = rawResult as Record<string, unknown>;
+    if (Array.isArray(obj.content)) {
+      const parts = obj.content
+        .filter((c: any) => c && typeof c === "object" && typeof c.text === "string")
+        .map((c: any) => c.text.trim());
+      if (parts.length > 0) {
+        text = parts.join("\n");
+      }
+    }
+    if (!text && typeof obj.output === "string") {
+      text = obj.output.trim();
+    }
+    if (!text && typeof obj.message === "string") {
+      text = obj.message.trim();
+    }
+    if (!text && typeof obj.error === "string") {
+      text = obj.error.trim();
+    }
+    if (!text) {
+      try {
+        text = JSON.stringify(obj, null, 2);
+      } catch {
+        text = String(rawResult);
+      }
+    }
+  } else {
+    text = String(rawResult);
+  }
+
+  text = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
+  if (!text) return "";
+
+  if (text.length > maxChars) {
+    text = text.slice(0, maxChars) + "\n… [truncated]";
+  }
+  return text;
+}
+
+export function extractReasoningTail(
+  rawText: string,
+  maxParagraphs = 3,
+  maxChars = 1_200,
+): string {
+  if (!rawText) return "";
+  const cleaned = rawText
+    .replace(/<\/?(?:think|thinking|thought|reasoning)\b[^>]*>/gi, "")
+    .replace(/<\|(?:begin|end)_of_thought\|>/gi, "")
+    .replace(/◁\/?think▷/gi, "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .trim();
+  if (!cleaned) return "";
+
+  const paragraphs = cleaned
+    .split(/\n\s*\n+/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+  if (paragraphs.length === 0) return "";
+
+  const selected: string[] = [];
+  let usedChars = 0;
+
+  for (let i = paragraphs.length - 1; i >= 0; i--) {
+    const p = paragraphs[i]!;
+    if (selected.length >= maxParagraphs) break;
+    if (selected.length > 0 && usedChars + p.length > maxChars) break;
+    selected.unshift(p);
+    usedChars += p.length + 2;
+  }
+
+  let result = selected.join("\n\n");
+  if (result.length > maxChars) {
+    result = result.slice(-maxChars);
+    const firstNewline = result.indexOf("\n");
+    if (firstNewline > 0 && firstNewline < 100) {
+      result = result.slice(firstNewline + 1).trim();
+    }
+  }
+
+  if (paragraphs.length > selected.length) {
+    result = `… [${paragraphs.length - selected.length} earlier paragraph(s) omitted]\n\n${result}`;
+  }
+
+  return result;
 }
 
 export function formatProgressTailHtml(state: ProgressTailState): string {
@@ -152,11 +269,10 @@ export function formatProgressTailHtml(state: ProgressTailState): string {
     sections.push(`⚠️ <b>Failed</b> after ${elapsedSec}s${errText}`);
   }
 
-  const reasoningFiltered = state.reasoningLines.filter((line) => line.trim().length > 0);
-  if (reasoningFiltered.length > 0) {
-    const visibleLines = reasoningFiltered.slice(-TELEGRAM_PROGRESS_TAIL_MAX_REASONING_LINES);
-    const text = escapeHtml(visibleLines.join("\n"));
-    sections.push(`▰ 💭 <b>Reasoning</b>\n<blockquote expandable>${text}</blockquote>`);
+  const rawReasoning = state.reasoningBuffer || state.reasoningLines.join("\n");
+  const reasoningTail = extractReasoningTail(rawReasoning, 3, 1_200);
+  if (reasoningTail.length > 0) {
+    sections.push(`▰ 💭 <b>Reasoning</b>\n<blockquote expandable>${escapeHtml(reasoningTail)}</blockquote>`);
   }
 
   if (state.tools.length > 0) {
@@ -181,6 +297,9 @@ export function formatProgressTailHtml(state: ProgressTailState): string {
         toolLines.push(`✗ <b>${escapeHtml(tool.name)}</b>${tool.args ? `: <code>${escapeHtml(tool.args)}</code>` : ""}`);
       } else {
         toolLines.push(`✓ <b>${escapeHtml(tool.name)}</b>${tool.args ? `: <code>${escapeHtml(tool.args)}</code>` : ""}`);
+      }
+      if (tool.resultSummary && tool.resultSummary.trim().length > 0) {
+        toolLines.push(`<blockquote expandable>${escapeHtml(tool.resultSummary)}</blockquote>`);
       }
     }
     for (const tool of running) {
@@ -300,6 +419,7 @@ export function createTelegramProgressTailRuntime<TAuthority>(
       startedAtMs,
       completedAtMs,
       modelName: deps.getModelName?.(),
+      reasoningBuffer,
       reasoningLines,
       tools: allTools,
       todoItems,
@@ -496,14 +616,23 @@ export function createTelegramProgressTailRuntime<TAuthority>(
           void 0;
         }
       }
+      const resultSummary = extractToolResultSummary(event.toolName, event.result, event.isError);
       completedTools.push({
         id: event.toolCallId,
         name: event.toolName,
         args: existing?.args ?? extractShortToolArgs(event.toolName, undefined),
+        resultSummary,
         status: event.isError ? "failed" : "completed",
         askStatus,
         isError: event.isError,
       });
+      if (event.toolName === "ask" && liveMessage !== undefined) {
+        status = "completed";
+        completedAtMs = getNowMs();
+        await publishToTelegram(acceptedGeneration, true);
+        clearSegment();
+        return;
+      }
       await publishToTelegram(acceptedGeneration, false);
       return;
     }
