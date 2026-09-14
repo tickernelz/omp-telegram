@@ -673,7 +673,7 @@ test("Extension session shutdown without active lock lets process exit", async (
     };
     await handlers.get("session_start")?.({}, ctx);
     await handlers.get("session_shutdown")?.({}, ctx);
-    await rm(agentDir, { recursive: true, force: true });
+    await rm(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }).catch(() => {});
   `);
 
   assert.equal(result.code, 0, result.stderr);
@@ -755,7 +755,7 @@ test("Extension session shutdown lets an active polling owner process exit", asy
     await handlers.get("session_start")?.({}, ctx);
     await new Promise((resolve) => setImmediate(resolve));
     await handlers.get("session_shutdown")?.({}, ctx);
-    await rm(agentDir, { recursive: true, force: true });
+    await rm(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }).catch(() => {});
   `);
 
   assert.equal(result.code, 0, result.stderr);
