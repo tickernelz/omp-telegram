@@ -34,17 +34,40 @@ An uncertain `sendVoice` acknowledgement stops the logical voice batch: it canno
 
 Active Telegram-turn queued attachments recheck turn/session authority after file checks, before each upload, and before failure notices. Cancellation leaves the attachment list intact and suppresses later files and fallback text. Rich upload acknowledgements do not publish ownership into a replacement context. Already-issued uploads cannot be undone, and ambiguous results never authorize replay.
 
-## Technical Activity
+## Live Progress Tail
 
-`assistant.activity` defaults to `verbose` when absent and accepts four modes: `quiet`, `thinking`, `tools`, and `verbose`. Explicit stored values remain unchanged; invalid values fail closed to `quiet`. Every OMP instance reloads this shared file-backed mode at `agent-start`, so a setting changed from one thread applies to subsequent runs in the other live instances without requiring process reload. `thinking` shows only provider-exposed thinking, `tools` shows only completed executed tools, and `verbose` shows both without mixing technical UI into assistant Markdown.
+`omp-telegram` unifies in-flight agent progress, reasoning, tool execution, and todo state into a **single, in-place updated live progress bubble** (`lib/progress-tail.ts`), eliminating message spamming in Telegram.
 
-- Provider-exposed thinking updates one persistent ordinary HTML message containing only a standard Telegram `<blockquote expandable>` with a bounded redacted latest-text window. Omitting a separate icon/level header saves one chat row while the disclosure's unique shape remains recognizable. Inline Markdown emphasis and code render as Telegram HTML instead of leaking raw markers. The bridge sends the message once, edits it only as thinking grows, and leaves the disclosure in chat; it never uses Rich drafts/Rich Messages. Providers that expose no thinking produce none.
-- Completed executed tools use native `sendRichMessage` block objects. Each tool is one closed root details node summarized as bold `<Tool>:` plus monospaced `<status>`; snake-case root labels render as title words (`telegram_attach` → `Telegram Attach`), while each word preserves a leading two- or three-character repeated-letter prefix in uppercase (`ff_find` → `FF Find`). The native disclosure chevron identifies the row, and opening it immediately reveals the open `arguments` child plus separate closed retained `update N`, `result`, or `error` child details. Each child summary is one lowercase monospaced label—visually a quote-free outer JSON key with no icon, list marker, or heading emphasis—and contains one preformatted `json` block. Updates remain chronological, dropped-update counts appear in the first retained update summary, and arrays of object entries keep the denser `[{ ... }, { ... }]` layout. A known-safe Rich HTTP 400 rejection falls back once to the previous expandable HTML representation only while the admitted generation and authority remain current; ambiguous non-idempotent outcomes never replay.
-- Thinking `sendMessage`/`editMessageText` disables link previews and breaks HTTP(S) auto-link recognition inside evidence. Rich tool messages set `skip_entity_detection: true`, so URL-like arguments, updates, and results remain literal code. Consecutive tools coalesce by editing one message only while target, activity, generation, ordering boundary, tool count, and serialized-size bounds still match. Assistant or thinking content closes the batch. A non-idempotent send with unknown commit state is never replayed; failed or ambiguous edits start no fallback send.
+### 1. Structure & Layout
+The live progress tail is formatted as clean, semantically structured HTML:
 
-Thinking retains only a bounded latest-text window, tool updates retain only a bounded latest-entry window, and a session reset abandons queued old-generation work without making the replacement session wait for an old transport call. Late refresh results, acknowledgements, failures, and settlement continuations recheck their captured generation and authority before changing state; old work cannot replace new message handles, clear new tool arguments, or block the replacement's thinking output.
+- **Header**: `⏳ <b>Working...</b> (12.4s) · <i>Model Name</i>`. Shows live elapsed time and active OMP model.
+- **User Prompt (`▰ 👤 Prompt`)**: Displays the incoming user prompt so the operator immediately knows which task is currently executing in Telegram.
+- **Reasoning (`▰ 💭 Reasoning`)**: The latest 1–2 paragraphs of thought stream directly as visible plain text, while earlier thoughts are folded into an expandable `<blockquote expandable>`.
+- **Tools (`▰ 🧰 Tools`)**:
+  - Running tools: `⟳ <b>bash</b>: <code>npm test</code>`
+  - Completed tools: `✓ <b>read</b>: <code>src/index.ts</code>` or `✗ <b>edit</b>: <code>error</code>`
+  - Expandable Tool Output: Each completed tool embeds its result in a collapsible `<blockquote expandable>`.
+  - Ask Tool Status: Displays `⏳ <b>ask</b>: <i>Waiting for user decision...</i>` while waiting, and resolves to `✓ <b>ask</b>: <i>Answered via Telegram</i>` or `✓ <b>ask</b>: <i>Answered via CLI</i>`.
+  - Kept bounded to the 4 newest tools with `… [N earlier tools omitted]` summary for long chains.
+- **Todo (`▰ 📋 Todo`)**: Reflects live checklist progress (`[✓]`, `[⟳]`, `[ ]`) when the agent utilizes the `todo` tool.
 
-Technical activity is operational evidence, not part of the semantic answer stream. Final-answer rendering, voice policy, artifacts, and quiet behavior remain unchanged.
+### 2. Cadence & Rate Limits
+Updates are throttled at a configurable interval (`assistant.progressIntervalMs`, defaulting to 2,000 ms), safely respecting Telegram's `editMessageText` rate limits. Multiple tool updates occurring within an interval window are aggregated locally and flushed in a single edit on the next tick. Turn completions and commentary boundaries trigger an immediate flush.
+
+### 3. Roll-Over & Finalization
+- **Lazy Initiation**: Conversational turns without tool calls or reasoning stream or complete directly without spawning a progress bubble.
+- **Commentary Roll-Over**: When the agent sends intermediate commentary, the active bubble freezes in-place (`✅ Completed in Xs · N tools`), the commentary sends as a clean message below it, and subsequent activity starts a fresh live bubble under the commentary.
+- **Ask Roll-Over**: Answering an `ask` prompt freezes the preceding progress bubble and starts a new live bubble below the ask card, avoiding having to scroll up.
+- **Turn Finalization**: Completed turns freeze the progress bubble into a compact audit record (`✅ Completed in 14.2s · 4 tools · Model`) and deliver the final answer as a separate, clean chat message. Aborted turns freeze with `⏹ Cancelled` and failures freeze with `⚠️ Failed`.
+
+### 4. Hierarchical Section Budgeting
+To prevent exceeding Telegram's 4,096-character limit while preserving rich HTML formatting, the engine enforces multi-tier budget degradation before rendering:
+1. Normal tier: All 4 recent tools with their expandable output quotes + full reasoning.
+2. Moderate tier (>3,500 chars): Retains all 4 tool headers but keeps only the newest tool's output quote, trimming earlier reasoning.
+3. Compact tier (>3,500 chars): Keeps all 4 tool headers, omitting output quotes.
+4. Minimal tier (>3,500 chars): Compresses reasoning budget.
+HTML tags are never stripped or cut in half, guaranteeing syntactically balanced, richly formatted output across turns of arbitrary length.
 
 ### Live Activity Smoke
 

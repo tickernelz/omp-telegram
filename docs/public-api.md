@@ -46,6 +46,8 @@ Stable commands inside OMP:
 - `/telegram-connect` — start polling here and acquire external Telegram control ownership. `/telegram-connect [profile] as=Name` assigns an optional unique capitalized Latin-word identity only when provisioning a fresh Workspace Thread. Accepted queue/reply state stays local if ownership later moves elsewhere. A successful command queues a hidden connection-state note for delivery with the agent's next turn without triggering one; it says Telegram is connected and that connectivity alone is not user intent.
 - `/telegram-disconnect` — after destructive confirmation, stop polling and release ownership without deleting or silencing accepted local queue state. A successful command queues the corresponding hidden, non-triggering disconnected context note; cancelled or failed disconnects do not publish a false state transition. In Threaded Mode it deletes this instance's current Telegram thread; a follower waits for its active leader to confirm generation-fenced cleanup before stopping. Graceful OMP `quit` performs the same teardown without prompting, while `reload`, `new`, `resume`, and `fork` preserve same-process handoff.
 - `/telegram-status` — show connection, polling, execution, queue, and recent event diagnostics; debug output separates poller and worker progress, durable automatic-retry state, exact foreign queued-owner identity, and negotiated protocol/build/capabilities.
+- `/telegram-settings [key] [value]` — open an interactive terminal TUI menu (`SettingsList`) to adjust bridge runtime preferences (display mode, progress tail detail, update interval, drafts, assistant rendering, voice reply mode, time injection, thread cleanup). Also supports non-interactive CLI updates (e.g. `/telegram-settings interval 1500ms` or `/telegram-settings mode names`) and tab autocompletions.
+- `/telegram-rename [name|--reset]` — rename the current instance's Telegram Workspace Thread. Without arguments, generates a concise 2-word title using the OMP host's title model (tiny/commit/smol roles); with `<name>`, sets a validated custom title; with `--reset`, restores the automatic palette name.
 
 ### Telegram commands
 
@@ -107,6 +109,7 @@ interface TelegramConfig {
     rendering?: "rich" | "html";
     activity?: "quiet" | "thinking" | "tools" | "verbose";
     timeInjection?: "hidden" | "always" | "interval";
+    progressIntervalMs?: number;
   };
   voice?: {
     replyMode?: "manual" | "mirror" | "always";

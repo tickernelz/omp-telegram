@@ -297,7 +297,7 @@ The implementation must cover:
 
 ## Core Verbosity And Consumer Policy
 
-The bridge owns a global `quiet`/`thinking`/`tools`/`verbose` policy. `verbose` is the absent-config default, `thinking` and `tools` select one technical class, and `quiet` disables both. Available thinking uses persistent ordinary HTML with an expandable blockquote; bounded tool evidence uses native Rich details without changing public assistant-segment projection or final replies.
+The bridge owns a global `quiet`/`thinking`/`tools`/`verbose` policy governing the built-in **Live Progress Tail** (`lib/progress-tail.ts`). `verbose` is the absent-config default, `thinking` and `tools` isolate their respective sections within the single live progress bubble, and `quiet` suppresses the live progress bubble entirely. The progress bubble updates in-place, displays user prompt context, direct latest reasoning, expandable historical thoughts, up to 4 newest tools with collapsible results, and freezes upon turn completion.
 
 The registration and delivery examples above remain the public building blocks for companion-specific policy:
 
