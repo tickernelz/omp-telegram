@@ -4,6 +4,11 @@
 
 ## Unreleased
 
+## 0.3.9: Recover Ambiguous Topic Provisioning From Durable Workspace Bindings
+
+- `Durable Workspace Binding Recovery`: When topic provisioning encounters transport failure or an ambiguous pending provision, the provisioner now rechecks and reuses the exact durable inactive workspace binding for that workspace if available, instead of failing repeatedly or creating duplicate topics.
+- `Safe Reconnect`: Prevents `/telegram-connect` from aborting with `createForumTopic may have committed before transport failed` when an existing valid topic is already recorded in the workspace store.
+
 ## 0.3.8: Fix Ask Button Callback Enqueueing And Stalled Race
 
 - `Fix Stale Ask Callback Enqueueing`: Added `tgask:` to `TELEGRAM_OWNED_CALLBACK_PREFIXES`. Previously, when an ask button was clicked after the CLI won the race or before the follower registry was warm, unrecognized `tgask:*` callback data fell through into the generic user prompt queue, enqueueing `[callback] tgask:...` as a new user message and stalling the session.

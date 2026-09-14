@@ -2948,6 +2948,49 @@ test("Thread provisioner preserves ambiguous creation intent and blocks successo
   }
 });
 
+test("Thread provisioner recovers an ambiguous request from an exact inactive workspace binding", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "pi-telegram-provision-workspace-recovery-"));
+  try {
+    const store = createTelegramTopicTargetStore({ path: join(dir, "state.json"), getNowMs: () => 3000 });
+    const identity = store.claimWorkspaceIdentity("/repo", "old-instance")!;
+    const target = { chatId: -1001, threadId: 77 };
+    assert.ok(store.upsertWorkspaceBinding({ ...identity, target, slot: identity.slot, threadName: "Atlas", displayTitle: "Repo", updatedAtMs: 1000 }, "old-instance"));
+    assert.deepEqual(store.listWorkspaceBindings().map((binding) => binding.bindingKey), [identity.bindingKey]);
+    store.upsertPendingProvision({
+      id: "provision:new-instance:A:2000",
+      owner: "leader",
+      instanceId: "new-instance",
+      profileKey: "cwd:/repo",
+      status: "ambiguous",
+      threadName: "Atlas",
+      slot: "A",
+      startedAtMs: 2000,
+    });
+    let creations = 0;
+    const provision = createTelegramTopicTargetProvisioner({
+      topicChatId: -1001,
+      store,
+      getNowMs: () => 3000,
+      async callApi() {
+        creations++;
+        throw new Error("must not create a duplicate topic");
+      },
+    });
+    const result = await provision({
+      instanceId: "new-instance",
+      profileKey: "cwd:/repo",
+      workspaceBindingKey: identity.bindingKey,
+      workspaceCwd: identity.cwd,
+    });
+    assert.equal(result.reused, true);
+    assert.deepEqual(result.target, target);
+    assert.equal(creations, 0);
+    assert.deepEqual(store.listPendingProvisions(), []);
+  } finally {
+    await rm(dir, { force: true, recursive: true });
+  }
+});
+
 test("Thread provisioner treats a malformed successful create as commit-unknown", async () => {
   const dir = await mkdtemp(join(tmpdir(), "pi-telegram-provision-malformed-"));
   try {

@@ -4672,6 +4672,39 @@ export function createTelegramTopicTargetProvisioner(
       };
     }
     if (pendingForRequest) {
+      const recoverableBinding = request.workspaceBindingKey
+        ? deps.store.listWorkspaceBindings().find(
+            (binding) => binding.bindingKey === request.workspaceBindingKey,
+          )
+        : undefined;
+      if (recoverableBinding?.target && recoverableBinding.slot) {
+        assertTelegramPendingTopicRecoveryAllowed(
+          deps.store,
+          recoverableBinding.target,
+        );
+        const record = deps.store.upsert({
+          profileKey: request.profileKey,
+          owner: request.owner,
+          target: { ...recoverableBinding.target },
+          status: "active",
+          createdAtMs: recoverableBinding.updatedAtMs,
+          updatedAtMs: nowMs,
+          threadName: recoverableBinding.threadName,
+          instanceId: request.instanceId,
+          slot: recoverableBinding.slot,
+        });
+        deps.store.removePendingProvision(pendingForRequest.id);
+        await deps.store.persist();
+        assertLeaderEpoch("after-recovered-workspace-binding");
+        return {
+          target: record.target,
+          reused: true,
+          record,
+          ...(recoverableBinding.displayTitle
+            ? { displayTitle: recoverableBinding.displayTitle }
+            : {}),
+        };
+      }
       throw new Error(
         `Telegram topic provisioning remains ${pendingForRequest.status ?? "in-flight"} for this instance.`,
       );
