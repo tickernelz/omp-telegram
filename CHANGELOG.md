@@ -4,6 +4,11 @@
 
 ## Unreleased
 
+## 0.3.5: Hierarchical Section Budgeting And Rich Integrity
+
+- `Rich HTML Integrity`: Solved plain-text degradation where long turns stripped all HTML tags when exceeding message character limits. Sections (prompt, reasoning, tool arguments, tool results) are now budgeted at the source before rendering, and multi-tier degradation gracefully drops older tool output blockquotes and compresses historical thoughts without ever stripping HTML markup.
+- `Reasoning Formatting`: Clamped reasoning slicing to whitespace boundaries to prevent mid-word cuts, keeping the latest 1-2 thoughts open while older thoughts remain neatly folded into an expandable blockquote.
+
 ## 0.3.4: User Prompt Display And Entity Parse Fail-Safe
 
 - `User Prompt Display`: The active live progress tail bubble now displays the user's incoming message (`▰ 👤 Prompt`), keeping the exact task context visible in Telegram without needing to scroll or guess what prompt is being executed.

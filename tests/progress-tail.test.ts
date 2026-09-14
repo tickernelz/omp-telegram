@@ -452,3 +452,46 @@ test("Progress tail runtime captures and displays promptText from agent-start", 
   assert.equal(sends[0]?.text?.includes("[telegram]"), false, "[telegram] prefix must be stripped");
 });
 
+
+test("formatProgressTailHtml handles massive reasoning and 50 tools without dropping HTML tags or exceeding budget", () => {
+  const massiveReasoning = [
+    "Paragraph 1 describing initial investigation and findings.",
+    "Paragraph 2 exploring multiple potential root causes in depth.",
+    "Paragraph 3 detailing code paths and execution flows.",
+    "Paragraph 4 discussing tradeoffs between performance and memory.",
+    "Paragraph 5 concluding with the optimal architectural design.",
+  ].join("\n\n");
+
+  const tools = Array(50).fill(null).map((_, i) => ({
+    id: String(i),
+    name: "bash",
+    args: "cd /home/zhafron/Projects/omp-telegram && sed -n '1,100p' lib/progress-tail.ts",
+    status: "completed" as const,
+    resultSummary: "line 1 of command output\nline 2 of command output\n" + "output data ".repeat(30),
+  }));
+
+  const state: ProgressTailState = {
+    status: "working",
+    startedAtMs: 1000,
+    modelName: "Gemini 3.8 Flash (High) (omniroute)",
+    userPrompt: "sekarang aku ingin kamu full rewrite readme.md nya dan update doc doc yang lain",
+    reasoningBuffer: massiveReasoning,
+    reasoningLines: massiveReasoning.split("\n"),
+    tools,
+    todoItems: [
+      { task: "Task 1", status: "completed" },
+      { task: "Task 2", status: "in_progress" },
+    ],
+  };
+
+  const html = formatProgressTailHtml(state);
+  assert.ok(html.length <= 3500, "HTML length must stay within safety budget, got " + html.length);
+  assert.ok(html.includes("⏳ <b>Working...</b>"), "must retain bold header tag");
+  assert.ok(html.includes("▰ 👤 <b>Prompt</b>"), "must retain prompt bold tag");
+  assert.ok(html.includes("▰ 💭 <b>Reasoning</b>"), "must retain reasoning bold tag");
+  assert.ok(html.includes("▰ 🧰 <b>Tools</b>"), "must retain tools bold tag");
+  assert.ok(html.includes("<blockquote expandable>"), "must retain expandable blockquote");
+  assert.ok(html.includes("</code>"), "must retain code tags");
+  assert.equal(html.includes("… [truncated]"), false, "must not produce raw plain-text truncation");
+});
+

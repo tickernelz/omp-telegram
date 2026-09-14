@@ -17,9 +17,9 @@ import type {
 export const TELEGRAM_PROGRESS_TAIL_DEFAULT_INTERVAL_MS = 2_000;
 export const TELEGRAM_PROGRESS_TAIL_MAX_TOOLS = 4;
 export const TELEGRAM_PROGRESS_TAIL_MAX_REASONING_LINES = 8;
-export const TELEGRAM_PROGRESS_TAIL_MAX_TOOL_ARG_CHARS = 240;
-export const TELEGRAM_PROGRESS_TAIL_MAX_TOOL_RESULT_CHARS = 600;
-export const TELEGRAM_PROGRESS_TAIL_MAX_MESSAGE_CHARS = 3_900;
+export const TELEGRAM_PROGRESS_TAIL_MAX_TOOL_ARG_CHARS = 120;
+export const TELEGRAM_PROGRESS_TAIL_MAX_TOOL_RESULT_CHARS = 250;
+export const TELEGRAM_PROGRESS_TAIL_MAX_MESSAGE_CHARS = 3_500;
 export const TELEGRAM_PROGRESS_TAIL_REASONING_BUFFER_MAX_CHARS = 2_400;
 
 export type ProgressTailStatus = "working" | "completed" | "cancelled" | "failed";
@@ -155,7 +155,7 @@ export function extractShortToolArgs(
   return "";
 }
 
-export function cleanUserPrompt(raw: string, maxChars = 240): string {
+export function cleanUserPrompt(raw: string, maxChars = 140): string {
   if (!raw) return "";
   let text = raw.trim().replace(/^\[telegram\]\s*/i, "").trim();
   text = text.replace(/\s+/g, " ").trim();
@@ -217,8 +217,8 @@ export function extractToolResultSummary(
 export function renderReasoningSectionHtml(
   rawText: string,
   latestParagraphsCount = 2,
-  maxHistoryParagraphs = 5,
-  maxChars = 1_800,
+  maxHistoryParagraphs = 3,
+  maxChars = 800,
 ): string {
   if (!rawText) return "";
   const cleaned = rawText
@@ -241,8 +241,8 @@ export function renderReasoningSectionHtml(
   const earlier = paragraphs.slice(0, -latestParagraphsCount);
 
   const parts: string[] = [];
+  const halfBudget = Math.max(150, Math.floor(maxChars * 0.45));
 
-  const halfBudget = Math.max(200, Math.floor(maxChars * 0.5));
   if (earlier.length > 0) {
     const visibleEarlier = earlier.slice(-maxHistoryParagraphs);
     const omitted = earlier.length - visibleEarlier.length;
@@ -317,86 +317,99 @@ export function extractReasoningTail(
 }
 
 export function formatProgressTailHtml(state: ProgressTailState): string {
-  const sections: string[] = [];
-  const endMs = state.completedAtMs ?? Date.now();
-  const elapsedSec = Math.max(0.1, (endMs - state.startedAtMs) / 1000).toFixed(1);
-  const modelPart = state.modelName ? ` · <i>${escapeHtml(state.modelName)}</i>` : "";
+  const buildSections = (includeOlderToolResults: boolean, includeLatestToolResult: boolean, reasoningMaxChars: number) => {
+    const sections: string[] = [];
+    const endMs = state.completedAtMs ?? Date.now();
+    const elapsedSec = Math.max(0.1, (endMs - state.startedAtMs) / 1000).toFixed(1);
+    const modelPart = state.modelName ? ` · <i>${escapeHtml(state.modelName)}</i>` : "";
 
-  if (state.status === "working") {
-    sections.push(`⏳ <b>Working...</b> (${elapsedSec}s)${modelPart}`);
-  } else if (state.status === "completed") {
-    sections.push(`✅ <b>Completed</b> in ${elapsedSec}s · ${state.tools.length} tools${modelPart}`);
-  } else if (state.status === "cancelled") {
-    sections.push(`⏹ <b>Cancelled</b> after ${elapsedSec}s · ${state.tools.length} tools${modelPart}`);
-  } else {
-    const errText = state.errorMessage ? `: ${escapeHtml(state.errorMessage)}` : "";
-    sections.push(`⚠️ <b>Failed</b> after ${elapsedSec}s${errText}`);
-  }
-
-  if (state.userPrompt) {
-    sections.push(`▰ 👤 <b>Prompt</b>\n<i>${escapeHtml(state.userPrompt)}</i>`);
-  }
-
-  const rawReasoning = state.reasoningBuffer || state.reasoningLines.join("\n");
-  const reasoningSection = renderReasoningSectionHtml(rawReasoning, 2, 5, 1_800);
-  if (reasoningSection.length > 0) {
-    sections.push(reasoningSection);
-  }
-
-  if (state.tools.length > 0) {
-    const completed = state.tools.filter((t) => t.status === "completed" || t.status === "failed");
-    const running = state.tools.filter((t) => t.status === "running" || t.status === "waiting");
-    const header = `▰ 🧰 <b>Tools</b> (${completed.length} completed${running.length > 0 ? `, ${running.length} running` : ""})`;
-    const toolLines: string[] = [];
-    if (completed.length > TELEGRAM_PROGRESS_TAIL_MAX_TOOLS) {
-      toolLines.push(`… [${completed.length - TELEGRAM_PROGRESS_TAIL_MAX_TOOLS} earlier tools omitted]`);
+    if (state.status === "working") {
+      sections.push(`⏳ <b>Working...</b> (${elapsedSec}s)${modelPart}`);
+    } else if (state.status === "completed") {
+      sections.push(`✅ <b>Completed</b> in ${elapsedSec}s · ${state.tools.length} tools${modelPart}`);
+    } else if (state.status === "cancelled") {
+      sections.push(`⏹ <b>Cancelled</b> after ${elapsedSec}s · ${state.tools.length} tools${modelPart}`);
+    } else {
+      const errText = state.errorMessage ? `: ${escapeHtml(state.errorMessage)}` : "";
+      sections.push(`⚠️ <b>Failed</b> after ${elapsedSec}s${errText}`);
     }
-    const visibleCompleted = completed.slice(-TELEGRAM_PROGRESS_TAIL_MAX_TOOLS);
-    for (const tool of visibleCompleted) {
-      if (tool.name === "ask") {
-        if (tool.askStatus === "answered_telegram") {
-          toolLines.push("✓ <b>ask</b>: <i>Answered via Telegram</i>");
-        } else if (tool.askStatus === "answered_cli") {
-          toolLines.push("✓ <b>ask</b>: <i>Answered via CLI</i>");
+
+    if (state.userPrompt) {
+      sections.push(`▰ 👤 <b>Prompt</b>\n<i>${escapeHtml(state.userPrompt)}</i>`);
+    }
+
+    const rawReasoning = state.reasoningBuffer || state.reasoningLines.join("\n");
+    const reasoningSection = renderReasoningSectionHtml(rawReasoning, 2, 3, reasoningMaxChars);
+    if (reasoningSection.length > 0) {
+      sections.push(reasoningSection);
+    }
+
+    if (state.tools.length > 0) {
+      const completed = state.tools.filter((t) => t.status === "completed" || t.status === "failed");
+      const running = state.tools.filter((t) => t.status === "running" || t.status === "waiting");
+      const header = `▰ 🧰 <b>Tools</b> (${completed.length} completed${running.length > 0 ? `, ${running.length} running` : ""})`;
+      const toolLines: string[] = [];
+      if (completed.length > TELEGRAM_PROGRESS_TAIL_MAX_TOOLS) {
+        toolLines.push(`… [${completed.length - TELEGRAM_PROGRESS_TAIL_MAX_TOOLS} earlier tools omitted]`);
+      }
+      const visibleCompleted = completed.slice(-TELEGRAM_PROGRESS_TAIL_MAX_TOOLS);
+      for (let i = 0; i < visibleCompleted.length; i++) {
+        const tool = visibleCompleted[i]!;
+        const isNewest = i === visibleCompleted.length - 1;
+        if (tool.name === "ask") {
+          if (tool.askStatus === "answered_telegram") {
+            toolLines.push("✓ <b>ask</b>: <i>Answered via Telegram</i>");
+          } else if (tool.askStatus === "answered_cli") {
+            toolLines.push("✓ <b>ask</b>: <i>Answered via CLI</i>");
+          } else {
+            toolLines.push(`✓ <b>ask</b>${tool.args ? `: <code>${escapeHtml(tool.args)}</code>` : ""}`);
+          }
+        } else if (tool.status === "failed") {
+          toolLines.push(`✗ <b>${escapeHtml(tool.name)}</b>${tool.args ? `: <code>${escapeHtml(tool.args)}</code>` : ""}`);
         } else {
-          toolLines.push(`✓ <b>ask</b>${tool.args ? `: <code>${escapeHtml(tool.args)}</code>` : ""}`);
+          toolLines.push(`✓ <b>${escapeHtml(tool.name)}</b>${tool.args ? `: <code>${escapeHtml(tool.args)}</code>` : ""}`);
         }
-      } else if (tool.status === "failed") {
-        toolLines.push(`✗ <b>${escapeHtml(tool.name)}</b>${tool.args ? `: <code>${escapeHtml(tool.args)}</code>` : ""}`);
-      } else {
-        toolLines.push(`✓ <b>${escapeHtml(tool.name)}</b>${tool.args ? `: <code>${escapeHtml(tool.args)}</code>` : ""}`);
+        const allowResult = includeLatestToolResult && (includeOlderToolResults || isNewest);
+        if (allowResult && tool.resultSummary && tool.resultSummary.trim().length > 0) {
+          toolLines.push(`<blockquote expandable>${escapeHtml(tool.resultSummary)}</blockquote>`);
+        }
       }
-      if (tool.resultSummary && tool.resultSummary.trim().length > 0) {
-        toolLines.push(`<blockquote expandable>${escapeHtml(tool.resultSummary)}</blockquote>`);
+      for (const tool of running) {
+        if (tool.name === "ask") {
+          toolLines.push("⏳ <b>ask</b>: <i>Waiting for user decision...</i>");
+        } else {
+          toolLines.push(`⟳ <b>${escapeHtml(tool.name)}</b>${tool.args ? `: <code>${escapeHtml(tool.args)}</code>` : ""}`);
+        }
       }
+      sections.push(`${header}\n${toolLines.join("\n")}`);
     }
-    for (const tool of running) {
-      if (tool.name === "ask") {
-        toolLines.push("⏳ <b>ask</b>: <i>Waiting for user decision...</i>");
-      } else {
-        toolLines.push(`⟳ <b>${escapeHtml(tool.name)}</b>${tool.args ? `: <code>${escapeHtml(tool.args)}</code>` : ""}`);
-      }
-    }
-    sections.push(`${header}\n${toolLines.join("\n")}`);
-  }
 
-  if (state.todoItems.length > 0) {
-    const doneCount = state.todoItems.filter((t) => t.status === "completed").length;
-    const header = `▰ 📋 <b>Todo</b> (${doneCount}/${state.todoItems.length})`;
-    const todoLines = state.todoItems.slice(0, 6).map((item) => {
-      const marker = item.status === "completed" ? "[✓]" : item.status === "in_progress" ? "[⟳]" : item.status === "cancelled" ? "[-]" : "[ ]";
-      return `${marker} ${escapeHtml(item.task)}`;
-    });
-    if (state.todoItems.length > 6) {
-      todoLines.push(`… [${state.todoItems.length - 6} more tasks]`);
+    if (state.todoItems.length > 0) {
+      const doneCount = state.todoItems.filter((t) => t.status === "completed").length;
+      const header = `▰ 📋 <b>Todo</b> (${doneCount}/${state.todoItems.length})`;
+      const todoLines = state.todoItems.slice(0, 6).map((item) => {
+        const marker = item.status === "completed" ? "[✓]" : item.status === "in_progress" ? "[⟳]" : item.status === "cancelled" ? "[-]" : "[ ]";
+        return `${marker} ${escapeHtml(item.task)}`;
+      });
+      if (state.todoItems.length > 6) {
+        todoLines.push(`… [${state.todoItems.length - 6} more tasks]`);
+      }
+      sections.push(`${header}\n${todoLines.join("\n")}`);
     }
-    sections.push(`${header}\n${todoLines.join("\n")}`);
-  }
 
-  const body = sections.join("\n\n");
-  if (body.length > TELEGRAM_PROGRESS_TAIL_MAX_MESSAGE_CHARS) {
-    const plain = body.replace(/<[^>]+>/g, "");
-    return plain.slice(0, TELEGRAM_PROGRESS_TAIL_MAX_MESSAGE_CHARS - 30) + "\n… [truncated]";
+    return sections.join("\n\n");
+  };
+
+  const MAX_CHARS = TELEGRAM_PROGRESS_TAIL_MAX_MESSAGE_CHARS;
+  let body = buildSections(true, true, 800);
+  if (body.length > MAX_CHARS) {
+    body = buildSections(false, true, 600);
+  }
+  if (body.length > MAX_CHARS) {
+    body = buildSections(false, false, 500);
+  }
+  if (body.length > MAX_CHARS) {
+    body = buildSections(false, false, 300);
   }
   return body;
 }
