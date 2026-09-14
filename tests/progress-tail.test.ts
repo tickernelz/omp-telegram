@@ -9,6 +9,7 @@ import test from "node:test";
 
 import {
   createTelegramProgressTailRuntime,
+  cleanUserPrompt,
   renderReasoningSectionHtml,
   extractReasoningTail,
   extractShortToolArgs,
@@ -399,5 +400,55 @@ test("renderReasoningSectionHtml displays latest 1-2 paragraphs directly, earlie
   const afterBq = longHtml.slice(bqEnd);
   assert.ok(afterBq.includes("Paragraph 3."));
   assert.ok(afterBq.includes("Paragraph 4."));
+});
+
+
+test("cleanUserPrompt strips [telegram] prefix and truncates cleanly", () => {
+  assert.equal(cleanUserPrompt("[telegram] Halo tolong cek bug"), "Halo tolong cek bug");
+  assert.equal(cleanUserPrompt("  [Telegram]   Multiple   spaces  "), "Multiple spaces");
+  const long = "x".repeat(300);
+  const cleaned = cleanUserPrompt(long, 50);
+  assert.equal(cleaned.length, 51);
+  assert.ok(cleaned.endsWith("…"));
+});
+
+test("formatProgressTailHtml includes user prompt when provided", () => {
+  const state: ProgressTailState = {
+    status: "working",
+    startedAtMs: 1000,
+    modelName: "Opus 5",
+    userPrompt: "buatkan fitur login oauth",
+    reasoningLines: [],
+    tools: [],
+    todoItems: [],
+  };
+
+  const html = formatProgressTailHtml(state);
+  assert.ok(html.includes("▰ 👤 <b>Prompt</b>"));
+  assert.ok(html.includes("<i>buatkan fitur login oauth</i>"));
+});
+
+test("Progress tail runtime captures and displays promptText from agent-start", async () => {
+  const sends: TelegramSendMessageBody[] = [];
+  const runtime = createTelegramProgressTailRuntime({
+    getActivityMode: () => "verbose",
+    resolveTarget: (e) => e.target,
+    captureAuthority: () => 1,
+    isAuthorityActive: () => true,
+    async sendMessage(body) {
+      sends.push(body);
+      return { message_id: 1, date: 1, chat: { id: 42, type: "private" } };
+    },
+    async editMessageText() { return "edited"; },
+  });
+
+  runtime.accept(event("agent-start", { promptText: "[telegram] bikin endpoint user profile" }));
+  runtime.accept(event("tool-start", { toolCallId: "1", toolName: "read", args: { path: "api.ts" } }));
+  await runtime.waitForIdle();
+
+  assert.equal(sends.length, 1);
+  assert.ok(sends[0]?.text?.includes("▰ 👤 <b>Prompt</b>"));
+  assert.ok(sends[0]?.text?.includes("bikin endpoint user profile"));
+  assert.equal(sends[0]?.text?.includes("[telegram]"), false, "[telegram] prefix must be stripped");
 });
 

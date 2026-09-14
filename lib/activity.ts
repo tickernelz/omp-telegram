@@ -37,7 +37,7 @@ export interface TelegramActivityEnvelope {
 }
 
 export type TelegramActivityPayload =
-  | { type: "agent-start" }
+  | { type: "agent-start"; promptText?: string }
     | {
         type: "assistant-text-delta";
         contentIndex: number;
@@ -420,11 +420,11 @@ export function createTelegramActivityBridgeRuntime(deps: {
         now: deps.now,
       });
     },
-    recordInputSource(source) {
-      getRuntime()?.recordInputSource(source);
+    recordInputSource(source, promptText) {
+      getRuntime()?.recordInputSource(source, promptText);
     },
-    onAgentStart(target, replyToMessageId) {
-      getRuntime()?.onAgentStart(target, replyToMessageId);
+    onAgentStart(target, replyToMessageId, promptText) {
+      getRuntime()?.onAgentStart(target, replyToMessageId, promptText);
     },
     onAssistantEvent(event) {
       getRuntime()?.onAssistantEvent(event);
@@ -492,8 +492,8 @@ export type TelegramAssistantStreamEvent =
 /** @internal */
 export interface TelegramActivityRuntime {
   onSessionStart?: () => void;
-  recordInputSource: (source: TelegramActivityInputSource) => void;
-  onAgentStart: (activeTelegramTarget?: TelegramActivityTarget, replyToMessageId?: number) => void;
+  recordInputSource: (source: TelegramActivityInputSource, promptText?: string) => void;
+  onAgentStart: (activeTelegramTarget?: TelegramActivityTarget, replyToMessageId?: number, promptText?: string) => void;
   onAssistantEvent: (event: TelegramAssistantStreamEvent) => void;
   onAssistantMessageEnd: (stopReason?: string) => void;
   onToolStart: (event: {
@@ -553,6 +553,7 @@ export function createTelegramActivityRuntime(deps: {
   let activityReplyToMessageId: number | undefined;
   let sequence = 0;
   let pendingInputSource: TelegramActivityInputSource = "unknown";
+  let pendingPromptText: string | undefined;
   let pendingAssistantSegment: PendingAssistantSegment | undefined;
   let compactionInProgress = false;
   let compactionOwnedActivity = false;
@@ -615,6 +616,7 @@ export function createTelegramActivityRuntime(deps: {
     activityTarget = undefined;
     activityReplyToMessageId = undefined;
     sequence = 0;
+    pendingPromptText = undefined;
     pendingAssistantSegment = undefined;
     compactionInProgress = false;
     compactionOwnedActivity = false;
@@ -628,14 +630,17 @@ export function createTelegramActivityRuntime(deps: {
     if (shouldClearActivity) clearActivity();
   };
   return {
-    recordInputSource(source) {
+    recordInputSource(source, promptText) {
       pendingInputSource = source;
+      pendingPromptText = promptText;
     },
-    onAgentStart(activeTelegramTarget, replyToMessageId) {
+    onAgentStart(activeTelegramTarget, replyToMessageId, promptText) {
       abandonCompaction();
       ensureActivity(activeTelegramTarget);
       activityReplyToMessageId = activitySource === "telegram" ? replyToMessageId : undefined;
-      emit({ type: "agent-start" });
+      const finalPrompt = promptText ?? pendingPromptText;
+      pendingPromptText = undefined;
+      emit({ type: "agent-start", promptText: finalPrompt });
     },
     onAssistantEvent(event) {
       if (event.type === "text_start") {

@@ -44,6 +44,7 @@ export interface ProgressTailState {
   startedAtMs: number;
   completedAtMs?: number;
   modelName?: string;
+  userPrompt?: string;
   reasoningBuffer?: string;
   reasoningLines: string[];
   tools: ProgressTailToolItem[];
@@ -154,6 +155,16 @@ export function extractShortToolArgs(
   return "";
 }
 
+export function cleanUserPrompt(raw: string, maxChars = 240): string {
+  if (!raw) return "";
+  let text = raw.trim().replace(/^\[telegram\]\s*/i, "").trim();
+  text = text.replace(/\s+/g, " ").trim();
+  if (text.length > maxChars) {
+    text = text.slice(0, maxChars) + "…";
+  }
+  return text;
+}
+
 export function extractToolResultSummary(
   _toolName: string,
   rawResult: unknown,
@@ -231,6 +242,7 @@ export function renderReasoningSectionHtml(
 
   const parts: string[] = [];
 
+  const halfBudget = Math.max(200, Math.floor(maxChars * 0.5));
   if (earlier.length > 0) {
     const visibleEarlier = earlier.slice(-maxHistoryParagraphs);
     const omitted = earlier.length - visibleEarlier.length;
@@ -239,18 +251,20 @@ export function renderReasoningSectionHtml(
       earlierLines.push(`… [${omitted} earlier thought(s) omitted]`);
     }
     earlierLines.push(...visibleEarlier);
-    const earlierText = escapeHtml(earlierLines.join("\n\n"));
-    parts.push(`<blockquote expandable>${earlierText}</blockquote>`);
+    let earlierText = earlierLines.join("\n\n");
+    if (earlierText.length > halfBudget) {
+      earlierText = earlierText.slice(-halfBudget);
+    }
+    parts.push(`<blockquote expandable>${escapeHtml(earlierText)}</blockquote>`);
   }
 
-  const latestText = escapeHtml(latest.join("\n\n"));
-  parts.push(latestText);
-
-  let rendered = parts.join("\n\n");
-  if (rendered.length > maxChars) {
-    rendered = rendered.slice(-maxChars);
+  let latestText = latest.join("\n\n");
+  if (latestText.length > halfBudget) {
+    latestText = latestText.slice(-halfBudget);
   }
-  return `▰ 💭 <b>Reasoning</b>\n${rendered}`;
+  parts.push(escapeHtml(latestText));
+
+  return `▰ 💭 <b>Reasoning</b>\n${parts.join("\n\n")}`;
 }
 
 export function extractReasoningTail(
@@ -319,6 +333,10 @@ export function formatProgressTailHtml(state: ProgressTailState): string {
     sections.push(`⚠️ <b>Failed</b> after ${elapsedSec}s${errText}`);
   }
 
+  if (state.userPrompt) {
+    sections.push(`▰ 👤 <b>Prompt</b>\n<i>${escapeHtml(state.userPrompt)}</i>`);
+  }
+
   const rawReasoning = state.reasoningBuffer || state.reasoningLines.join("\n");
   const reasoningSection = renderReasoningSectionHtml(rawReasoning, 2, 5, 1_800);
   if (reasoningSection.length > 0) {
@@ -375,9 +393,10 @@ export function formatProgressTailHtml(state: ProgressTailState): string {
     sections.push(`${header}\n${todoLines.join("\n")}`);
   }
 
-  let body = sections.join("\n\n");
+  const body = sections.join("\n\n");
   if (body.length > TELEGRAM_PROGRESS_TAIL_MAX_MESSAGE_CHARS) {
-    body = body.slice(0, TELEGRAM_PROGRESS_TAIL_MAX_MESSAGE_CHARS - 20) + "\n… [truncated]";
+    const plain = body.replace(/<[^>]+>/g, "");
+    return plain.slice(0, TELEGRAM_PROGRESS_TAIL_MAX_MESSAGE_CHARS - 30) + "\n… [truncated]";
   }
   return body;
 }
@@ -398,6 +417,7 @@ export function createTelegramProgressTailRuntime<TAuthority>(
   let liveMessage: { messageId: number; target: TelegramTarget } | undefined;
   let startedAtMs = 0;
   let completedAtMs: number | undefined;
+  let userPrompt: string | undefined;
   let status: ProgressTailStatus = "working";
   let reasoningBuffer = "";
   let reasoningLines: string[] = [];
@@ -443,6 +463,7 @@ export function createTelegramProgressTailRuntime<TAuthority>(
     activityId = undefined;
     authority = undefined;
     target = undefined;
+    userPrompt = undefined;
     todoItems.length = 0;
   };
 
@@ -469,6 +490,7 @@ export function createTelegramProgressTailRuntime<TAuthority>(
       startedAtMs,
       completedAtMs,
       modelName: deps.getModelName?.(),
+      userPrompt,
       reasoningBuffer,
       reasoningLines,
       tools: allTools,
@@ -505,6 +527,24 @@ export function createTelegramProgressTailRuntime<TAuthority>(
         lastPublishMs = getNowMs();
         dirty = false;
       } catch (error) {
+        if (error instanceof Error && /can't parse entities/i.test(error.message)) {
+          try {
+            const plain = currentHtml.replace(/<[^>]+>/g, "");
+            const sent = await deps.sendMessage({
+              chat_id: target.chatId,
+              ...(target.threadId === undefined ? {} : { message_thread_id: target.threadId }),
+              text: plain,
+              link_preview_options: { is_disabled: true },
+            });
+            if (!isCurrent(acceptedGeneration, admittedAuthority)) return;
+            liveMessage = { messageId: sent.message_id, target: { ...target } };
+            lastPublishMs = getNowMs();
+            dirty = false;
+            return;
+          } catch {
+            void 0;
+          }
+        }
         deps.recordFailure?.("tail-send", { type: "tool-start" } as TelegramActivityEvent, error);
       } finally {
         publishing = false;
@@ -526,6 +566,22 @@ export function createTelegramProgressTailRuntime<TAuthority>(
         lastPublishMs = getNowMs();
         dirty = false;
       } catch (error) {
+        if (error instanceof Error && /can't parse entities/i.test(error.message)) {
+          try {
+            const plain = currentHtml.replace(/<[^>]+>/g, "");
+            await deps.editMessageText({
+              chat_id: liveMessage.target.chatId,
+              message_id: liveMessage.messageId,
+              text: plain,
+              link_preview_options: { is_disabled: true },
+            });
+            lastPublishMs = getNowMs();
+            dirty = false;
+            return;
+          } catch {
+            void 0;
+          }
+        }
         deps.recordFailure?.("tail-edit", { type: "tool-end" } as TelegramActivityEvent, error);
       } finally {
         publishing = false;
@@ -584,6 +640,9 @@ export function createTelegramProgressTailRuntime<TAuthority>(
     if (event.type === "agent-start") {
       clearSegment();
       startedAtMs = getNowMs();
+      if (event.promptText) {
+        userPrompt = cleanUserPrompt(event.promptText);
+      }
       return;
     }
 

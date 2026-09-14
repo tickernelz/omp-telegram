@@ -1202,7 +1202,7 @@ export function registerTelegramLifecycleRuntimeHooks({
     ...sessionLifecycleRuntime,
     ...agentLifecycleHooks,
     onInput(event) {
-      activityRuntime.recordInputSource(event.source ?? "unknown");
+      activityRuntime.recordInputSource(event.source ?? "unknown", event.text);
     },
     async onSessionStart(event, ctx) {
       cancelPendingFinalPublication();
@@ -1270,7 +1270,7 @@ export function registerTelegramLifecycleRuntimeHooks({
       cancelPendingFinalPublication();
       await agentStartWithDedupReset(event, ctx);
       const turn = activeTurnRuntime.get();
-      activityRuntime.onAgentStart(turn?.target, turn?.replyToMessageId);
+      activityRuntime.onAgentStart(turn?.target, turn?.replyToMessageId, turn?.historyText);
       startAgentActivityTypingLoop(ctx);
     },
     async onToolExecutionStart(event, ctx) {
