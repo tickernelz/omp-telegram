@@ -1,0 +1,279 @@
+/**
+ * Regression tests for Telegram live progress tail
+ * Zones: telegram progress tail, throttling, roll-over, rich rendering
+ * Covers single-bubble live updates, lazy initiation, roll-over on commentary, finalization summaries, and rate-limited Telegram edits
+ */
+
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import {
+  createTelegramProgressTailRuntime,
+  extractShortToolArgs,
+  formatProgressTailHtml,
+  type ProgressTailState,
+} from "../lib/progress-tail.ts";
+import type { TelegramActivityEvent } from "../lib/activity.ts";
+import type { TelegramEditMessageTextBody, TelegramSendMessageBody } from "../lib/telegram-api.ts";
+
+function event(
+  type: TelegramActivityEvent["type"],
+  extra: Record<string, unknown> = {},
+): TelegramActivityEvent {
+  return {
+    activityId: "session-1",
+    sequence: 1,
+    source: "telegram",
+    target: { chatId: 42, threadId: 10 },
+    timestamp: 1000,
+    type,
+    ...extra,
+  } as TelegramActivityEvent;
+}
+
+test("extractShortToolArgs extracts concise and recognizable tool arguments", () => {
+  assert.equal(extractShortToolArgs("read", { path: "src/index.ts" }), "src/index.ts");
+  assert.equal(extractShortToolArgs("write", { path: "dist/app.js", text: "hello" }), "dist/app.js");
+  assert.equal(extractShortToolArgs("edit", { path: "lib/ask.ts" }), "lib/ask.ts");
+  assert.equal(extractShortToolArgs("bash", { cmd: "npm test --run" }), "npm test --run");
+  assert.equal(extractShortToolArgs("bash", { command: "git status" }), "git status");
+  assert.equal(extractShortToolArgs("glob", { pattern: "**/*.ts" }), "**/*.ts");
+  assert.equal(extractShortToolArgs("grep", { query: "export function" }), "export function");
+  assert.equal(extractShortToolArgs("ast_grep", { pat: "$A && $A()" }), "$A && $A()");
+  assert.equal(extractShortToolArgs("ask", { questions: [{ id: "q1" }, { id: "q2" }] }), "2 question(s)");
+  assert.equal(extractShortToolArgs("todo", { op: "done", task: "Setup db" }), "Setup db");
+  assert.equal(extractShortToolArgs("custom", { url: "https://example.com" }), "https://example.com");
+  assert.equal(extractShortToolArgs("unknown", null), "");
+  assert.equal(extractShortToolArgs("unknown", undefined), "");
+});
+
+test("formatProgressTailHtml renders Working status with tools, reasoning, and todo", () => {
+  const state: ProgressTailState = {
+    status: "working",
+    startedAtMs: 1000,
+    completedAtMs: 3500,
+    modelName: "Opus 5",
+    reasoningLines: ["Analyzing project dependencies...", "Checking lockfile versions."],
+    tools: [
+      { id: "1", name: "read", args: "package.json", status: "completed" },
+      { id: "2", name: "bash", args: "npm test", status: "running" },
+      { id: "3", name: "ask", args: "1 question(s)", status: "waiting", askStatus: "waiting" },
+    ],
+    todoItems: [
+      { task: "Read config", status: "completed" },
+      { task: "Run tests", status: "in_progress" },
+      { task: "Deploy", status: "pending" },
+    ],
+  };
+
+  const html = formatProgressTailHtml(state);
+  assert.ok(html.includes("⏳ <b>Working...</b> (2.5s) · <i>Opus 5</i>"));
+  assert.ok(html.includes("▰ 💭 <b>Reasoning</b>"));
+  assert.ok(html.includes("<blockquote expandable>"));
+  assert.ok(html.includes("Analyzing project dependencies..."));
+  assert.ok(html.includes("Checking lockfile versions."));
+  assert.ok(html.includes("▰ 🧰 <b>Tools</b> (1 completed, 2 running)"));
+  assert.ok(html.includes("✓ <b>read</b>: <code>package.json</code>"));
+  assert.ok(html.includes("⟳ <b>bash</b>: <code>npm test</code>"));
+  assert.ok(html.includes("⏳ <b>ask</b>: <i>Waiting for user decision...</i>"));
+  assert.ok(html.includes("▰ 📋 <b>Todo</b> (1/3)"));
+  assert.ok(html.includes("[✓] Read config"));
+  assert.ok(html.includes("[⟳] Run tests"));
+  assert.ok(html.includes("[ ] Deploy"));
+});
+
+test("formatProgressTailHtml renders Completed, Cancelled, and Failed states with ask answers", () => {
+  const completedState: ProgressTailState = {
+    status: "completed",
+    startedAtMs: 1000,
+    completedAtMs: 6200,
+    modelName: "Claude 3.5 Sonnet",
+    reasoningLines: [],
+    tools: [
+      { id: "1", name: "ask", args: "", status: "completed", askStatus: "answered_telegram" },
+      { id: "2", name: "ask", args: "", status: "completed", askStatus: "answered_cli" },
+      { id: "3", name: "edit", args: "src/app.ts", status: "failed", isError: true },
+    ],
+    todoItems: [],
+  };
+  const completedHtml = formatProgressTailHtml(completedState);
+  assert.ok(completedHtml.includes("✅ <b>Completed</b> in 5.2s · 3 tools · <i>Claude 3.5 Sonnet</i>"));
+  assert.ok(completedHtml.includes("✓ <b>ask</b>: <i>Answered via Telegram</i>"));
+  assert.ok(completedHtml.includes("✓ <b>ask</b>: <i>Answered via CLI</i>"));
+  assert.ok(completedHtml.includes("✗ <b>edit</b>: <code>src/app.ts</code>"));
+
+  const cancelledState: ProgressTailState = {
+    status: "cancelled",
+    startedAtMs: 1000,
+    completedAtMs: 4000,
+    reasoningLines: [],
+    tools: [{ id: "1", name: "read", args: "test.txt", status: "completed" }],
+    todoItems: [],
+  };
+  assert.ok(formatProgressTailHtml(cancelledState).includes("⏹ <b>Cancelled</b> after 3.0s · 1 tools"));
+
+  const failedState: ProgressTailState = {
+    status: "failed",
+    startedAtMs: 1000,
+    completedAtMs: 2500,
+    reasoningLines: [],
+    tools: [],
+    todoItems: [],
+    errorMessage: "Rate limit exceeded",
+  };
+  assert.ok(formatProgressTailHtml(failedState).includes("⚠️ <b>Failed</b> after 1.5s: Rate limit exceeded"));
+});
+
+test("Progress tail runtime: lazy trigger does not send on agent-start, sends on first activity", async () => {
+  const sends: TelegramSendMessageBody[] = [];
+  const edits: TelegramEditMessageTextBody[] = [];
+  let now = 10_000;
+
+  const runtime = createTelegramProgressTailRuntime({
+    getActivityMode: () => "verbose",
+    getNowMs: () => now,
+    resolveTarget: (e) => e.target,
+    captureAuthority: () => 1,
+    isAuthorityActive: () => true,
+    async sendMessage(body) {
+      sends.push(body);
+      return { message_id: 101, date: 1, chat: { id: 42, type: "private" } };
+    },
+    async editMessageText(body) {
+      edits.push(body);
+      return "edited";
+    },
+    getModelName: () => "Opus 5",
+  });
+
+  runtime.accept(event("agent-start"));
+  await runtime.waitForIdle();
+  assert.equal(sends.length, 0, "lazy trigger must not send message on agent-start");
+
+  now = 10_500;
+  runtime.accept(event("tool-start", { toolCallId: "call-1", toolName: "read", args: { path: "foo.ts" } }));
+  await runtime.waitForIdle();
+
+  assert.equal(sends.length, 1, "first tool start must send initial live progress message");
+  assert.equal(sends[0]?.chat_id, 42);
+  assert.equal(sends[0]?.message_thread_id, 10);
+  assert.ok(sends[0]?.text?.includes("⏳ <b>Working...</b>"));
+  assert.ok(sends[0]?.text?.includes("⟳ <b>read</b>: <code>foo.ts</code>"));
+});
+
+test("Progress tail runtime: quiet mode sends no messages", async () => {
+  const sends: TelegramSendMessageBody[] = [];
+  const runtime = createTelegramProgressTailRuntime({
+    getActivityMode: () => "quiet",
+    resolveTarget: (e) => e.target,
+    captureAuthority: () => 1,
+    isAuthorityActive: () => true,
+    async sendMessage(body) {
+      sends.push(body);
+      return { message_id: 1, date: 1, chat: { id: 42, type: "private" } };
+    },
+    async editMessageText() {
+      return "edited";
+    },
+  });
+
+  runtime.accept(event("agent-start"));
+  runtime.accept(event("reasoning-delta", { contentIndex: 0, delta: "thinking" }));
+  runtime.accept(event("tool-start", { toolCallId: "1", toolName: "read", args: {} }));
+  runtime.accept(event("tool-end", { toolCallId: "1", toolName: "read", isError: false, result: "ok" }));
+  runtime.accept(event("agent-end"));
+  await runtime.waitForIdle();
+
+  assert.equal(sends.length, 0, "quiet mode must produce zero messages");
+});
+
+test("Progress tail runtime: roll-over on intermediate commentary freezes bubble and resets for next phase", async () => {
+  const sends: TelegramSendMessageBody[] = [];
+  const edits: TelegramEditMessageTextBody[] = [];
+  let now = 10_000;
+
+  const runtime = createTelegramProgressTailRuntime({
+    getActivityMode: () => "verbose",
+    getNowMs: () => now,
+    resolveTarget: (e) => e.target,
+    captureAuthority: () => 1,
+    isAuthorityActive: () => true,
+    async sendMessage(body) {
+      sends.push(body);
+      return { message_id: 100 + sends.length, date: 1, chat: { id: 42, type: "private" } };
+    },
+    async editMessageText(body) {
+      edits.push(body);
+      return "edited";
+    },
+    getModelName: () => "Opus 5",
+  });
+
+  runtime.accept(event("agent-start"));
+  runtime.accept(event("tool-start", { toolCallId: "1", toolName: "read", args: { path: "a.ts" } }));
+  runtime.accept(event("tool-end", { toolCallId: "1", toolName: "read", isError: false, result: "ok" }));
+  await runtime.waitForIdle();
+  assert.equal(sends.length, 1, "first bubble created for phase 1");
+
+  now = 12_000;
+  runtime.accept(event("assistant-segment", { placement: "intermediate", contentIndex: 0, text: "I analyzed a.ts" }));
+  await runtime.waitForIdle();
+
+  assert.ok(edits.length >= 1, "intermediate commentary must freeze phase 1 bubble");
+  assert.ok(edits.at(-1)?.text?.includes("✅ <b>Completed</b>"));
+
+  now = 13_000;
+  runtime.accept(event("tool-start", { toolCallId: "2", toolName: "write", args: { path: "b.ts" } }));
+  await runtime.waitForIdle();
+
+  assert.equal(sends.length, 2, "subsequent activity after commentary must start a fresh live bubble (roll-over)");
+  assert.equal(sends[1]?.message_id, undefined);
+  assert.ok(sends[1]?.text?.includes("⟳ <b>write</b>: <code>b.ts</code>"));
+
+  now = 15_000;
+  runtime.accept(event("tool-end", { toolCallId: "2", toolName: "write", isError: false, result: "ok" }));
+  runtime.accept(event("agent-end"));
+  await runtime.waitForIdle();
+
+  assert.ok(edits.length >= 2, "agent-end must freeze the phase 2 bubble");
+  assert.ok(edits.at(-1)?.text?.includes("✅ <b>Completed</b>"));
+  assert.ok(edits.at(-1)?.text?.includes("1 tools"));
+});
+
+test("Progress tail runtime: finalization freezes the live progress bubble with summary", async () => {
+  const sends: TelegramSendMessageBody[] = [];
+  const edits: TelegramEditMessageTextBody[] = [];
+  let now = 20_000;
+
+  const runtime = createTelegramProgressTailRuntime({
+    getActivityMode: () => "verbose",
+    getNowMs: () => now,
+    resolveTarget: (e) => e.target,
+    captureAuthority: () => 1,
+    isAuthorityActive: () => true,
+    async sendMessage(body) {
+      sends.push(body);
+      return { message_id: 201, date: 1, chat: { id: 42, type: "private" } };
+    },
+    async editMessageText(body) {
+      edits.push(body);
+      return "edited";
+    },
+    getModelName: () => "Opus 5",
+  });
+
+  runtime.accept(event("agent-start"));
+  runtime.accept(event("tool-start", { toolCallId: "1", toolName: "ast_grep", args: { pat: "$A" } }));
+  runtime.accept(event("tool-end", { toolCallId: "1", toolName: "ast_grep", isError: false, result: "ok" }));
+  await runtime.waitForIdle();
+
+  assert.equal(sends.length, 1);
+
+  now = 25_000;
+  runtime.accept(event("agent-settled"));
+  await runtime.waitForIdle();
+
+  assert.ok(edits.length >= 1, "agent-settled must freeze the live bubble with final summary");
+  assert.ok(edits.at(-1)?.text?.includes("✅ <b>Completed</b>"));
+  assert.ok(edits[0]?.text?.includes("✓ <b>ast_grep</b>: <code>$A</code>"));
+});

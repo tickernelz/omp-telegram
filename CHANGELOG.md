@@ -4,6 +4,13 @@
 
 ## Unreleased
 
+## 0.3.0: Live Progress Tail Overhaul
+
+- `Progress Tail`: Overhauls the multi-bubble activity projection into a single live progress bubble that updates in-place during agent work. Lazy initiation keeps simple direct text replies clean with zero progress bubbles, while turns with tools or reasoning project a single live status card updated at a rate-safe 2.0 s cadence.
+- `Turn Finalization`: Completed turns freeze the progress bubble into a compact audit summary (`✅ Completed in Xs · N tools · Model`) and deliver the final answer as a separate clean chat message. Aborted turns freeze with `⏹ Cancelled` and failures freeze with `⚠️ Failed`.
+- `Commentary Roll-Over`: When the assistant sends intermediate commentary, the active progress bubble freezes in-place and a fresh live bubble begins beneath the commentary on subsequent activity, keeping the chat timeline chronological.
+- `Ask Tool Status`: The live progress tail shows `⏳ ask: Waiting for user decision...` while an ask tool is awaiting user input, and updates to `✓ ask: Answered via Telegram` or `✓ ask: Answered via CLI` upon completion.
+
 ## 0.2.0: Thread Names And Rename
 
 - `Thread Names`: The default thread display mode is now `names`, so a Telegram tab reads `Atlas` rather than `A`. A profile that explicitly stored `letters` still resolves to `letters`, so an existing choice is never silently migrated. The per-slot palette widened from 130 names to 312, twelve per letter, which makes a collision across many live sessions far less likely.

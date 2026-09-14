@@ -740,6 +740,10 @@ export default function (pi: Pi.ExtensionAPI) {
       sendMessage,
       sendRichMessage,
       editMessageText: editTelegramMessageText,
+      getModelName() {
+        const m = currentModelRuntime.getStored();
+        return m?.name ?? m?.id;
+      },
     },
   });
   const {
