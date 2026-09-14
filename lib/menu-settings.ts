@@ -313,8 +313,7 @@ export function buildTelegramSettingsMenuReplyMarkup(
   const hasRenderingMode =
     assistantRenderingModeOrVoiceReplyMode === "rich" ||
     assistantRenderingModeOrVoiceReplyMode === "html";
-  const assistantRenderingMode: TelegramAssistantRenderingMode =
-    hasRenderingMode ? assistantRenderingModeOrVoiceReplyMode : "rich";
+
   const voiceReplyMode = hasRenderingMode
     ? (voiceReplyModeOrTimeInjectionMode as TelegramVoiceReplyMode)
     : (assistantRenderingModeOrVoiceReplyMode as TelegramVoiceReplyMode);
@@ -338,10 +337,6 @@ export function buildTelegramSettingsMenuReplyMarkup(
     {
       text: `📝 Draft previews: ${draftPreviewsEnabled ? "on" : "off"}`,
       callback_data: "settings:open:draft-previews",
-    },
-    {
-      text: `🧾 Rendering: ${assistantRenderingMode}`,
-      callback_data: "settings:open:assistant-rendering",
     },
     {
       text: `👄 Voice reply: ${getTelegramSettingsStateValueLabel(
@@ -989,7 +984,6 @@ export function formatTelegramSettingsOverview(
   const activity = deps.getActivityVerbosity();
   const interval = deps.getProgressIntervalMs?.() ?? 2000;
   const drafts = deps.areDraftPreviewsEnabled() ? "on" : "off";
-  const rendering = deps.getAssistantRenderingMode();
   const voice = deps.getVoiceReplyMode();
   const time = deps.getTimeInjectionMode();
   const cleanup = deps.isAutomaticThreadCleanupEnabled() ? "on" : "off";
@@ -1008,9 +1002,6 @@ export function formatTelegramSettingsOverview(
     "",
     `• drafts: ${drafts} [on | off]`,
     "  Stream draft previews before completion.",
-    "",
-    `• rendering: ${rendering} [rich | html]`,
-    "  Assistant message format.",
     "",
     `• voice: ${voice} [manual | mirror | always]`,
     "  Audio voice reply mode.",
@@ -1037,7 +1028,6 @@ export function getTelegramSettingsArgumentCompletions(
     { value: "activity", label: "activity", description: "Progress tail detail (verbose, tools, thinking, quiet)" },
     { value: "interval", label: "interval", description: "Live progress update cadence (2000ms, 3000ms, 5000ms, 7500ms, 10000ms)" },
     { value: "drafts", label: "drafts", description: "Draft previews streaming (on, off)" },
-    { value: "rendering", label: "rendering", description: "Assistant message format (rich, html)" },
     { value: "voice", label: "voice", description: "Voice reply mode (manual, mirror, always)" },
     { value: "time", label: "time", description: "Timestamp injection mode (system, prompt, off)" },
     { value: "cleanup", label: "cleanup", description: "Auto-cleanup topic on clean exit (on, off)" },
@@ -1056,7 +1046,6 @@ export function getTelegramSettingsArgumentCompletions(
     activity: ["verbose", "tools", "thinking", "quiet"],
     interval: ["2000ms", "3000ms", "5000ms", "7500ms", "10000ms"],
     drafts: ["on", "off"],
-    rendering: ["rich", "html"],
     voice: ["manual", "mirror", "always"],
     time: ["always", "interval", "hidden"],
     cleanup: ["on", "off"],
@@ -1119,13 +1108,6 @@ export async function openTelegramSettingsTui(
         values: ["on", "off"],
       },
       {
-        id: "rendering",
-        label: "Message Rendering",
-        description: "Assistant message format on Telegram (rich: formatted blocks, html: standard HTML)",
-        currentValue: deps.getAssistantRenderingMode(),
-        values: ["rich", "html"],
-      },
-      {
         id: "voice",
         label: "Voice Reply Mode",
         description: "Audio voice reply mode (manual: explicit, mirror: reply voice to voice, always: all turns)",
@@ -1167,8 +1149,6 @@ export async function openTelegramSettingsTui(
         await deps.setProgressIntervalMs?.(ms);
       } else if (id === "drafts") {
         await deps.setDraftPreviewsEnabled(newValue === "on");
-      } else if (id === "rendering") {
-        await deps.setAssistantRenderingMode(newValue as TelegramAssistantRenderingMode);
       } else if (id === "voice") {
         await deps.setVoiceReplyMode(newValue as TelegramVoiceReplyMode);
       } else if (id === "time") {
@@ -1292,16 +1272,6 @@ export async function handleTelegramSettingsCommand(
     return;
   }
 
-  if (key === "rendering") {
-    if (["rich", "html"].includes(value)) {
-      await deps.setAssistantRenderingMode(value as TelegramAssistantRenderingMode);
-      ctx.ui?.notify?.(`✔ Updated rendering to "${value}"`, "info");
-      return;
-    }
-    ctx.ui?.notify?.(`Invalid rendering "${value}". Options: rich, html`, "error");
-    return;
-  }
-
   if (key === "voice") {
     if (["manual", "mirror", "always"].includes(value)) {
       await deps.setVoiceReplyMode(value as TelegramVoiceReplyMode);
@@ -1337,5 +1307,5 @@ export async function handleTelegramSettingsCommand(
     return;
   }
 
-  ctx.ui?.notify?.(`Unknown setting "${key}". Available settings: mode, activity, interval, drafts, rendering, voice, time, cleanup`, "error");
+  ctx.ui?.notify?.(`Unknown setting "${key}". Available settings: mode, activity, interval, drafts, voice, time, cleanup`, "error");
 }

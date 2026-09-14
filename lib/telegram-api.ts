@@ -1727,20 +1727,20 @@ export function createTelegramNativeMarkdownDraftSender(deps: {
 }
 
 export function createTelegramAssistantDraftSender(deps: {
-  getAssistantRenderingMode: () => "rich" | "html";
-  renderMarkdownToHtmlDraft: (markdown: string) => string;
+  getAssistantRenderingMode?: () => "rich" | "html";
+  renderMarkdownToHtmlDraft?: (markdown: string) => string;
   sendMessageDraft: TelegramBridgeApiRuntime["sendMessageDraft"];
   sendRichMessageDraft: TelegramBridgeApiRuntime["sendRichMessageDraft"];
 }): TelegramBridgeApiRuntime["sendMessageDraft"] {
   const sendNativeDraft = createTelegramNativeMarkdownDraftSender(deps);
   return (chatId, draftId, text, options) => {
-    if (text === undefined || deps.getAssistantRenderingMode() === "rich") {
+    if (text === undefined || deps.getAssistantRenderingMode?.() !== "html") {
       return sendNativeDraft(chatId, draftId, text, options);
     }
     return deps.sendMessageDraft(
       chatId,
       draftId,
-      deps.renderMarkdownToHtmlDraft(text),
+      deps.renderMarkdownToHtmlDraft?.(text) ?? text,
       {
         ...options,
         parse_mode: "HTML",

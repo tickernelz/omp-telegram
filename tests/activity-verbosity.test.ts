@@ -89,10 +89,14 @@ function createHarness(
     async sendRichMessage(body) {
       if (options.richSendError) throw options.richSendError;
       richSends.push(body);
+      sends.push({ chat_id: body.chat_id, text: body.rich_message.markdown ?? "" });
       return { message_id: 200 + richSends.length };
     },
     async editMessageText(body) {
-      edits.push(body);
+      edits.push({
+        ...body,
+        text: body.rich_message?.markdown ?? body.text,
+      });
       return "edited";
     },
   });
@@ -283,9 +287,9 @@ test("agent start refreshes file-backed mode before activity isolation", async (
   await harness.runtime.waitForIdle();
   assert.equal(harness.sends.length, 1);
   const text = harness.sends[0]?.text ?? "";
-  assert.ok(text.includes("▰ 💭 <b>Reasoning</b>"));
+  assert.ok(text.includes("## 💭 Reasoning"));
   assert.ok(text.includes("private thought"));
-  assert.equal(text.includes("<b>read</b>"), false);
+  assert.equal(text.includes("| read |"), false);
 });
 
 test("activity fails closed when file-backed mode refresh fails", async () => {
@@ -330,8 +334,8 @@ test("thinking and tools modes isolate their activity classes in progress tail",
     await harness.runtime.waitForIdle();
     assert.equal(harness.sends.length, 1);
     const text = harness.sends[0]?.text ?? "";
-    assert.equal(text.includes("▰ 💭 <b>Reasoning</b>"), mode === "thinking");
-    assert.equal(text.includes("<b>read</b>"), mode === "tools");
+    assert.equal(text.includes("## 💭 Reasoning"), mode === "thinking");
+    assert.equal(text.includes("| read |"), mode === "tools");
   }
 });
 
@@ -351,8 +355,8 @@ test("single live progress bubble is created on first activity and edited on upd
   );
   await harness.runtime.waitForIdle();
   assert.equal(harness.sends.length, 1, "first tool creates the live bubble");
-  assert.ok(harness.sends[0]?.text?.includes("⏳ <b>Working...</b>"));
-  assert.ok(harness.sends[0]?.text?.includes("⟳ <b>read</b>: <code>src/main.ts</code>"));
+  assert.ok(harness.sends[0]?.text?.includes("⏳ **Working...**"));
+  assert.ok(harness.sends[0]?.text?.includes("| ⟳ | read | src/main.ts |"));
 
   harness.runtime.accept(
     event(3, {
@@ -375,12 +379,12 @@ test("single live progress bubble is created on first activity and edited on upd
   assert.equal(harness.sends.length, 1, "no second bubble sent; updates edit the existing one");
   assert.ok(harness.edits.length >= 1, "edits must update the live progress bubble");
   const latestEdit = harness.edits.at(-1)?.text ?? "";
-  assert.ok(latestEdit.includes("✓ <b>read</b>: <code>src/main.ts</code>"));
-  assert.ok(latestEdit.includes("⟳ <b>bash</b>: <code>npm test</code>"));
+  assert.ok(latestEdit.includes("| ✓ | read | src/main.ts |"));
+  assert.ok(latestEdit.includes("| ⟳ | bash | npm test |"));
 
   harness.runtime.accept(event(5, { type: "agent-end" }));
   await harness.runtime.waitForIdle();
-  assert.ok(harness.edits.at(-1)?.text?.includes("✅ <b>Completed</b>"));
+  assert.ok(harness.edits.at(-1)?.text?.includes("✅ **Completed**"));
 });
 
 test("roll-over on intermediate commentary freezes bubble and starts fresh on next activity", async () => {
@@ -415,7 +419,7 @@ test("roll-over on intermediate commentary freezes bubble and starts fresh on ne
     }),
   );
   await harness.runtime.waitForIdle();
-  assert.ok(harness.edits.at(-1)?.text?.includes("✅ <b>Completed</b>"));
+  assert.ok(harness.edits.at(-1)?.text?.includes("✅ **Completed**"));
 
   harness.runtime.accept(
     event(5, {

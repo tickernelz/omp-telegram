@@ -193,7 +193,6 @@ test("Settings menu text and reply markup expose built-in controls", () => {
     [
       "menu:back",
       "settings:open:draft-previews",
-      "settings:open:assistant-rendering",
       "settings:open:voice-reply",
       "settings:open:activity-verbosity",
       "settings:open:time-injection",
@@ -204,14 +203,13 @@ test("Settings menu text and reply markup expose built-in controls", () => {
     markup.inline_keyboard[1]?.[0]?.text,
     "📝 Draft previews: off",
   );
-  assert.equal(markup.inline_keyboard[2]?.[0]?.text, "🧾 Rendering: rich");
   assert.equal(
-    markup.inline_keyboard[3]?.[0]?.text,
+    markup.inline_keyboard[2]?.[0]?.text,
     "👄 Voice reply: manual",
   );
-  assert.equal(markup.inline_keyboard[4]?.[0]?.text, "🔬 Activity: quiet");
-  assert.equal(markup.inline_keyboard[5]?.[0]?.text, "🕒 Time injection: hidden");
-  assert.equal(markup.inline_keyboard[6]?.[0]?.text, "🧹 Thread cleanup: on");
+  assert.equal(markup.inline_keyboard[3]?.[0]?.text, "🔬 Activity: quiet");
+  assert.equal(markup.inline_keyboard[4]?.[0]?.text, "🕒 Time injection: hidden");
+  assert.equal(markup.inline_keyboard[5]?.[0]?.text, "🧹 Thread cleanup: on");
 });
 
 test("Settings detail markups show active values", () => {

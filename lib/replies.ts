@@ -837,18 +837,6 @@ export function createTelegramRenderedMessageRuntime<TReplyMarkup>(
       );
     },
     sendMarkdownReply: async (chatId, replyToMessageId, markdown, options) => {
-      const renderingMode = deps.getAssistantRenderingMode?.() ?? "rich";
-      if (renderingMode === "html") {
-        return deps.replyTransport.sendRenderedChunks(
-          chatId,
-          deps.renderTelegramMessage(markdown, { mode: "markdown" }),
-          {
-            replyMarkup: options?.replyMarkup,
-            target: options?.target,
-            replyToMessageId,
-          },
-        );
-      }
       return sendTelegramNativeMarkdownReply(
         chatId,
         replyToMessageId,

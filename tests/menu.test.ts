@@ -2300,7 +2300,7 @@ test("Section callback actions preserve callback thread target", async () => {
 test("Settings menu exposes time injection mode selection", () => {
   assert.deepEqual(
     buildTelegramSettingsMenuReplyMarkup(false, "manual", "hidden")
-      .inline_keyboard[5],
+      .inline_keyboard[4],
     [
       {
         text: "🕒 Time injection: hidden",
@@ -2310,7 +2310,7 @@ test("Settings menu exposes time injection mode selection", () => {
   );
   assert.deepEqual(
     buildTelegramSettingsMenuReplyMarkup(false, "manual", "interval")
-      .inline_keyboard[5],
+      .inline_keyboard[4],
     [
       {
         text: "🕒 Time injection: interval",
@@ -2354,7 +2354,7 @@ test("Settings menu marks voice mode selection with model-style dot", () => {
       "hidden",
       undefined,
       false,
-    ).inline_keyboard[3],
+    ).inline_keyboard[2],
     [
       {
         text: "👄 Voice reply: manual",
@@ -2364,7 +2364,7 @@ test("Settings menu marks voice mode selection with model-style dot", () => {
   );
   assert.deepEqual(
     buildTelegramSettingsMenuReplyMarkup(false, "always", "hidden")
-      .inline_keyboard[3],
+      .inline_keyboard[2],
     [
       {
         text: "👄 Voice reply: always",

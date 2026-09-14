@@ -10,15 +10,15 @@ import test from "node:test";
 import {
   createTelegramProgressTailRuntime,
   cleanUserPrompt,
-  renderReasoningSectionHtml,
+  renderReasoningSectionRich,
   extractReasoningTail,
   extractShortToolArgs,
   extractToolResultSummary,
-  formatProgressTailHtml,
+  formatProgressTailRich,
   type ProgressTailState,
 } from "../lib/progress-tail.ts";
 import type { TelegramActivityEvent } from "../lib/activity.ts";
-import type { TelegramEditMessageTextBody, TelegramSendMessageBody } from "../lib/telegram-api.ts";
+import type { TelegramEditMessageTextBody, TelegramSendRichMessageBody } from "../lib/telegram-api.ts";
 
 function event(
   type: TelegramActivityEvent["type"],
@@ -51,7 +51,7 @@ test("extractShortToolArgs extracts concise and recognizable tool arguments", ()
   assert.equal(extractShortToolArgs("unknown", undefined), "");
 });
 
-test("formatProgressTailHtml renders Working status with tools, reasoning, and todo", () => {
+test("formatProgressTailRich renders Working status with tools table, reasoning, and todo table", () => {
   const state: ProgressTailState = {
     status: "working",
     startedAtMs: 1000,
@@ -70,22 +70,24 @@ test("formatProgressTailHtml renders Working status with tools, reasoning, and t
     ],
   };
 
-  const html = formatProgressTailHtml(state);
-  assert.ok(html.includes("⏳ <b>Working...</b> (2.5s) · <i>Opus 5</i>"));
-  assert.ok(html.includes("▰ 💭 <b>Reasoning</b>"));
-  assert.ok(html.includes("Analyzing project dependencies..."));
-  assert.ok(html.includes("Checking lockfile versions."));
-  assert.ok(html.includes("▰ 🧰 <b>Tools</b> (1 completed, 2 running)"));
-  assert.ok(html.includes("✓ <b>read</b>: <code>package.json</code>"));
-  assert.ok(html.includes("⟳ <b>bash</b>: <code>npm test</code>"));
-  assert.ok(html.includes("⏳ <b>ask</b>: <i>Waiting for user decision...</i>"));
-  assert.ok(html.includes("▰ 📋 <b>Todo</b> (1/3)"));
-  assert.ok(html.includes("[✓] Read config"));
-  assert.ok(html.includes("[⟳] Run tests"));
-  assert.ok(html.includes("[ ] Deploy"));
+  const md = formatProgressTailRich(state);
+  assert.ok(md.includes("⏳ **Working...** (2.5s) · _Opus 5_"));
+  assert.ok(md.includes("## 💭 Reasoning"));
+  assert.ok(md.includes("Analyzing project dependencies..."));
+  assert.ok(md.includes("Checking lockfile versions."));
+  assert.ok(md.includes("## 🧰 Tools (1 completed, 2 running)"));
+  assert.ok(md.includes("| St | Tool | Arguments |"));
+  assert.ok(md.includes("| ✓ | read | package.json |"));
+  assert.ok(md.includes("| ⟳ | bash | npm test |"));
+  assert.ok(md.includes("| ⏳ | ask | 1 question(s) |"));
+  assert.ok(md.includes("## 📋 Todo (1/3)"));
+  assert.ok(md.includes("| St | Task |"));
+  assert.ok(md.includes("| ✓ | Read config |"));
+  assert.ok(md.includes("| ⟳ | Run tests |"));
+  assert.ok(md.includes("|   | Deploy |"));
 });
 
-test("formatProgressTailHtml renders Completed, Cancelled, and Failed states with ask answers", () => {
+test("formatProgressTailRich renders Completed, Cancelled, and Failed states with ask answers", () => {
   const completedState: ProgressTailState = {
     status: "completed",
     startedAtMs: 1000,
@@ -99,11 +101,11 @@ test("formatProgressTailHtml renders Completed, Cancelled, and Failed states wit
     ],
     todoItems: [],
   };
-  const completedHtml = formatProgressTailHtml(completedState);
-  assert.ok(completedHtml.includes("✅ <b>Completed</b> in 5.2s · 3 tools · <i>Claude 3.5 Sonnet</i>"));
-  assert.ok(completedHtml.includes("✓ <b>ask</b>: <i>Answered via Telegram</i>"));
-  assert.ok(completedHtml.includes("✓ <b>ask</b>: <i>Answered via CLI</i>"));
-  assert.ok(completedHtml.includes("✗ <b>edit</b>: <code>src/app.ts</code>"));
+  const completedMd = formatProgressTailRich(completedState);
+  assert.ok(completedMd.includes("✅ **Completed** in 5.2s · 3 tools · _Claude 3.5 Sonnet_"));
+  assert.ok(completedMd.includes("| ✓ (Tele) | ask | - |"));
+  assert.ok(completedMd.includes("| ✓ (CLI) | ask | - |"));
+  assert.ok(completedMd.includes("| ✗ | edit | src/app.ts |"));
 
   const cancelledState: ProgressTailState = {
     status: "cancelled",
@@ -113,7 +115,7 @@ test("formatProgressTailHtml renders Completed, Cancelled, and Failed states wit
     tools: [{ id: "1", name: "read", args: "test.txt", status: "completed" }],
     todoItems: [],
   };
-  assert.ok(formatProgressTailHtml(cancelledState).includes("⏹ <b>Cancelled</b> after 3.0s · 1 tools"));
+  assert.ok(formatProgressTailRich(cancelledState).includes("⏹ **Cancelled** after 3.0s · 1 tools"));
 
   const failedState: ProgressTailState = {
     status: "failed",
@@ -124,11 +126,11 @@ test("formatProgressTailHtml renders Completed, Cancelled, and Failed states wit
     todoItems: [],
     errorMessage: "Rate limit exceeded",
   };
-  assert.ok(formatProgressTailHtml(failedState).includes("⚠️ <b>Failed</b> after 1.5s: Rate limit exceeded"));
+  assert.ok(formatProgressTailRich(failedState).includes("⚠️ **Failed** after 1.5s: Rate limit exceeded"));
 });
 
-test("Progress tail runtime: lazy trigger does not send on agent-start, sends on first activity", async () => {
-  const sends: TelegramSendMessageBody[] = [];
+test("Progress tail runtime: lazy trigger does not send on agent-start, sends on first activity with rich_message", async () => {
+  const sends: TelegramSendRichMessageBody[] = [];
   const edits: TelegramEditMessageTextBody[] = [];
   let now = 10_000;
 
@@ -138,9 +140,12 @@ test("Progress tail runtime: lazy trigger does not send on agent-start, sends on
     resolveTarget: (e) => e.target,
     captureAuthority: () => 1,
     isAuthorityActive: () => true,
-    async sendMessage(body) {
+    async sendRichMessage(body) {
       sends.push(body);
       return { message_id: 101, date: 1, chat: { id: 42, type: "private" } };
+    },
+    async sendMessage() {
+      throw new Error("sendRichMessage must be preferred");
     },
     async editMessageText(body) {
       edits.push(body);
@@ -157,23 +162,26 @@ test("Progress tail runtime: lazy trigger does not send on agent-start, sends on
   runtime.accept(event("tool-start", { toolCallId: "call-1", toolName: "read", args: { path: "foo.ts" } }));
   await runtime.waitForIdle();
 
-  assert.equal(sends.length, 1, "first tool start must send initial live progress message");
+  assert.equal(sends.length, 1, "first tool start must send initial live progress message via sendRichMessage");
   assert.equal(sends[0]?.chat_id, 42);
   assert.equal(sends[0]?.message_thread_id, 10);
-  assert.ok(sends[0]?.text?.includes("⏳ <b>Working...</b>"));
-  assert.ok(sends[0]?.text?.includes("⟳ <b>read</b>: <code>foo.ts</code>"));
+  assert.ok(sends[0]?.rich_message?.markdown?.includes("⏳ **Working...**"));
+  assert.ok(sends[0]?.rich_message?.markdown?.includes("| ⟳ | read | foo.ts |"));
 });
 
 test("Progress tail runtime: quiet mode sends no messages", async () => {
-  const sends: TelegramSendMessageBody[] = [];
+  const sends: TelegramSendRichMessageBody[] = [];
   const runtime = createTelegramProgressTailRuntime({
     getActivityMode: () => "quiet",
     resolveTarget: (e) => e.target,
     captureAuthority: () => 1,
     isAuthorityActive: () => true,
-    async sendMessage(body) {
+    async sendRichMessage(body) {
       sends.push(body);
       return { message_id: 1, date: 1, chat: { id: 42, type: "private" } };
+    },
+    async sendMessage() {
+      throw new Error("unexpected call");
     },
     async editMessageText() {
       return "edited";
@@ -191,7 +199,7 @@ test("Progress tail runtime: quiet mode sends no messages", async () => {
 });
 
 test("Progress tail runtime: roll-over on intermediate commentary freezes bubble and resets for next phase", async () => {
-  const sends: TelegramSendMessageBody[] = [];
+  const sends: TelegramSendRichMessageBody[] = [];
   const edits: TelegramEditMessageTextBody[] = [];
   let now = 10_000;
 
@@ -201,9 +209,12 @@ test("Progress tail runtime: roll-over on intermediate commentary freezes bubble
     resolveTarget: (e) => e.target,
     captureAuthority: () => 1,
     isAuthorityActive: () => true,
-    async sendMessage(body) {
+    async sendRichMessage(body) {
       sends.push(body);
       return { message_id: 100 + sends.length, date: 1, chat: { id: 42, type: "private" } };
+    },
+    async sendMessage() {
+      throw new Error("unexpected call");
     },
     async editMessageText(body) {
       edits.push(body);
@@ -223,15 +234,14 @@ test("Progress tail runtime: roll-over on intermediate commentary freezes bubble
   await runtime.waitForIdle();
 
   assert.ok(edits.length >= 1, "intermediate commentary must freeze phase 1 bubble");
-  assert.ok(edits.at(-1)?.text?.includes("✅ <b>Completed</b>"));
+  assert.ok(edits.at(-1)?.rich_message?.markdown?.includes("✅ **Completed**"));
 
   now = 13_000;
   runtime.accept(event("tool-start", { toolCallId: "2", toolName: "write", args: { path: "b.ts" } }));
   await runtime.waitForIdle();
 
   assert.equal(sends.length, 2, "subsequent activity after commentary must start a fresh live bubble (roll-over)");
-  assert.equal(sends[1]?.message_id, undefined);
-  assert.ok(sends[1]?.text?.includes("⟳ <b>write</b>: <code>b.ts</code>"));
+  assert.ok(sends[1]?.rich_message?.markdown?.includes("| ⟳ | write | b.ts |"));
 
   now = 15_000;
   runtime.accept(event("tool-end", { toolCallId: "2", toolName: "write", isError: false, result: "ok" }));
@@ -239,12 +249,12 @@ test("Progress tail runtime: roll-over on intermediate commentary freezes bubble
   await runtime.waitForIdle();
 
   assert.ok(edits.length >= 2, "agent-end must freeze the phase 2 bubble");
-  assert.ok(edits.at(-1)?.text?.includes("✅ <b>Completed</b>"));
-  assert.ok(edits.at(-1)?.text?.includes("1 tools"));
+  assert.ok(edits.at(-1)?.rich_message?.markdown?.includes("✅ **Completed**"));
+  assert.ok(edits.at(-1)?.rich_message?.markdown?.includes("1 tools"));
 });
 
 test("Progress tail runtime: finalization freezes the live progress bubble with summary", async () => {
-  const sends: TelegramSendMessageBody[] = [];
+  const sends: TelegramSendRichMessageBody[] = [];
   const edits: TelegramEditMessageTextBody[] = [];
   let now = 20_000;
 
@@ -254,9 +264,12 @@ test("Progress tail runtime: finalization freezes the live progress bubble with 
     resolveTarget: (e) => e.target,
     captureAuthority: () => 1,
     isAuthorityActive: () => true,
-    async sendMessage(body) {
+    async sendRichMessage(body) {
       sends.push(body);
       return { message_id: 201, date: 1, chat: { id: 42, type: "private" } };
+    },
+    async sendMessage() {
+      throw new Error("unexpected call");
     },
     async editMessageText(body) {
       edits.push(body);
@@ -277,12 +290,12 @@ test("Progress tail runtime: finalization freezes the live progress bubble with 
   await runtime.waitForIdle();
 
   assert.ok(edits.length >= 1, "agent-settled must freeze the live bubble with final summary");
-  assert.ok(edits.at(-1)?.text?.includes("✅ <b>Completed</b>"));
-  assert.ok(edits[0]?.text?.includes("✓ <b>ast_grep</b>: <code>$A</code>"));
+  assert.ok(edits.at(-1)?.rich_message?.markdown?.includes("✅ **Completed**"));
+  assert.ok(edits[0]?.rich_message?.markdown?.includes("| ✓ | ast_grep | $A |"));
 });
 
 test("Progress tail runtime: ask completion freezes previous bubble and starts fresh on subsequent tools", async () => {
-  const sends: TelegramSendMessageBody[] = [];
+  const sends: TelegramSendRichMessageBody[] = [];
   const edits: TelegramEditMessageTextBody[] = [];
   let now = 10_000;
 
@@ -292,9 +305,12 @@ test("Progress tail runtime: ask completion freezes previous bubble and starts f
     resolveTarget: (e) => e.target,
     captureAuthority: () => 1,
     isAuthorityActive: () => true,
-    async sendMessage(body) {
+    async sendRichMessage(body) {
       sends.push(body);
       return { message_id: 100 + sends.length, date: 1, chat: { id: 42, type: "private" } };
+    },
+    async sendMessage() {
+      throw new Error("unexpected call");
     },
     async editMessageText(body) {
       edits.push(body);
@@ -313,23 +329,23 @@ test("Progress tail runtime: ask completion freezes previous bubble and starts f
   await runtime.waitForIdle();
 
   assert.ok(edits.length >= 1, "ask completion must freeze the top bubble");
-  assert.ok(edits.at(-1)?.text?.includes("✅ <b>Completed</b>"));
-  assert.ok(edits.at(-1)?.text?.includes("✓ <b>ask</b>: <i>Answered via Telegram</i>"));
+  assert.ok(edits.at(-1)?.rich_message?.markdown?.includes("✅ **Completed**"));
+  assert.ok(edits.at(-1)?.rich_message?.markdown?.includes("| ✓ (Tele) | ask |"));
 
   now = 14_000;
   runtime.accept(event("tool-start", { toolCallId: "read-2", toolName: "read", args: { path: "package.json" } }));
   await runtime.waitForIdle();
 
   assert.equal(sends.length, 2, "activity after ask must start a fresh live bubble below the ask card");
-  assert.ok(sends[1]?.text?.includes("⟳ <b>read</b>: <code>package.json</code>"));
+  assert.ok(sends[1]?.rich_message?.markdown?.includes("| ⟳ | read | package.json |"));
 
   now = 16_000;
   runtime.accept(event("tool-end", { toolCallId: "read-2", toolName: "read", isError: false, result: "ok" }));
   runtime.accept(event("agent-end"));
   await runtime.waitForIdle();
 
-  assert.ok(edits.at(-1)?.text?.includes("✅ <b>Completed</b>"));
-  assert.ok(edits.at(-1)?.text?.includes("✓ <b>read</b>: <code>package.json</code>"));
+  assert.ok(edits.at(-1)?.rich_message?.markdown?.includes("✅ **Completed**"));
+  assert.ok(edits.at(-1)?.rich_message?.markdown?.includes("| ✓ | read | package.json |"));
 });
 
 test("extractReasoningTail strips think tags and retains newest 1-3 paragraphs with omission notice", () => {
@@ -357,7 +373,7 @@ test("extractToolResultSummary extracts text content and truncates safely", () =
   assert.ok(truncated.length <= 620);
 });
 
-test("formatProgressTailHtml renders tool result in expandable blockquote and limits to 4 newest tools", () => {
+test("formatProgressTailRich renders tool result in details block and limits table rows to 4 newest tools", () => {
   const state: ProgressTailState = {
     status: "working",
     startedAtMs: 1000,
@@ -373,35 +389,34 @@ test("formatProgressTailHtml renders tool result in expandable blockquote and li
     todoItems: [],
   };
 
-  const html = formatProgressTailHtml(state);
-  assert.ok(html.includes("… [1 earlier tools omitted]"), "must show omitted count when > 4 tools");
-  assert.equal(html.includes("tool1"), false, "tool1 is the oldest and should be omitted");
-  assert.ok(html.includes("tool2"));
-  assert.ok(html.includes("tool5"));
-  assert.ok(html.includes("<blockquote expandable>res2</blockquote>"));
-  assert.ok(html.includes("<blockquote expandable>res5</blockquote>"));
+  const md = formatProgressTailRich(state);
+  assert.ok(md.includes("… [1 earlier tools omitted]"), "must show omitted count when > 4 tools");
+  assert.equal(md.includes("| tool1 |"), false, "tool1 is the oldest and should be omitted from table");
+  assert.ok(md.includes("| tool2 |"));
+  assert.ok(md.includes("| tool5 |"));
+  assert.ok(md.includes("<details>\n<summary>Result: tool2 · tap to expand</summary>\n\n```\nres2\n```\n\n</details>"));
+  assert.ok(md.includes("<details>\n<summary>Result: tool5 · tap to expand</summary>\n\n```\nres5\n```\n\n</details>"));
 });
 
-
-test("renderReasoningSectionHtml displays latest 1-2 paragraphs directly, earlier in expandable blockquote", () => {
+test("renderReasoningSectionRich displays latest 1-2 paragraphs directly, earlier in details block", () => {
   const shortText = ["First thought.", "", "Second thought."].join("\n");
-  const shortHtml = renderReasoningSectionHtml(shortText, 2);
-  assert.ok(shortHtml.includes("First thought."));
-  assert.ok(shortHtml.includes("Second thought."));
-  assert.equal(shortHtml.includes("<blockquote expandable>"), false, "1-2 paragraphs must be directly visible without collapsible blockquote");
+  const shortMd = renderReasoningSectionRich(shortText, 2);
+  assert.ok(shortMd.includes("First thought."));
+  assert.ok(shortMd.includes("Second thought."));
+  assert.equal(shortMd.includes("<details>"), false, "1-2 paragraphs must be directly visible without collapsible details");
 
   const longText = ["Paragraph 1.", "", "Paragraph 2.", "", "Paragraph 3.", "", "Paragraph 4."].join("\n");
-  const longHtml = renderReasoningSectionHtml(longText, 2);
-  assert.ok(longHtml.includes("<blockquote expandable>"), "earlier paragraphs must be in collapsible blockquote");
-  assert.ok(longHtml.includes("Paragraph 1."));
-  assert.ok(longHtml.includes("Paragraph 2."));
-  const bqEnd = longHtml.indexOf("</blockquote>");
-  assert.ok(bqEnd > 0);
-  const afterBq = longHtml.slice(bqEnd);
-  assert.ok(afterBq.includes("Paragraph 3."));
-  assert.ok(afterBq.includes("Paragraph 4."));
+  const longMd = renderReasoningSectionRich(longText, 2);
+  assert.ok(longMd.includes("<details>"), "earlier paragraphs must be in collapsible details");
+  assert.ok(longMd.includes("<summary>Earlier thoughts · tap to expand</summary>"));
+  assert.ok(longMd.includes("Paragraph 1."));
+  assert.ok(longMd.includes("Paragraph 2."));
+  const detailsEnd = longMd.indexOf("</details>");
+  assert.ok(detailsEnd > 0);
+  const afterDetails = longMd.slice(detailsEnd);
+  assert.ok(afterDetails.includes("Paragraph 3."));
+  assert.ok(afterDetails.includes("Paragraph 4."));
 });
-
 
 test("cleanUserPrompt strips [telegram] prefix and truncates cleanly", () => {
   assert.equal(cleanUserPrompt("[telegram] Halo tolong cek bug"), "Halo tolong cek bug");
@@ -412,7 +427,7 @@ test("cleanUserPrompt strips [telegram] prefix and truncates cleanly", () => {
   assert.ok(cleaned.endsWith("…"));
 });
 
-test("formatProgressTailHtml includes user prompt when provided", () => {
+test("formatProgressTailRich includes user prompt when provided", () => {
   const state: ProgressTailState = {
     status: "working",
     startedAtMs: 1000,
@@ -423,21 +438,24 @@ test("formatProgressTailHtml includes user prompt when provided", () => {
     todoItems: [],
   };
 
-  const html = formatProgressTailHtml(state);
-  assert.ok(html.includes("▰ 👤 <b>Prompt</b>"));
-  assert.ok(html.includes("<i>buatkan fitur login oauth</i>"));
+  const md = formatProgressTailRich(state);
+  assert.ok(md.includes("## 👤 Prompt"));
+  assert.ok(md.includes("_buatkan fitur login oauth_"));
 });
 
 test("Progress tail runtime captures and displays promptText from agent-start", async () => {
-  const sends: TelegramSendMessageBody[] = [];
+  const sends: TelegramSendRichMessageBody[] = [];
   const runtime = createTelegramProgressTailRuntime({
     getActivityMode: () => "verbose",
     resolveTarget: (e) => e.target,
     captureAuthority: () => 1,
     isAuthorityActive: () => true,
-    async sendMessage(body) {
+    async sendRichMessage(body) {
       sends.push(body);
       return { message_id: 1, date: 1, chat: { id: 42, type: "private" } };
+    },
+    async sendMessage() {
+      throw new Error("unexpected call");
     },
     async editMessageText() { return "edited"; },
   });
@@ -447,16 +465,15 @@ test("Progress tail runtime captures and displays promptText from agent-start", 
   await runtime.waitForIdle();
 
   assert.equal(sends.length, 1);
-  assert.ok(sends[0]?.text?.includes("▰ 👤 <b>Prompt</b>"));
-  assert.ok(sends[0]?.text?.includes("bikin endpoint user profile"));
-  assert.equal(sends[0]?.text?.includes("[telegram]"), false, "[telegram] prefix must be stripped");
+  assert.ok(sends[0]?.rich_message?.markdown?.includes("## 👤 Prompt"));
+  assert.ok(sends[0]?.rich_message?.markdown?.includes("bikin endpoint user profile"));
+  assert.equal(sends[0]?.rich_message?.markdown?.includes("[telegram]"), false, "[telegram] prefix must be stripped");
 });
 
-
-test("formatProgressTailHtml handles massive reasoning and 50 tools without dropping HTML tags or exceeding budget", () => {
+test("formatProgressTailRich handles massive reasoning and 50 tools within 7500 chars limit", () => {
   const massiveReasoning = [
-    "Paragraph 1 describing initial investigation and findings.",
-    "Paragraph 2 exploring multiple potential root causes in depth.",
+    "Paragraph 1 describing initial investigation and findings in great detail.",
+    "Paragraph 2 exploring multiple potential root causes in depth across files.",
     "Paragraph 3 detailing code paths and execution flows.",
     "Paragraph 4 discussing tradeoffs between performance and memory.",
     "Paragraph 5 concluding with the optimal architectural design.",
@@ -484,19 +501,18 @@ test("formatProgressTailHtml handles massive reasoning and 50 tools without drop
     ],
   };
 
-  const html = formatProgressTailHtml(state);
-  assert.ok(html.length <= 3500, "HTML length must stay within safety budget, got " + html.length);
-  assert.ok(html.includes("⏳ <b>Working...</b>"), "must retain bold header tag");
-  assert.ok(html.includes("▰ 👤 <b>Prompt</b>"), "must retain prompt bold tag");
-  assert.ok(html.includes("▰ 💭 <b>Reasoning</b>"), "must retain reasoning bold tag");
-  assert.ok(html.includes("▰ 🧰 <b>Tools</b>"), "must retain tools bold tag");
-  assert.ok(html.includes("<blockquote expandable>"), "must retain expandable blockquote");
-  assert.ok(html.includes("</code>"), "must retain code tags");
-  assert.equal(html.includes("… [truncated]"), false, "must not produce raw plain-text truncation");
+  const md = formatProgressTailRich(state);
+  assert.ok(md.length <= 7500, "Markdown length must stay within 7500 safety budget, got " + md.length);
+  assert.ok(md.includes("⏳ **Working...**"));
+  assert.ok(md.includes("## 👤 Prompt"));
+  assert.ok(md.includes("## 💭 Reasoning"));
+  assert.ok(md.includes("## 🧰 Tools"));
+  assert.ok(md.includes("<details>"));
+  assert.ok(md.includes("| St | Tool | Arguments |"));
 });
 
 test("Progress tail runtime: container unwrapping suppresses outer fabric_exec when inner tools execute", async () => {
-  const sends: TelegramSendMessageBody[] = [];
+  const sends: TelegramSendRichMessageBody[] = [];
   const edits: TelegramEditMessageTextBody[] = [];
   let now = 10_000;
 
@@ -506,9 +522,12 @@ test("Progress tail runtime: container unwrapping suppresses outer fabric_exec w
     resolveTarget: (e) => e.target,
     captureAuthority: () => 1,
     isAuthorityActive: () => true,
-    async sendMessage(body) {
+    async sendRichMessage(body) {
       sends.push(body);
       return { message_id: 100 + sends.length, date: 1, chat: { id: 42, type: "private" } };
+    },
+    async sendMessage() {
+      throw new Error("unexpected call");
     },
     async editMessageText(body) {
       edits.push(body);
@@ -524,7 +543,7 @@ test("Progress tail runtime: container unwrapping suppresses outer fabric_exec w
   }));
   await runtime.waitForIdle();
   assert.equal(sends.length, 1);
-  assert.ok(sends[0]?.text?.includes("⟳ <b>fabric_exec</b>: <code>Inspecting files</code>"));
+  assert.ok(sends[0]?.rich_message?.markdown?.includes("| ⟳ | fabric_exec | Inspecting files |"));
 
   now = 10_500;
   runtime.accept(event("tool-start", {
@@ -534,9 +553,9 @@ test("Progress tail runtime: container unwrapping suppresses outer fabric_exec w
   }));
   await runtime.waitForIdle();
   assert.ok(edits.length >= 1);
-  const latestEdit = edits.at(-1)?.text ?? "";
-  assert.ok(latestEdit.includes("⟳ <b>bash</b>: <code>ls</code>"));
-  assert.equal(latestEdit.includes("⟳ <b>fabric_exec</b>"), false, "outer running fabric_exec must be hidden while child runs");
+  const latestEdit = edits.at(-1)?.rich_message?.markdown ?? "";
+  assert.ok(latestEdit.includes("| ⟳ | bash | ls |"));
+  assert.equal(latestEdit.includes("fabric_exec"), false, "outer running fabric_exec must be hidden while child runs");
 
   now = 11_000;
   runtime.accept(event("tool-end", {
@@ -553,8 +572,8 @@ test("Progress tail runtime: container unwrapping suppresses outer fabric_exec w
   }));
   await runtime.waitForIdle();
 
-  const finalEdit = edits.at(-1)?.text ?? "";
-  assert.ok(finalEdit.includes("✓ <b>bash</b>: <code>ls</code>"));
+  const finalEdit = edits.at(-1)?.rich_message?.markdown ?? "";
+  assert.ok(finalEdit.includes("| ✓ | bash | ls |"));
   assert.equal(finalEdit.includes("fabric_exec"), false, "outer fabric_exec must be unwrapped and omitted when child ran");
 
   now = 12_000;
@@ -571,7 +590,6 @@ test("Progress tail runtime: container unwrapping suppresses outer fabric_exec w
   }));
   await runtime.waitForIdle();
 
-  const pureEdit = edits.at(-1)?.text ?? "";
-  assert.ok(pureEdit.includes("✓ <b>fabric_exec</b>: <code>Pure computation</code>"), "standalone fabric_exec without children must be retained");
+  const pureEdit = edits.at(-1)?.rich_message?.markdown ?? "";
+  assert.ok(pureEdit.includes("| ✓ | fabric_exec | Pure computation |"), "standalone fabric_exec without children must be retained");
 });
-

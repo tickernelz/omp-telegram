@@ -5,7 +5,7 @@
  */
 
 import type { TelegramActivityEvent, TelegramActivityPublicationRuntime } from "./activity.ts";
-import { escapeHtml } from "./rendering.ts";
+
 import type { TelegramTarget } from "./target.ts";
 import type {
   TelegramApiCallOptions,
@@ -20,8 +20,8 @@ export const TELEGRAM_PROGRESS_TAIL_MAX_TOOLS = 4;
 export const TELEGRAM_PROGRESS_TAIL_MAX_REASONING_LINES = 8;
 export const TELEGRAM_PROGRESS_TAIL_MAX_TOOL_ARG_CHARS = 120;
 export const TELEGRAM_PROGRESS_TAIL_MAX_TOOL_RESULT_CHARS = 250;
-export const TELEGRAM_PROGRESS_TAIL_MAX_MESSAGE_CHARS = 3_500;
-export const TELEGRAM_PROGRESS_TAIL_REASONING_BUFFER_MAX_CHARS = 2_400;
+export const TELEGRAM_PROGRESS_TAIL_MAX_MESSAGE_CHARS = 7_500;
+export const TELEGRAM_PROGRESS_TAIL_REASONING_BUFFER_MAX_CHARS = 6_000;
 
 export type ProgressTailStatus = "working" | "completed" | "cancelled" | "failed";
 
@@ -253,11 +253,11 @@ export function truncateTailText(text: string, limit: number): string {
   return `… ${tail || value.slice(-budget).trimStart()}`;
 }
 
-export function renderReasoningSectionHtml(
+export function renderReasoningSectionRich(
   rawText: string,
   latestParagraphsCount = 2,
-  maxHistoryParagraphs = 3,
-  maxChars = 800,
+  maxHistoryParagraphs = 5,
+  maxChars = 4_000,
 ): string {
   if (!rawText) return "";
   const cleaned = rawText
@@ -281,55 +281,28 @@ export function renderReasoningSectionHtml(
 
   const parts: string[] = [];
 
-  if (earlier.length === 0) {
-    let latestText = latest.join("\n\n");
-    if (latestText.length > maxChars) {
-      latestText = truncateTailText(latestText, maxChars);
+  if (earlier.length > 0) {
+    const visibleEarlier = earlier.slice(-maxHistoryParagraphs);
+    const omitted = earlier.length - visibleEarlier.length;
+    const earlierLines: string[] = [];
+    if (omitted > 0) {
+      earlierLines.push(`… [${omitted} earlier thought(s) omitted]`);
     }
-    parts.push(escapeHtml(latestText));
-    return `▰ 💭 <b>Reasoning</b>\n${parts.join("\n\n")}`;
+    earlierLines.push(...visibleEarlier);
+    const earlierText = earlierLines.join("\n\n");
+    parts.push(`<details>\n<summary>Earlier thoughts · tap to expand</summary>\n\n${earlierText}\n\n</details>`);
   }
 
-  const latestBudget = Math.max(200, Math.floor(maxChars * 0.55));
   let latestText = latest.join("\n\n");
-  if (latestText.length > latestBudget) {
-    latestText = truncateTailText(latestText, latestBudget);
+  if (latestText.length > maxChars) {
+    latestText = truncateTailText(latestText, maxChars);
   }
+  parts.push(latestText);
 
-  const historyBudget = Math.max(150, maxChars - latestText.length - 20);
-  const visibleEarlier = earlier.slice(-maxHistoryParagraphs);
-
-  const selectedEarlier: string[] = [];
-  let usedChars = 0;
-  for (let i = visibleEarlier.length - 1; i >= 0; i--) {
-    const p = visibleEarlier[i]!;
-    const needed = p.length + (selectedEarlier.length > 0 ? 2 : 0);
-    if (selectedEarlier.length > 0 && usedChars + needed > historyBudget) {
-      break;
-    }
-    selectedEarlier.unshift(p);
-    usedChars += needed;
-  }
-
-  const effectiveOmitted = earlier.length - selectedEarlier.length;
-  const earlierLines: string[] = [];
-  if (effectiveOmitted > 0) {
-    earlierLines.push(`… [${effectiveOmitted} earlier thought(s) omitted]`);
-  }
-
-  if (selectedEarlier.length > 0) {
-    earlierLines.push(...selectedEarlier);
-  } else if (visibleEarlier.length > 0) {
-    const newestEarlier = visibleEarlier.at(-1)!;
-    earlierLines.push(truncateTailText(newestEarlier, historyBudget));
-  }
-
-  const earlierText = earlierLines.join("\n\n");
-  parts.push(`<blockquote expandable>${escapeHtml(earlierText)}</blockquote>`);
-  parts.push(escapeHtml(latestText));
-
-  return `▰ 💭 <b>Reasoning</b>\n${parts.join("\n\n")}`;
+  return `## 💭 Reasoning\n\n${parts.join("\n\n")}`;
 }
+
+export const renderReasoningSectionHtml = renderReasoningSectionRich;
 
 export function extractReasoningTail(
   rawText: string,
@@ -376,30 +349,30 @@ export function extractReasoningTail(
   return result;
 }
 
-export function formatProgressTailHtml(state: ProgressTailState): string {
+export function formatProgressTailRich(state: ProgressTailState): string {
   const buildSections = (includeOlderToolResults: boolean, includeLatestToolResult: boolean, reasoningMaxChars: number) => {
     const sections: string[] = [];
     const endMs = state.completedAtMs ?? Date.now();
     const elapsedSec = Math.max(0.1, (endMs - state.startedAtMs) / 1000).toFixed(1);
-    const modelPart = state.modelName ? ` · <i>${escapeHtml(state.modelName)}</i>` : "";
+    const modelPart = state.modelName ? ` · _${state.modelName}_` : "";
 
     if (state.status === "working") {
-      sections.push(`⏳ <b>Working...</b> (${elapsedSec}s)${modelPart}`);
+      sections.push(`⏳ **Working...** (${elapsedSec}s)${modelPart}`);
     } else if (state.status === "completed") {
-      sections.push(`✅ <b>Completed</b> in ${elapsedSec}s · ${state.tools.length} tools${modelPart}`);
+      sections.push(`✅ **Completed** in ${elapsedSec}s · ${state.tools.length} tools${modelPart}`);
     } else if (state.status === "cancelled") {
-      sections.push(`⏹ <b>Cancelled</b> after ${elapsedSec}s · ${state.tools.length} tools${modelPart}`);
+      sections.push(`⏹ **Cancelled** after ${elapsedSec}s · ${state.tools.length} tools${modelPart}`);
     } else {
-      const errText = state.errorMessage ? `: ${escapeHtml(state.errorMessage)}` : "";
-      sections.push(`⚠️ <b>Failed</b> after ${elapsedSec}s${errText}`);
+      const errText = state.errorMessage ? `: ${state.errorMessage}` : "";
+      sections.push(`⚠️ **Failed** after ${elapsedSec}s${errText}`);
     }
 
     if (state.userPrompt) {
-      sections.push(`▰ 👤 <b>Prompt</b>\n<i>${escapeHtml(state.userPrompt)}</i>`);
+      sections.push(`## 👤 Prompt\n\n_${state.userPrompt}_`);
     }
 
     const rawReasoning = state.reasoningBuffer || state.reasoningLines.join("\n");
-    const reasoningSection = renderReasoningSectionHtml(rawReasoning, 2, 3, reasoningMaxChars);
+    const reasoningSection = renderReasoningSectionRich(rawReasoning, 2, 5, reasoningMaxChars);
     if (reasoningSection.length > 0) {
       sections.push(reasoningSection);
     }
@@ -407,72 +380,89 @@ export function formatProgressTailHtml(state: ProgressTailState): string {
     if (state.tools.length > 0) {
       const completed = state.tools.filter((t) => t.status === "completed" || t.status === "failed");
       const running = state.tools.filter((t) => t.status === "running" || t.status === "waiting");
-      const header = `▰ 🧰 <b>Tools</b> (${completed.length} completed${running.length > 0 ? `, ${running.length} running` : ""})`;
-      const toolLines: string[] = [];
-      if (completed.length > TELEGRAM_PROGRESS_TAIL_MAX_TOOLS) {
-        toolLines.push(`… [${completed.length - TELEGRAM_PROGRESS_TAIL_MAX_TOOLS} earlier tools omitted]`);
-      }
+      const header = `## 🧰 Tools (${completed.length} completed${running.length > 0 ? `, ${running.length} running` : ""})`;
+
+      const tableRows: Array<[string, string, string]> = [];
       const visibleCompleted = completed.slice(-TELEGRAM_PROGRESS_TAIL_MAX_TOOLS);
+      for (const tool of visibleCompleted) {
+        let statusMarker = tool.status === "failed" ? "✗" : "✓";
+        if (tool.name === "ask") {
+          if (tool.askStatus === "answered_telegram") statusMarker = "✓ (Tele)";
+          else if (tool.askStatus === "answered_cli") statusMarker = "✓ (CLI)";
+        }
+        tableRows.push([statusMarker, tool.name, tool.args || "-"]);
+      }
+      for (const tool of running) {
+        const marker = tool.name === "ask" ? "⏳" : "⟳";
+        tableRows.push([marker, tool.name, tool.args || (tool.name === "ask" ? "Waiting user" : "-")]);
+      }
+
+      const tableLines: string[] = [
+        "| St | Tool | Arguments |",
+        "|:---|:-----|:----------|",
+      ];
+      for (const [st, name, args] of tableRows) {
+        const safeArgs = args.replace(/\|/g, "\\|").replace(/\n/g, " ");
+        tableLines.push(`| ${st} | ${name} | ${safeArgs} |`);
+      }
+
+      const detailResults: string[] = [];
       for (let i = 0; i < visibleCompleted.length; i++) {
         const tool = visibleCompleted[i]!;
         const isNewest = i === visibleCompleted.length - 1;
-        if (tool.name === "ask") {
-          if (tool.askStatus === "answered_telegram") {
-            toolLines.push("✓ <b>ask</b>: <i>Answered via Telegram</i>");
-          } else if (tool.askStatus === "answered_cli") {
-            toolLines.push("✓ <b>ask</b>: <i>Answered via CLI</i>");
-          } else {
-            toolLines.push(`✓ <b>ask</b>${tool.args ? `: <code>${escapeHtml(tool.args)}</code>` : ""}`);
-          }
-        } else if (tool.status === "failed") {
-          toolLines.push(`✗ <b>${escapeHtml(tool.name)}</b>${tool.args ? `: <code>${escapeHtml(tool.args)}</code>` : ""}`);
-        } else {
-          toolLines.push(`✓ <b>${escapeHtml(tool.name)}</b>${tool.args ? `: <code>${escapeHtml(tool.args)}</code>` : ""}`);
-        }
         const allowResult = includeLatestToolResult && (includeOlderToolResults || isNewest);
         if (allowResult && tool.resultSummary && tool.resultSummary.trim().length > 0) {
-          toolLines.push(`<blockquote expandable>${escapeHtml(tool.resultSummary)}</blockquote>`);
+          detailResults.push(`<details>\n<summary>Result: ${tool.name} · tap to expand</summary>\n\n\`\`\`\n${tool.resultSummary}\n\`\`\`\n\n</details>`);
         }
       }
-      for (const tool of running) {
-        if (tool.name === "ask") {
-          toolLines.push("⏳ <b>ask</b>: <i>Waiting for user decision...</i>");
-        } else {
-          toolLines.push(`⟳ <b>${escapeHtml(tool.name)}</b>${tool.args ? `: <code>${escapeHtml(tool.args)}</code>` : ""}`);
-        }
+
+      let toolsBlock = `${header}\n\n${tableLines.join("\n")}`;
+      if (completed.length > TELEGRAM_PROGRESS_TAIL_MAX_TOOLS) {
+        toolsBlock += `\n\n_… [${completed.length - TELEGRAM_PROGRESS_TAIL_MAX_TOOLS} earlier tools omitted]_`;
       }
-      sections.push(`${header}\n${toolLines.join("\n")}`);
+      if (detailResults.length > 0) {
+        toolsBlock += `\n\n${detailResults.join("\n\n")}`;
+      }
+      sections.push(toolsBlock);
     }
 
     if (state.todoItems.length > 0) {
       const doneCount = state.todoItems.filter((t) => t.status === "completed").length;
-      const header = `▰ 📋 <b>Todo</b> (${doneCount}/${state.todoItems.length})`;
-      const todoLines = state.todoItems.slice(0, 6).map((item) => {
-        const marker = item.status === "completed" ? "[✓]" : item.status === "in_progress" ? "[⟳]" : item.status === "cancelled" ? "[-]" : "[ ]";
-        return `${marker} ${escapeHtml(item.task)}`;
-      });
-      if (state.todoItems.length > 6) {
-        todoLines.push(`… [${state.todoItems.length - 6} more tasks]`);
+      const header = `## 📋 Todo (${doneCount}/${state.todoItems.length})`;
+      const tableLines: string[] = [
+        "| St | Task |",
+        "|:---|:-----|",
+      ];
+      for (const item of state.todoItems.slice(0, 8)) {
+        const marker = item.status === "completed" ? "✓" : item.status === "in_progress" ? "⟳" : item.status === "cancelled" ? "-" : " ";
+        const safeTask = item.task.replace(/\|/g, "\\|").replace(/\n/g, " ");
+        tableLines.push(`| ${marker} | ${safeTask} |`);
       }
-      sections.push(`${header}\n${todoLines.join("\n")}`);
+      let todoBlock = `${header}\n\n${tableLines.join("\n")}`;
+      if (state.todoItems.length > 8) {
+        todoBlock += `\n\n_… [${state.todoItems.length - 8} more tasks]_`;
+      }
+      sections.push(todoBlock);
     }
 
     return sections.join("\n\n");
   };
 
   const MAX_CHARS = TELEGRAM_PROGRESS_TAIL_MAX_MESSAGE_CHARS;
-  let body = buildSections(true, true, 800);
+  let body = buildSections(true, true, 4_000);
   if (body.length > MAX_CHARS) {
-    body = buildSections(false, true, 600);
+    body = buildSections(false, true, 2_500);
   }
   if (body.length > MAX_CHARS) {
-    body = buildSections(false, false, 500);
+    body = buildSections(false, false, 1_500);
   }
   if (body.length > MAX_CHARS) {
-    body = buildSections(false, false, 300);
+    body = buildSections(false, false, 800);
   }
   return body;
 }
+
+export const formatProgressTailHtml = formatProgressTailRich;
 
 export function createTelegramProgressTailRuntime<TAuthority>(
   deps: TelegramProgressTailRuntimeDeps<TAuthority>,
@@ -593,41 +583,31 @@ export function createTelegramProgressTailRuntime<TAuthority>(
     if (deps.getActivityMode() === "quiet") return;
     if (!hasRealActivity() && liveMessage === undefined) return;
 
-    const currentHtml = formatProgressTailHtml(buildCurrentState());
+    const currentMarkdown = formatProgressTailRich(buildCurrentState());
 
     if (liveMessage === undefined) {
       try {
         publishing = true;
-        const sent = await deps.sendMessage({
-          chat_id: target.chatId,
-          ...(target.threadId === undefined ? {} : { message_thread_id: target.threadId }),
-          text: currentHtml,
-          parse_mode: "HTML",
-          link_preview_options: { is_disabled: true },
-        });
+        let sent: TelegramSentMessage;
+        if (deps.sendRichMessage) {
+          sent = await deps.sendRichMessage({
+            chat_id: target.chatId,
+            ...(target.threadId === undefined ? {} : { message_thread_id: target.threadId }),
+            rich_message: { markdown: currentMarkdown },
+          });
+        } else {
+          sent = await deps.sendMessage({
+            chat_id: target.chatId,
+            ...(target.threadId === undefined ? {} : { message_thread_id: target.threadId }),
+            text: currentMarkdown,
+            link_preview_options: { is_disabled: true },
+          });
+        }
         if (!isCurrent(acceptedGeneration, admittedAuthority)) return;
         liveMessage = { messageId: sent.message_id, target: { ...target } };
         lastPublishMs = getNowMs();
         dirty = false;
       } catch (error) {
-        if (error instanceof Error && /can't parse entities/i.test(error.message)) {
-          try {
-            const plain = currentHtml.replace(/<[^>]+>/g, "");
-            const sent = await deps.sendMessage({
-              chat_id: target.chatId,
-              ...(target.threadId === undefined ? {} : { message_thread_id: target.threadId }),
-              text: plain,
-              link_preview_options: { is_disabled: true },
-            });
-            if (!isCurrent(acceptedGeneration, admittedAuthority)) return;
-            liveMessage = { messageId: sent.message_id, target: { ...target } };
-            lastPublishMs = getNowMs();
-            dirty = false;
-            return;
-          } catch {
-            void 0;
-          }
-        }
         deps.recordFailure?.("tail-send", { type: "tool-start" } as TelegramActivityEvent, error);
       } finally {
         publishing = false;
@@ -642,29 +622,11 @@ export function createTelegramProgressTailRuntime<TAuthority>(
         await deps.editMessageText({
           chat_id: liveMessage.target.chatId,
           message_id: liveMessage.messageId,
-          text: currentHtml,
-          parse_mode: "HTML",
-          link_preview_options: { is_disabled: true },
+          rich_message: { markdown: currentMarkdown },
         }, { retryRateLimit: false });
         lastPublishMs = getNowMs();
         dirty = false;
       } catch (error) {
-        if (error instanceof Error && /can't parse entities/i.test(error.message)) {
-          try {
-            const plain = currentHtml.replace(/<[^>]+>/g, "");
-            await deps.editMessageText({
-              chat_id: liveMessage.target.chatId,
-              message_id: liveMessage.messageId,
-              text: plain,
-              link_preview_options: { is_disabled: true },
-            }, { retryRateLimit: false });
-            lastPublishMs = getNowMs();
-            dirty = false;
-            return;
-          } catch {
-            void 0;
-          }
-        }
         deps.recordFailure?.("tail-edit", { type: "tool-end" } as TelegramActivityEvent, error);
       } finally {
         publishing = false;

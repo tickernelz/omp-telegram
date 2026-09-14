@@ -4,6 +4,12 @@
 
 ## Unreleased
 
+## 0.3.11: Full Native Rich Message Markdown Migration And Paragraph Reasoning
+
+- `Native Rich Message Migration`: Fully migrated live progress tail to Bot API 10.1 Rich Message format (`sendRichMessage` and `editMessageText` with `rich_message: { markdown }`). The progress bubble now supports native tables for tools (`| St | Tool | Arguments |`) and todo checklists (`| St | Task |`), plus native collapsible `<details>` blocks for tool result inspection.
+- `Paragraph-First Reasoning & 7.5KB Budget`: Expanded safety budget from 3,500 characters to 7,500 characters (comfortably utilizing Telegram client's ~8 KiB threshold before "Show more"). The latest 2 reasoning paragraphs are always rendered open and complete without mid-word character chopping, while earlier historical thoughts fold cleanly into an expandable `<details>` block.
+- `Removed Legacy Rendering Toggle`: Removed the redundant `rendering` setting from TUI, CLI, and menu keyboards since rich format is now globally authoritative and native everywhere.
+
 ## 0.3.10: Discard Deleted Ambiguous Workspace Bindings On Reconnect
 
 - `Sync-Aware Workspace Recovery`: Do not resurrect a workspace binding whose underlying Telegram topic is already confirmed deleted or returned `TOPIC_ID_INVALID`. Ambiguous pending provisions pointing to deleted topics are now cleanly cleared so the provisioner provisions a fresh valid topic without throwing.

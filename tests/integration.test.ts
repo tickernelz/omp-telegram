@@ -1464,11 +1464,11 @@ test("Verbose activity reaches classic transport before the final assistant answ
 
     const progressIndex = calls.findIndex(
       (call) =>
-        call.method === "sendMessage" &&
-        typeof call.body.text === "string" &&
-        call.body.text.includes("Working..."),
+        (call.method === "sendRichMessage" || call.method === "sendMessage") &&
+        ((call.body.rich_message as { markdown?: string } | undefined)?.markdown?.includes("Working...") ||
+         (typeof call.body.text === "string" && call.body.text.includes("Working..."))),
     );
-    assert.ok(progressIndex >= 0, "progress tail bubble must be initiated via sendMessage");
+    assert.ok(progressIndex >= 0, "progress tail bubble must be initiated via sendRichMessage");
     assert.equal(calls[progressIndex]?.body.chat_id, 77);
 
     const finalIndex = calls.findIndex((call) => {
@@ -1482,12 +1482,16 @@ test("Verbose activity reaches classic transport before the final assistant answ
     const freezeIndex = calls.findIndex(
       (call) =>
         call.method === "editMessageText" &&
-        typeof call.body.text === "string" &&
-        call.body.text.includes("Completed"),
+        ((call.body.rich_message as { markdown?: string } | undefined)?.markdown?.includes("Completed") ||
+         (typeof call.body.text === "string" && call.body.text.includes("Completed"))),
     );
     assert.ok(freezeIndex >= 0, "progress tail bubble must freeze with completed summary");
-    assert.match(String((calls[freezeIndex]?.body as { text?: unknown } | undefined)?.text ?? ""), /read/);
-    assert.match(String((calls[freezeIndex]?.body as { text?: unknown } | undefined)?.text ?? ""), /exec/);
+    const freezeBodyText = String(
+      (calls[freezeIndex]?.body as { rich_message?: { markdown?: string }; text?: string } | undefined)?.rich_message?.markdown ??
+      (calls[freezeIndex]?.body as { text?: string } | undefined)?.text ?? ""
+    );
+    assert.match(freezeBodyText, /read/);
+    assert.match(freezeBodyText, /exec/);
     await commands.get("telegram-disconnect")?.handler("", ctx);
     await handlers.get("session_shutdown")?.({}, ctx);
   } finally {
@@ -1579,7 +1583,7 @@ test("Verbose activity uses follower transport and loses stale registration auth
   await runtime.waitForIdle();
   assert.deepEqual(
     followerCalls.map((call) => call.args[0]),
-    ["sendMessage", "editMessageText"],
+    ["sendRichMessage", "editMessageText"],
   );
   const thinkingBody = followerCalls[0]?.args[1] as
     | Record<string, unknown>

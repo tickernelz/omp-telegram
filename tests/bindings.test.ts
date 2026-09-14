@@ -423,7 +423,9 @@ for (const replaceRegistration of [false, true]) {
             const body = args[1] as { chat_id: number; message_thread_id: number; rich_message: { markdown?: string } };
             assert.equal(body.chat_id, 7);
             assert.equal(body.message_thread_id, 42);
-            committed.push(body.rich_message.markdown ?? "tool");
+            const md = body.rich_message.markdown ?? "";
+            const isProgressTail = md.includes("Working...") || md.includes("## 🧰 Tools");
+            committed.push(isProgressTail ? "tool" : (body.rich_message.markdown ?? "tool"));
             return { message_id: committed.length };
           }
           if (args[0] === "sendMessage") {
