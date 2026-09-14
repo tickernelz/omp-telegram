@@ -1133,16 +1133,16 @@ export async function openTelegramSettingsTui(
       },
     ];
 
-    const container = new Container();
     const profile = deps.getActiveProfileName?.() ?? "default";
-    container.addChild(new Text(theme.bold(theme.fg("accent", `Telegram Bridge Settings (${profile})`)), 0, 0));
-    container.addChild(new Text(theme.fg("muted", "Enter / Space to cycle values · Type to filter · Esc to close"), 0, 0));
-    container.addChild(new Spacer(1));
+    const titleText = new Text(theme.bold(theme.fg("accent", `Telegram Bridge Settings (${profile})`)), 0, 0);
+    const hintText = new Text(theme.fg("muted", "Enter / Space to cycle values · Type to filter · Esc to close"), 0, 0);
+    const spacerText = new Spacer(1);
 
-    const listContainer = new Container();
-    let items = buildItems();
+    const items = buildItems();
 
     const onChange = async (id: string, newValue: string) => {
+      const item = items.find((it) => it.id === id);
+      if (item) item.currentValue = newValue;
       if (id === "mode" && deps.setThreadDisplayMode) {
         await deps.setThreadDisplayMode(newValue as TelegramThreadDisplayMode);
       } else if (id === "activity") {
@@ -1158,31 +1158,43 @@ export async function openTelegramSettingsTui(
       } else if (id === "cleanup") {
         await deps.setAutomaticThreadCleanupEnabled(newValue === "on");
       }
-      items = buildItems();
-      listContainer.clear();
-      listContainer.addChild(createList());
       tui.requestRender();
     };
 
-    const createList = () =>
-      new SettingsList(
-        items as any,
-        Math.min(items.length, 12),
-        {
-          label: (text: string, selected: boolean) => (selected ? theme.bold(theme.fg("accent", text)) : text),
-          value: (text: string, selected: boolean) => (selected ? theme.fg("accent", text) : theme.fg("muted", text)),
-          description: (text: string) => theme.fg("muted", text),
-          cursor: theme.fg("accent", "❯ "),
-          hint: (text: string) => theme.fg("dim", text),
-        },
-        onChange,
-        () => done(),
-        { typeToSearch: true },
-      );
+    const settingsList = new SettingsList(
+      items as any,
+      Math.min(items.length, 12),
+      {
+        label: (text: string, selected: boolean) => (selected ? theme.bold(theme.fg("accent", text)) : text),
+        value: (text: string, selected: boolean) => (selected ? theme.fg("accent", text) : theme.fg("muted", text)),
+        description: (text: string) => theme.fg("muted", text),
+        cursor: theme.fg("accent", "❯ "),
+        hint: (text: string) => theme.fg("dim", text),
+      },
+      onChange,
+      () => done(),
+      { typeToSearch: true },
+    );
 
-    listContainer.addChild(createList());
-    container.addChild(listContainer);
-    return container;
+    class TelegramSettingsRootComponent extends Container {
+      settingsList: any;
+      constructor(l: any) {
+        super();
+        this.settingsList = l;
+        this.addChild(titleText);
+        this.addChild(hintText);
+        this.addChild(spacerText);
+        this.addChild(l);
+      }
+      handleInput(data: string): void {
+        this.settingsList?.handleInput?.(data);
+      }
+      render(width: number): string[] {
+        return (super.render as (w: number) => string[])(width);
+      }
+    }
+
+    return new TelegramSettingsRootComponent(settingsList);
   });
 
   ctx.ui?.notify?.("Telegram bridge settings saved.", "info");

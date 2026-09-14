@@ -2683,7 +2683,9 @@ test("Telegram settings command opens interactive TUI when in TUI mode", async (
       loadTuiComponents: async () => ({
         SettingsList: class {
           items: any;
+          inputs: string[] = [];
           constructor(items: any) { this.items = items; }
+          handleInput(data: string) { this.inputs.push(data); }
         },
         Container: class {
           children: any[];
@@ -2736,6 +2738,9 @@ test("Telegram settings command opens interactive TUI when in TUI mode", async (
         };
         const component = await builder(fakeTui, fakeTheme, {}, () => {});
         assert.ok(component, "custom component must be built");
+        assert.equal(typeof component.handleInput, "function", "root component must provide handleInput");
+        component.handleInput("q");
+        assert.deepEqual(component.settingsList.inputs, ["q"], "handleInput must delegate to settingsList");
       },
     },
   } as unknown as ExtensionCommandContext;

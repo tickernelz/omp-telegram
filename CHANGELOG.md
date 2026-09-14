@@ -4,6 +4,10 @@
 
 ## Unreleased
 
+## 0.3.2: Interactive Settings TUI Fix
+
+- `Settings TUI Input`: The `/telegram-settings` interactive root component now implements `handleInput`, delegating arrow navigation, Enter/Space value cycling, filtering, and Escape dismissal directly to `SettingsList`. Previously `new Container()` ignored terminal input, causing the interactive settings view to hang upon opening.
+
 ## 0.3.1: Progress Tail Enhancements And Settings Command
 
 - `Ask Roll-Over`: Answering an `ask` tool now freezes the previous progress tail bubble in-place and starts a fresh live progress bubble beneath the ask message on subsequent tool or reasoning activity, so the user never has to scroll up to see ongoing progress.
