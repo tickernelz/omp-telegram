@@ -4,6 +4,11 @@
 
 ## Unreleased
 
+## 0.3.3: Direct Reasoning Display And Configurable Progress Interval
+
+- `Direct Reasoning Display`: The latest 1 to 2 reasoning paragraphs are now rendered directly as visible plain text beneath the Reasoning header without collapsible nesting, while earlier historical thoughts are neatly folded into an expandable blockquote.
+- `Configurable Progress Interval`: Added `interval` setting to `/telegram-settings` (TUI, CLI, and autocompletions), letting operators configure the live progress tail update cadence (500ms to 60000ms) directly into profile config.
+
 ## 0.3.2: Interactive Settings TUI Fix
 
 - `Settings TUI Input`: The `/telegram-settings` interactive root component now implements `handleInput`, delegating arrow navigation, Enter/Space value cycling, filtering, and Escape dismissal directly to `SettingsList`. Previously `new Container()` ignored terminal input, causing the interactive settings view to hang upon opening.
