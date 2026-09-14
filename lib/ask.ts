@@ -118,6 +118,8 @@ interface TelegramAskToolDetails {
   customInput?: string;
   results?: TelegramAskQuestionResult[];
   answeredVia?: TelegramAskSurface;
+  chatRedirect?: boolean;
+  questions?: string[];
 }
 
 export type TelegramAskSendView = (
@@ -231,6 +233,77 @@ function getTelegramAskNativeDelegate(
 function hasInteractiveSurface(ctx: unknown): boolean {
   const host = ctx as { hasUI?: unknown } | undefined;
   return host?.hasUI === true;
+}
+
+interface TelegramAskDialogResultItem {
+  id: string;
+  question: string;
+  options: string[];
+  multi: boolean;
+  selectedOptions: string[];
+  customInput?: string;
+}
+
+type TelegramAskDialogResult =
+  | { kind: "submit"; results: TelegramAskDialogResultItem[] }
+  | { kind: "chat" };
+
+type TelegramAskDialogSurface = (
+  questions: unknown[],
+  dialogOptions?: { signal?: AbortSignal },
+) => Promise<TelegramAskDialogResult | undefined>;
+
+/** The host's own rich ask dialog. Driving it directly keeps a dismissed dialog from aborting the turn, which the native ask tool does by contract. */
+function getTelegramAskDialogSurface(
+  ctx: unknown,
+): TelegramAskDialogSurface | undefined {
+  const ui = (ctx as { ui?: { askDialog?: unknown } } | undefined)?.ui;
+  if (!ui || typeof ui.askDialog !== "function") return undefined;
+  return (ui.askDialog as TelegramAskDialogSurface).bind(ui);
+}
+
+class TelegramAskDeclinedError extends Error {
+  constructor() {
+    super("The local ask dialog was dismissed without an answer.");
+    this.name = "AbortError";
+  }
+}
+
+async function runTelegramAskDialog(
+  askDialog: TelegramAskDialogSurface,
+  questions: readonly { question: string }[],
+  signal: AbortSignal,
+): Promise<AgentToolResult<TelegramAskToolDetails>> {
+  const outcome = await askDialog([...questions], { signal });
+  if (!outcome) throw new TelegramAskDeclinedError();
+  if (outcome.kind === "chat") {
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: `User chose to chat about this instead of answering.\n\nQuestions asked:\n${questions
+            .map((entry) => entry.question)
+            .join("\n")}`,
+        },
+      ],
+      details: {
+        chatRedirect: true,
+        questions: questions.map((entry) => entry.question),
+      },
+    };
+  }
+  return buildTelegramAskToolResult(
+    outcome.results.map((result) => ({
+      id: result.id,
+      question: result.question,
+      options: result.options,
+      multi: result.multi,
+      selectedOptions: result.selectedOptions,
+      ...(result.customInput !== undefined
+        ? { customInput: result.customInput }
+        : {}),
+    })),
+  );
 }
 
 function normalizeTelegramAskQuestion(question: {
@@ -711,15 +784,18 @@ export function createTelegramAskRuntime(
       strict: true,
       parameters: TelegramAskParametersSchema,
       async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-        const nativeDelegate = getTelegramAskNativeDelegate(ctx);
+        const askDialog = getTelegramAskDialogSurface(ctx);
+        const nativeDelegate = askDialog
+          ? undefined
+          : getTelegramAskNativeDelegate(ctx);
         const scope = resolveScope();
-        if (!nativeDelegate && !scope) {
+        if (!askDialog && !nativeDelegate && !scope) {
           return buildTelegramAskUnavailableResult(
             "no Telegram turn is active and this session exposes no native ask surface.",
           );
         }
         const delegateParams = params as unknown as Record<string, unknown>;
-        if (!nativeDelegate && scope && hasInteractiveSurface(ctx)) {
+        if (!askDialog && !nativeDelegate && scope && hasInteractiveSurface(ctx)) {
           deps.recordRuntimeEvent?.(
             "ask",
             new Error(
@@ -729,7 +805,13 @@ export function createTelegramAskRuntime(
           );
         }
         const arms: TelegramAskArm[] = [];
-        if (nativeDelegate) {
+        if (askDialog) {
+          arms.push({
+            surface: "cli",
+            run: (armSignal) =>
+              runTelegramAskDialog(askDialog, params.questions, armSignal),
+          });
+        } else if (nativeDelegate) {
           arms.push({
             surface: "cli",
             run: (armSignal) =>

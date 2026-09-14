@@ -4,6 +4,10 @@
 
 ## Unreleased
 
+## 0.1.2: Dismissable Local Dialog
+
+- `Ask Race`: The local arm now drives the host's own rich dialog through `ctx.ui.askDialog` instead of delegating to the native ask tool. The native tool answers a dismissed dialog with `context.abort()`, which ends the whole turn by contract; inside a race that meant closing the terminal dialog also destroyed the live Telegram question, whose buttons then answered "This question is no longer active". Dismissing a surface now only loses the race, and the other surface stays answerable. Cancelling everything is still the turn abort. Delegation remains the fallback where no rich dialog exists.
+
 ## 0.1.1: Surface Degradation Notice
 
 - `Ask Surface`: An interactive session that cannot reach the native ask now records a `surface-degraded` runtime event instead of quietly answering through Telegram alone. The `ctx.invokeTool` guard stays, because a headless run genuinely has no dialog to race, but `ctx.hasUI` separates that from a caller whose wrapper dropped the delegation seam. Observed through omp-fabric, whose capture wrapper built the tool context without naming the tool; fixed upstream in omp-fabric 1.18.3.

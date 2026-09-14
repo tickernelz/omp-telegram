@@ -104,3 +104,105 @@ await test("ask stays silent when the native surface is present", async () => {
   );
   assert.match(String(result.content?.[0]?.text ?? ""), /native answered/);
 });
+
+await test("dismissing the local dialog leaves the Telegram question answerable", async () => {
+  const events: RecordedEvent[] = [];
+  let telegramSends = 0;
+  let dialogDismissed = false;
+  const runtime = createTelegramAskRuntime({
+    getActiveTurn: () => ({ chatId: 77 }),
+    recordRuntimeEvent: (category, error, details) => {
+      events.push({
+        category,
+        message: error instanceof Error ? error.message : String(error),
+        details,
+      });
+    },
+    sendView: async () => {
+      telegramSends += 1;
+      return {
+        ok: true,
+        value: { target: { chatId: 77 }, messageIds: [1], generation: "g1" },
+      };
+    },
+    editView: async (handle) => ({ ok: true, value: handle }),
+  });
+  const tools = new Map<string, { execute: Function }>();
+  runtime.register({
+    registerTool: (definition: { name: string; execute: Function }) => {
+      tools.set(definition.name, definition);
+    },
+  } as never);
+
+  let aborted = false;
+  const ctx = {
+    hasUI: true,
+    abort: () => {
+      aborted = true;
+    },
+    ui: {
+      askDialog: async () => {
+        dialogDismissed = true;
+        return undefined;
+      },
+    },
+  };
+
+  const controller = new AbortController();
+  const pending = tools.get("ask")!.execute("call-dismiss", question, controller.signal, undefined, ctx);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  assert.equal(dialogDismissed, true, "the local dialog must have been offered");
+  assert.equal(telegramSends, 1, "Telegram must still have been asked");
+  assert.equal(runtime.hasPending(), true, "the Telegram question must stay answerable after a dismissed dialog");
+  assert.equal(aborted, false, "dismissing one surface must never abort the turn");
+  assert.deepEqual(
+    events.filter((event) => event.details?.phase === "arm"),
+    [],
+    "a dismissed dialog is a lost race, not a failure worth recording",
+  );
+
+  controller.abort();
+  await pending.catch(() => undefined);
+});
+
+await test("the local dialog answer wins and names its surface", async () => {
+  const runtime = createTelegramAskRuntime({
+    getActiveTurn: () => ({ chatId: 77 }),
+    sendView: async () => ({
+      ok: true,
+      value: { target: { chatId: 77 }, messageIds: [1], generation: "g1" },
+    }),
+    editView: async (handle) => ({ ok: true, value: handle }),
+  });
+  const tools = new Map<string, { execute: Function }>();
+  runtime.register({
+    registerTool: (definition: { name: string; execute: Function }) => {
+      tools.set(definition.name, definition);
+    },
+  } as never);
+
+  const ctx = {
+    hasUI: true,
+    ui: {
+      askDialog: async () => ({
+        kind: "submit",
+        results: [
+          {
+            id: "q",
+            question: "Which surface?",
+            options: ["A", "B"],
+            multi: false,
+            selectedOptions: ["A"],
+          },
+        ],
+      }),
+    },
+  };
+
+  const result = await tools.get("ask")!.execute("call-win", question, undefined, undefined, ctx);
+  assert.match(String(result.content?.[0]?.text ?? ""), /User selected: A/);
+  assert.match(String(result.content?.[0]?.text ?? ""), /Answered via CLI\./);
+  assert.equal(result.details?.answeredVia, "cli");
+});
+
