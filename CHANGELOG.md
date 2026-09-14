@@ -4,6 +4,12 @@
 
 ## Unreleased
 
+## 0.3.6: Container Unwrapping, Smart Reasoning Truncation, And Ask Hardening
+
+- `Smart Container Unwrapping`: Meta-tools like `fabric_exec` executing nested OMP core tools (`omp.bash`, `omp.read`, `omp.edit`) now automatically unwrap. The outer wrapper is hidden while child tools run and omitted upon completion, eliminating duplicate tool listings on Telegram while retaining standalone TS executions and errors.
+- `Sentence-Aware Reasoning Tail`: Ported `hermes-progress-tail` tail truncation semantics. Truncated reasoning now slices from the tail rather than the head, preserves complete thought sentences, and avoids cutting off the beginning of words.
+- `Ask Freeze Reliability`: Fixed a race condition where answer callbacks from CLI could stall progress tail freezing if the live message was delayed. Tool-end for `ask` now unconditionally finalizes and freezes the active segment.
+
 ## 0.3.5: Hierarchical Section Budgeting And Rich Integrity
 
 - `Rich HTML Integrity`: Solved plain-text degradation where long turns stripped all HTML tags when exceeding message character limits. Sections (prompt, reasoning, tool arguments, tool results) are now budgeted at the source before rendering, and multi-tier degradation gracefully drops older tool output blockquotes and compresses historical thoughts without ever stripping HTML markup.
