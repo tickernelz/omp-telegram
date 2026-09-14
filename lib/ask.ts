@@ -683,8 +683,7 @@ export function createTelegramAskRuntime(
       ? pendingRequests.get(selection.requestId)
       : undefined;
     if (!selection || !pending) {
-      await answerCallback(callback.id, "This question is no longer active.");
-      return "consume";
+      return "pass";
     }
     const assertCurrent = createTelegramUpdateExecutionFenceGuard(update);
     const { token } = selection;

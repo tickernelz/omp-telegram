@@ -4,6 +4,10 @@
 
 ## Unreleased
 
+## 0.1.3: Multi-Instance Ask Routing
+
+- `Ask Routing`: An ask callback that this process has no pending question for is now left for the bridge's own routing instead of being consumed. Public update handlers run before that routing, so on the bus leader the ask bridge answered every `tgask:` callback itself — including the ones belonging to a follower that was waiting on them. With more than one OMP session live, the question reached Telegram, the buttons rendered, and the first tap answered "This question is no longer active" while the asking session kept waiting. The leader now forwards such a callback to the instance that owns the message, which is the layer that holds the ownership map.
+
 ## 0.1.2: Dismissable Local Dialog
 
 - `Ask Race`: The local arm now drives the host's own rich dialog through `ctx.ui.askDialog` instead of delegating to the native ask tool. The native tool answers a dismissed dialog with `context.abort()`, which ends the whole turn by contract; inside a race that meant closing the terminal dialog also destroyed the live Telegram question, whose buttons then answered "This question is no longer active". Dismissing a surface now only loses the race, and the other surface stays answerable. Cancelling everything is still the turn abort. Delegation remains the fallback where no rich dialog exists.

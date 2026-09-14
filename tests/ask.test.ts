@@ -206,3 +206,72 @@ await test("the local dialog answer wins and names its surface", async () => {
   assert.equal(result.details?.answeredVia, "cli");
 });
 
+
+await test("an ask callback this process does not own is left for bus routing", async () => {
+  const runtime = createTelegramAskRuntime({
+    getActiveTurn: () => ({ chatId: 77 }),
+    sendView: async () => ({
+      ok: true,
+      value: { target: { chatId: 77 }, messageIds: [1], generation: "g1" },
+    }),
+    editView: async (handle) => ({ ok: true, value: handle }),
+  });
+
+  const foreign = {
+    callback_query: {
+      id: "cb-foreign",
+      data: "tgask:deadbeef01:o0",
+      message: { message_id: 9, chat: { id: 77 } },
+      from: { id: 7 },
+    },
+  };
+
+  assert.equal(runtime.hasPending(), false, "precondition: nothing pending here");
+  assert.equal(
+    await runtime.resolveFromUpdate(foreign),
+    "pass",
+    "consuming a foreign ask callback would stop the leader forwarding it to the instance that is waiting",
+  );
+});
+
+await test("an ask callback this process owns is consumed", async () => {
+  const runtime = createTelegramAskRuntime({
+    getActiveTurn: () => ({ chatId: 77 }),
+    answerCallbackQuery: async () => {},
+    sendView: async (view) => {
+      sentMarkup = view.replyMarkup;
+      return {
+        ok: true,
+        value: { target: { chatId: 77 }, messageIds: [5], generation: "g1" },
+      };
+    },
+    editView: async (handle) => ({ ok: true, value: handle }),
+  });
+  let sentMarkup: { inline_keyboard?: Array<Array<{ callback_data?: string }>> } | undefined;
+  const tools = new Map<string, { execute: Function }>();
+  runtime.register({
+    registerTool: (definition: { name: string; execute: Function }) => {
+      tools.set(definition.name, definition);
+    },
+  } as never);
+
+  const controller = new AbortController();
+  const pending = tools.get("ask")!.execute("call-own", question, controller.signal, undefined, { hasUI: false });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  const data = sentMarkup?.inline_keyboard?.[0]?.[0]?.callback_data;
+  assert.ok(data?.startsWith("tgask:"), "the keyboard must carry an ask callback");
+  const verdict = await runtime.resolveFromUpdate({
+    callback_query: {
+      id: "cb-own",
+      data,
+      message: { message_id: 5, chat: { id: 77 } },
+      from: { id: 7 },
+    },
+  });
+  assert.equal(verdict, "consume", "an owned ask callback must not reach default routing");
+  const result = await pending;
+  assert.match(String(result.content?.[0]?.text ?? ""), /Answered via Telegram\./);
+  controller.abort();
+});
+
