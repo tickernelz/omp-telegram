@@ -495,3 +495,83 @@ test("formatProgressTailHtml handles massive reasoning and 50 tools without drop
   assert.equal(html.includes("… [truncated]"), false, "must not produce raw plain-text truncation");
 });
 
+test("Progress tail runtime: container unwrapping suppresses outer fabric_exec when inner tools execute", async () => {
+  const sends: TelegramSendMessageBody[] = [];
+  const edits: TelegramEditMessageTextBody[] = [];
+  let now = 10_000;
+
+  const runtime = createTelegramProgressTailRuntime({
+    getActivityMode: () => "verbose",
+    getNowMs: () => now,
+    resolveTarget: (e) => e.target,
+    captureAuthority: () => 1,
+    isAuthorityActive: () => true,
+    async sendMessage(body) {
+      sends.push(body);
+      return { message_id: 100 + sends.length, date: 1, chat: { id: 42, type: "private" } };
+    },
+    async editMessageText(body) {
+      edits.push(body);
+      return "edited";
+    },
+  });
+
+  runtime.accept(event("agent-start"));
+  runtime.accept(event("tool-start", {
+    toolCallId: "call_outer_1",
+    toolName: "fabric_exec",
+    args: { i: "Inspecting files", code: "await omp.bash({cmd: 'ls'})" },
+  }));
+  await runtime.waitForIdle();
+  assert.equal(sends.length, 1);
+  assert.ok(sends[0]?.text?.includes("⟳ <b>fabric_exec</b>: <code>Inspecting files</code>"));
+
+  now = 10_500;
+  runtime.accept(event("tool-start", {
+    toolCallId: "fabric_child_1",
+    toolName: "bash",
+    args: { cmd: "ls" },
+  }));
+  await runtime.waitForIdle();
+  assert.ok(edits.length >= 1);
+  const latestEdit = edits.at(-1)?.text ?? "";
+  assert.ok(latestEdit.includes("⟳ <b>bash</b>: <code>ls</code>"));
+  assert.equal(latestEdit.includes("⟳ <b>fabric_exec</b>"), false, "outer running fabric_exec must be hidden while child runs");
+
+  now = 11_000;
+  runtime.accept(event("tool-end", {
+    toolCallId: "fabric_child_1",
+    toolName: "bash",
+    result: { output: "file1.txt\nfile2.txt" },
+    isError: false,
+  }));
+  runtime.accept(event("tool-end", {
+    toolCallId: "call_outer_1",
+    toolName: "fabric_exec",
+    result: { output: "file1.txt\nfile2.txt" },
+    isError: false,
+  }));
+  await runtime.waitForIdle();
+
+  const finalEdit = edits.at(-1)?.text ?? "";
+  assert.ok(finalEdit.includes("✓ <b>bash</b>: <code>ls</code>"));
+  assert.equal(finalEdit.includes("fabric_exec"), false, "outer fabric_exec must be unwrapped and omitted when child ran");
+
+  now = 12_000;
+  runtime.accept(event("tool-start", {
+    toolCallId: "call_outer_2",
+    toolName: "fabric_exec",
+    args: { i: "Pure computation", code: "const x = 1 + 1;" },
+  }));
+  runtime.accept(event("tool-end", {
+    toolCallId: "call_outer_2",
+    toolName: "fabric_exec",
+    result: 2,
+    isError: false,
+  }));
+  await runtime.waitForIdle();
+
+  const pureEdit = edits.at(-1)?.text ?? "";
+  assert.ok(pureEdit.includes("✓ <b>fabric_exec</b>: <code>Pure computation</code>"), "standalone fabric_exec without children must be retained");
+});
+

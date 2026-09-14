@@ -123,6 +123,16 @@ export function extractShortToolArgs(
     if (cmd) return String(cmd).replace(/\s+/g, " ").trim().slice(0, maxChars);
   }
   if (toolName === "fabric_exec") {
+    if (typeof args.i === "string" && args.i.trim().length > 0) {
+      return String(args.i).trim().slice(0, maxChars);
+    }
+    const display = args.display as { name?: unknown; description?: unknown } | undefined;
+    if (typeof display?.name === "string" && display.name.trim().length > 0) {
+      return String(display.name).trim().slice(0, maxChars);
+    }
+    if (typeof display?.description === "string" && display.description.trim().length > 0) {
+      return String(display.description).trim().slice(0, maxChars);
+    }
     if (args.code) {
       return String(args.code).replace(/\s+/g, " ").trim().slice(0, maxChars);
     }
@@ -214,6 +224,33 @@ export function extractToolResultSummary(
   return text;
 }
 
+export function truncateTailText(text: string, limit: number): string {
+  const value = String(text ?? "").trim();
+  if (limit <= 0) return "";
+  if (value.length <= limit) return value;
+  if (limit <= 4) return ".".repeat(limit);
+
+  const budget = limit - 2;
+  const start = Math.max(0, value.length - budget);
+  let tail = value.slice(start).trimStart();
+
+  if (start > 0 && !/\s/.test(value[start - 1] ?? "")) {
+    const firstSpace = tail.search(/\s/);
+    if (firstSpace >= 0) {
+      tail = tail.slice(firstSpace + 1).trimStart();
+    }
+  }
+
+  const sentenceMatch = tail.slice(0, 60).match(/(?:[.\?!]\s+|\n+)([A-Z0-9"'`].*)/s);
+  if (sentenceMatch && sentenceMatch.index !== undefined && sentenceMatch[1]) {
+    if (sentenceMatch.index < 40 && tail.length - sentenceMatch.index > budget * 0.4) {
+      tail = sentenceMatch[1].trimStart();
+    }
+  }
+
+  return `… ${tail || value.slice(-budget).trimStart()}`;
+}
+
 export function renderReasoningSectionHtml(
   rawText: string,
   latestParagraphsCount = 2,
@@ -241,27 +278,52 @@ export function renderReasoningSectionHtml(
   const earlier = paragraphs.slice(0, -latestParagraphsCount);
 
   const parts: string[] = [];
-  const halfBudget = Math.max(150, Math.floor(maxChars * 0.45));
 
-  if (earlier.length > 0) {
-    const visibleEarlier = earlier.slice(-maxHistoryParagraphs);
-    const omitted = earlier.length - visibleEarlier.length;
-    const earlierLines: string[] = [];
-    if (omitted > 0) {
-      earlierLines.push(`… [${omitted} earlier thought(s) omitted]`);
+  if (earlier.length === 0) {
+    let latestText = latest.join("\n\n");
+    if (latestText.length > maxChars) {
+      latestText = truncateTailText(latestText, maxChars);
     }
-    earlierLines.push(...visibleEarlier);
-    let earlierText = earlierLines.join("\n\n");
-    if (earlierText.length > halfBudget) {
-      earlierText = earlierText.slice(-halfBudget);
-    }
-    parts.push(`<blockquote expandable>${escapeHtml(earlierText)}</blockquote>`);
+    parts.push(escapeHtml(latestText));
+    return `▰ 💭 <b>Reasoning</b>\n${parts.join("\n\n")}`;
   }
 
+  const latestBudget = Math.max(200, Math.floor(maxChars * 0.55));
   let latestText = latest.join("\n\n");
-  if (latestText.length > halfBudget) {
-    latestText = latestText.slice(-halfBudget);
+  if (latestText.length > latestBudget) {
+    latestText = truncateTailText(latestText, latestBudget);
   }
+
+  const historyBudget = Math.max(150, maxChars - latestText.length - 20);
+  const visibleEarlier = earlier.slice(-maxHistoryParagraphs);
+
+  const selectedEarlier: string[] = [];
+  let usedChars = 0;
+  for (let i = visibleEarlier.length - 1; i >= 0; i--) {
+    const p = visibleEarlier[i]!;
+    const needed = p.length + (selectedEarlier.length > 0 ? 2 : 0);
+    if (selectedEarlier.length > 0 && usedChars + needed > historyBudget) {
+      break;
+    }
+    selectedEarlier.unshift(p);
+    usedChars += needed;
+  }
+
+  const effectiveOmitted = earlier.length - selectedEarlier.length;
+  const earlierLines: string[] = [];
+  if (effectiveOmitted > 0) {
+    earlierLines.push(`… [${effectiveOmitted} earlier thought(s) omitted]`);
+  }
+
+  if (selectedEarlier.length > 0) {
+    earlierLines.push(...selectedEarlier);
+  } else if (visibleEarlier.length > 0) {
+    const newestEarlier = visibleEarlier.at(-1)!;
+    earlierLines.push(truncateTailText(newestEarlier, historyBudget));
+  }
+
+  const earlierText = earlierLines.join("\n\n");
+  parts.push(`<blockquote expandable>${escapeHtml(earlierText)}</blockquote>`);
   parts.push(escapeHtml(latestText));
 
   return `▰ 💭 <b>Reasoning</b>\n${parts.join("\n\n")}`;
@@ -302,11 +364,7 @@ export function extractReasoningTail(
 
   let result = selected.join("\n\n");
   if (result.length > maxChars) {
-    result = result.slice(-maxChars);
-    const firstNewline = result.indexOf("\n");
-    if (firstNewline > 0 && firstNewline < 100) {
-      result = result.slice(firstNewline + 1).trim();
-    }
+    result = truncateTailText(result, maxChars);
   }
 
   if (paragraphs.length > selected.length) {
@@ -437,6 +495,7 @@ export function createTelegramProgressTailRuntime<TAuthority>(
   const runningTools = new Map<string, ProgressTailToolItem>();
   const completedTools: ProgressTailToolItem[] = [];
   const todoItems: ProgressTailTodoItem[] = [];
+  const activeContainers = new Map<string, { id: string; name: string; childToolCount: number }>();
 
   let timer: NodeJS.Timeout | undefined;
   let lastPublishMs = 0;
@@ -466,6 +525,7 @@ export function createTelegramProgressTailRuntime<TAuthority>(
     reasoningLines = [];
     runningTools.clear();
     completedTools.length = 0;
+    activeContainers.clear();
     lastPublishMs = 0;
     dirty = false;
     publishing = false;
@@ -497,7 +557,15 @@ export function createTelegramProgressTailRuntime<TAuthority>(
   };
 
   const buildCurrentState = (): ProgressTailState => {
-    const allTools = [...completedTools, ...runningTools.values()];
+    const visibleRunning: ProgressTailToolItem[] = [];
+    for (const tool of runningTools.values()) {
+      const container = activeContainers.get(tool.id);
+      if (container && container.childToolCount > 0) {
+        continue;
+      }
+      visibleRunning.push(tool);
+    }
+    const allTools = [...completedTools, ...visibleRunning];
     return {
       status,
       startedAtMs,
@@ -680,6 +748,20 @@ export function createTelegramProgressTailRuntime<TAuthority>(
     if (event.type === "tool-start") {
       if (!showTools) return;
       const isAsk = event.toolName === "ask";
+      const isContainer = event.toolName === "fabric_exec";
+
+      if (isContainer) {
+        activeContainers.set(event.toolCallId, {
+          id: event.toolCallId,
+          name: event.toolName,
+          childToolCount: 0,
+        });
+      } else if (activeContainers.size > 0) {
+        for (const container of activeContainers.values()) {
+          container.childToolCount++;
+        }
+      }
+
       runningTools.set(event.toolCallId, {
         id: event.toolCallId,
         name: event.toolName,
@@ -710,6 +792,15 @@ export function createTelegramProgressTailRuntime<TAuthority>(
       if (!showTools) return;
       const existing = runningTools.get(event.toolCallId);
       runningTools.delete(event.toolCallId);
+
+      const container = activeContainers.get(event.toolCallId);
+      if (container !== undefined) {
+        activeContainers.delete(event.toolCallId);
+        if (container.childToolCount > 0 && !event.isError) {
+          await publishToTelegram(acceptedGeneration, false);
+          return;
+        }
+      }
       let askStatus = existing?.askStatus;
       if (event.toolName === "ask") {
         const resStr = JSON.stringify(event.result ?? "");
@@ -748,7 +839,7 @@ export function createTelegramProgressTailRuntime<TAuthority>(
         askStatus,
         isError: event.isError,
       });
-      if (event.toolName === "ask" && liveMessage !== undefined) {
+      if (event.toolName === "ask") {
         status = "completed";
         completedAtMs = getNowMs();
         await publishToTelegram(acceptedGeneration, true);
