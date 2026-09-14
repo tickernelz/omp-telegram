@@ -718,6 +718,7 @@ const TELEGRAM_OWNED_CALLBACK_PREFIXES = [
   "section:",
   "settings:",
   "status:",
+  "tgask:",
   "tgbtn:",
   "thinking:",
 ] as const;

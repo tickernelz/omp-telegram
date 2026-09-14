@@ -4,6 +4,11 @@
 
 ## Unreleased
 
+## 0.3.8: Fix Ask Button Callback Enqueueing And Stalled Race
+
+- `Fix Stale Ask Callback Enqueueing`: Added `tgask:` to `TELEGRAM_OWNED_CALLBACK_PREFIXES`. Previously, when an ask button was clicked after the CLI won the race or before the follower registry was warm, unrecognized `tgask:*` callback data fell through into the generic user prompt queue, enqueueing `[callback] tgask:...` as a new user message and stalling the session.
+- `Drop Unmatched Ask Callbacks`: Late or orphaned ask callback taps are now recognized as bridge-owned and answered silently with callback ack, preventing them from interrupting active turn queues.
+
 ## 0.3.7: Rate Limit Prevention, Non-Blocking Edit Fallback, And 5s Default Interval
 
 - `5s Default Cadence`: Raised the default progress tail update interval from 2000ms to 5000ms to safely accommodate Telegram's global 30 edits/minute per-chat throttling. Updated interval options in `/telegram-settings` to 2000ms, 3000ms, 5000ms, 7500ms, 10000ms.
