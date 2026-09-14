@@ -4,6 +4,11 @@
 
 ## Unreleased
 
+## 0.3.10: Discard Deleted Ambiguous Workspace Bindings On Reconnect
+
+- `Sync-Aware Workspace Recovery`: Do not resurrect a workspace binding whose underlying Telegram topic is already confirmed deleted or returned `TOPIC_ID_INVALID`. Ambiguous pending provisions pointing to deleted topics are now cleanly cleared so the provisioner provisions a fresh valid topic without throwing.
+- `Track Workspace Binding Invalidation`: Enabled `markStaleByTarget` to record sync observations directly for historical workspace bindings.
+
 ## 0.3.9: Recover Ambiguous Topic Provisioning From Durable Workspace Bindings
 
 - `Durable Workspace Binding Recovery`: When topic provisioning encounters transport failure or an ambiguous pending provision, the provisioner now rechecks and reuses the exact durable inactive workspace binding for that workspace if available, instead of failing repeatedly or creating duplicate topics.

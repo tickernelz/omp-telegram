@@ -2991,6 +2991,51 @@ test("Thread provisioner recovers an ambiguous request from an exact inactive wo
   }
 });
 
+test("Thread provisioner creates new topic if ambiguous workspace binding is observed deleted", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "pi-telegram-provision-workspace-deleted-"));
+  try {
+    const store = createTelegramTopicTargetStore({ path: join(dir, "state.json"), getNowMs: () => 3000 });
+    const oldIdentity = store.claimWorkspaceIdentity("/repo", "old-instance")!;
+    const staleTarget = { chatId: -1001, threadId: 77 };
+    assert.ok(store.upsertWorkspaceBinding({ ...oldIdentity, target: staleTarget, slot: oldIdentity.slot, threadName: "Atlas", displayTitle: "Repo", updatedAtMs: 1000 }, "old-instance"));
+    store.markStaleByTarget(staleTarget, "deleted", "TOPIC_ID_INVALID");
+    const newIdentity = store.claimWorkspaceIdentity("/repo", "new-instance")!;
+    store.upsertPendingProvision({
+      id: "provision:new-instance:A:2000",
+      owner: "leader",
+      instanceId: "new-instance",
+      profileKey: "cwd:/repo",
+      status: "ambiguous",
+      threadName: "Atlas",
+      slot: "A",
+      startedAtMs: 2000,
+    });
+    let creations = 0;
+    const provision = createTelegramTopicTargetProvisioner({
+      topicChatId: -1001,
+      store,
+      getNowMs: () => 3000,
+      async callApi<TResponse>(method: string) {
+        assert.equal(method, "createForumTopic");
+        creations++;
+        return { message_thread_id: 88 } as TResponse;
+      },
+    });
+    const result = await provision({
+      instanceId: "new-instance",
+      profileKey: "cwd:/repo",
+      workspaceBindingKey: newIdentity.bindingKey,
+      workspaceCwd: newIdentity.cwd,
+      preferredSlot: newIdentity.slot,
+    });
+    assert.equal(result.reused, false);
+    assert.deepEqual(result.target, { chatId: -1001, threadId: 88 });
+    assert.equal(creations, 1);
+  } finally {
+    await rm(dir, { force: true, recursive: true });
+  }
+});
+
 test("Thread provisioner treats a malformed successful create as commit-unknown", async () => {
   const dir = await mkdtemp(join(tmpdir(), "pi-telegram-provision-malformed-"));
   try {

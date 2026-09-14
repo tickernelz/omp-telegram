@@ -2965,12 +2965,16 @@ export function createTelegramTopicTargetStore(
       const pending = syncStatus === "deleted" ? pendingProvisions.find((entry) =>
         entry.target && targetMatches(entry.target, target),
       ) : undefined;
-      const source = record ?? pending;
+      const workspaceBinding = Array.from(workspaceBindings.values()).find((entry) =>
+        targetMatches(entry.target, target),
+      );
+      const source = record ?? pending ?? workspaceBinding;
       if (!source?.target) return false;
       syncObservations = syncObservations.filter((entry) => !targetMatches(entry.target, target));
+      const instanceId = "instanceId" in source && typeof source.instanceId === "string" ? source.instanceId : undefined;
       syncObservations.push({
         target: { ...source.target }, syncStatus, observedAtMs: getNowMs(),
-        ...(source.instanceId ? { instanceId: source.instanceId } : {}),
+        ...(instanceId ? { instanceId } : {}),
         ...(source.slot ? { slot: source.slot } : {}),
         ...(lastSyncError ? { lastSyncError } : {}),
         lastReconcileAction: "mark-stale",
@@ -4677,7 +4681,16 @@ export function createTelegramTopicTargetProvisioner(
             (binding) => binding.bindingKey === request.workspaceBindingKey,
           )
         : undefined;
-      if (recoverableBinding?.target && recoverableBinding.slot) {
+      const observation = recoverableBinding?.target
+        ? deps.store.listSyncObservations().find((entry) =>
+            targetMatches(entry.target, recoverableBinding.target),
+          )
+        : undefined;
+      if (
+        recoverableBinding?.target &&
+        recoverableBinding.slot &&
+        observation?.syncStatus !== "deleted"
+      ) {
         assertTelegramPendingTopicRecoveryAllowed(
           deps.store,
           recoverableBinding.target,
@@ -4705,9 +4718,15 @@ export function createTelegramTopicTargetProvisioner(
             : {}),
         };
       }
-      throw new Error(
-        `Telegram topic provisioning remains ${pendingForRequest.status ?? "in-flight"} for this instance.`,
-      );
+      if (observation?.syncStatus === "deleted") {
+        deps.store.removePendingProvision(pendingForRequest.id);
+        await deps.store.persist();
+        pendingForRequest = undefined;
+      } else {
+        throw new Error(
+          `Telegram topic provisioning remains ${pendingForRequest.status ?? "in-flight"} for this instance.`,
+        );
+      }
     }
     const activeForInstance = deps.store.getActiveByInstanceId(
       request.instanceId,
