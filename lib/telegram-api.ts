@@ -814,6 +814,7 @@ export interface TelegramBridgeApiRuntime {
   ) => Promise<boolean>;
   editMessageText: (
     body: TelegramEditMessageTextBody,
+    options?: TelegramApiCallOptions,
   ) => Promise<"edited" | "unchanged">;
   editMessageReplyMarkup: (
     chatId: number,
@@ -2052,10 +2053,10 @@ export function createTelegramBridgeApiRuntime(
       callRecorded<TelegramSentMessage>("sendRichMessage", body),
     sendRichMessageDraft: (body) =>
       callRecorded<boolean>("sendRichMessageDraft", body),
-    editMessageText: async (body) => {
+    editMessageText: async (body, options) => {
       const recoverError = deps.captureRequestErrorHandler?.(body);
       try {
-        await deps.client.call("editMessageText", body);
+        await deps.client.call("editMessageText", body, options);
         return "edited";
       } catch (error) {
         if (isTelegramMessageNotModifiedError(error)) return "unchanged";

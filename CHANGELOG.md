@@ -4,6 +4,12 @@
 
 ## Unreleased
 
+## 0.3.7: Rate Limit Prevention, Non-Blocking Edit Fallback, And 5s Default Interval
+
+- `5s Default Cadence`: Raised the default progress tail update interval from 2000ms to 5000ms to safely accommodate Telegram's global 30 edits/minute per-chat throttling. Updated interval options in `/telegram-settings` to 2000ms, 3000ms, 5000ms, 7500ms, 10000ms.
+- `Non-Blocking Rate Limits on Edits`: Pass `retryRateLimit: false` on progress tail `editMessageText` calls so a 429 response skips the ephemeral edit immediately instead of blocking the transport pipeline and follower bus socket for 60–180s.
+- `Anti-Hang Pipe`: Fixes follower IPC timeout and delivery queue stalling when multiple rapid edits were backed up behind Telegram's 429 retry sleep.
+
 ## 0.3.6: Container Unwrapping, Smart Reasoning Truncation, And Ask Hardening
 
 - `Smart Container Unwrapping`: Meta-tools like `fabric_exec` executing nested OMP core tools (`omp.bash`, `omp.read`, `omp.edit`) now automatically unwrap. The outer wrapper is hidden while child tools run and omitted upon completion, eliminating duplicate tool listings on Telegram while retaining standalone TS executions and errors.

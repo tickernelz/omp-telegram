@@ -293,10 +293,11 @@ export function createTelegramBusAwareApiRuntime(
     },
     async editMessageText(
       body: TelegramEditMessageTextBody,
+      options?: TelegramApiCallOptions,
     ): Promise<"edited" | "unchanged"> {
-      if (deps.ownsDirect()) return deps.directRuntime.editMessageText(body);
+      if (deps.ownsDirect()) return deps.directRuntime.editMessageText(body, options);
       try {
-        await deps.callFollowerApi("call", ["editMessageText", body]);
+        await deps.callFollowerApi("call", ["editMessageText", body, options]);
         return "edited";
       } catch (error) {
         if (isTelegramMessageNotModifiedError(error)) return "unchanged";

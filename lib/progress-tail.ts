@@ -8,13 +8,14 @@ import type { TelegramActivityEvent, TelegramActivityPublicationRuntime } from "
 import { escapeHtml } from "./rendering.ts";
 import type { TelegramTarget } from "./target.ts";
 import type {
+  TelegramApiCallOptions,
   TelegramEditMessageTextBody,
   TelegramSendMessageBody,
   TelegramSendRichMessageBody,
   TelegramSentMessage,
 } from "./telegram-api.ts";
 
-export const TELEGRAM_PROGRESS_TAIL_DEFAULT_INTERVAL_MS = 2_000;
+export const TELEGRAM_PROGRESS_TAIL_DEFAULT_INTERVAL_MS = 5_000;
 export const TELEGRAM_PROGRESS_TAIL_MAX_TOOLS = 4;
 export const TELEGRAM_PROGRESS_TAIL_MAX_REASONING_LINES = 8;
 export const TELEGRAM_PROGRESS_TAIL_MAX_TOOL_ARG_CHARS = 120;
@@ -66,6 +67,7 @@ export interface TelegramProgressTailRuntimeDeps<TAuthority> {
   ) => Promise<TelegramSentMessage>;
   editMessageText: (
     body: TelegramEditMessageTextBody,
+    options?: TelegramApiCallOptions,
   ) => Promise<"edited" | "unchanged">;
   getModelName?: () => string | undefined;
   getIntervalMs?: () => number;
@@ -643,7 +645,7 @@ export function createTelegramProgressTailRuntime<TAuthority>(
           text: currentHtml,
           parse_mode: "HTML",
           link_preview_options: { is_disabled: true },
-        });
+        }, { retryRateLimit: false });
         lastPublishMs = getNowMs();
         dirty = false;
       } catch (error) {
@@ -655,7 +657,7 @@ export function createTelegramProgressTailRuntime<TAuthority>(
               message_id: liveMessage.messageId,
               text: plain,
               link_preview_options: { is_disabled: true },
-            });
+            }, { retryRateLimit: false });
             lastPublishMs = getNowMs();
             dirty = false;
             return;

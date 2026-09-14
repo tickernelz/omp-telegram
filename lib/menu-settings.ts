@@ -1035,7 +1035,7 @@ export function getTelegramSettingsArgumentCompletions(
   const keys = [
     { value: "mode", label: "mode", description: "Topic display naming style (names, letters, directories)" },
     { value: "activity", label: "activity", description: "Progress tail detail (verbose, tools, thinking, quiet)" },
-    { value: "interval", label: "interval", description: "Live progress update cadence (1000ms, 1500ms, 2000ms, 3000ms, 5000ms)" },
+    { value: "interval", label: "interval", description: "Live progress update cadence (2000ms, 3000ms, 5000ms, 7500ms, 10000ms)" },
     { value: "drafts", label: "drafts", description: "Draft previews streaming (on, off)" },
     { value: "rendering", label: "rendering", description: "Assistant message format (rich, html)" },
     { value: "voice", label: "voice", description: "Voice reply mode (manual, mirror, always)" },
@@ -1054,7 +1054,7 @@ export function getTelegramSettingsArgumentCompletions(
   const optionsByKey: Record<string, string[]> = {
     mode: ["names", "letters", "directories"],
     activity: ["verbose", "tools", "thinking", "quiet"],
-    interval: ["1000ms", "1500ms", "2000ms", "3000ms", "5000ms"],
+    interval: ["2000ms", "3000ms", "5000ms", "7500ms", "10000ms"],
     drafts: ["on", "off"],
     rendering: ["rich", "html"],
     voice: ["manual", "mirror", "always"],
@@ -1108,8 +1108,8 @@ export async function openTelegramSettingsTui(
         id: "interval",
         label: "Progress Interval",
         description: "Cadence for updating the live progress tail bubble in Telegram",
-        currentValue: `${deps.getProgressIntervalMs?.() ?? 2000}ms`,
-        values: ["1000ms", "1500ms", "2000ms", "3000ms", "5000ms"],
+        currentValue: `${deps.getProgressIntervalMs?.() ?? 5000}ms`,
+        values: ["2000ms", "3000ms", "5000ms", "7500ms", "10000ms"],
       },
       {
         id: "drafts",
@@ -1163,7 +1163,7 @@ export async function openTelegramSettingsTui(
       } else if (id === "activity") {
         await deps.setActivityVerbosity(newValue as TelegramActivityVerbosity);
       } else if (id === "interval") {
-        const ms = parseInt(newValue, 10) || 2000;
+        const ms = parseInt(newValue, 10) || 5000;
         await deps.setProgressIntervalMs?.(ms);
       } else if (id === "drafts") {
         await deps.setDraftPreviewsEnabled(newValue === "on");
