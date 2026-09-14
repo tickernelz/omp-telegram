@@ -4,7 +4,10 @@
  * Owns direct OMP SDK imports and exposes narrow bridge-facing helpers/types for the extension composition layer
  */
 
-import { normalize as normalizeFilesystemPath } from "node:path";
+import {
+  basename as basenameFilesystemPath,
+  normalize as normalizeFilesystemPath,
+} from "node:path";
 import type { AssistantMessageEvent } from "@oh-my-pi/pi-ai";
 import type {
   AgentEndEvent,
@@ -315,4 +318,96 @@ export function compactExtensionContext(
   callbacks: Parameters<ExtensionContext["compact"]>[0],
 ): ReturnType<ExtensionContext["compact"]> {
   return ctx.compact(callbacks);
+}
+
+export type TelegramThreadNameTitleGenerator = (
+  firstMessage: string,
+  registry: ExtensionContext["modelRegistry"],
+  settings: Settings,
+  sessionId?: string,
+  currentModel?: ExtensionContext["model"],
+  metadataResolver?: (provider: string) => Record<string, unknown> | undefined,
+  signal?: AbortSignal,
+  customSystemPrompt?: string,
+  credentialSourceSessionId?: string,
+) => Promise<string | null>;
+
+export interface TelegramThreadNameGenerationInput {
+  ctx: ExtensionContext;
+  signal?: AbortSignal;
+  generateTitle?: TelegramThreadNameTitleGenerator;
+}
+
+const TELEGRAM_THREAD_NAME_SYSTEM_PROMPT = [
+  "You label chat tabs.",
+  "Reply with a name of at most two words and nothing else.",
+  "No punctuation, no quotes, no explanation, no sentence.",
+  "Use plain ASCII letters and digits only.",
+].join(" ");
+
+const TELEGRAM_THREAD_NAME_MAX_LENGTH = 96;
+
+/** Keeps a model answer usable as a thread label: ASCII words only, at most two of them. */
+export function clampTelegramThreadName(
+  value: string | null | undefined,
+): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const quoted = /["'`]([^"'`]+)["'`]/.exec(value)?.[1];
+  const name = (quoted ?? value)
+    .replace(/[^A-Za-z0-9]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .filter((word) => word.length > 0)
+    .slice(0, 2)
+    .join(" ");
+  if (name.length === 0) return undefined;
+  return name.length > TELEGRAM_THREAD_NAME_MAX_LENGTH ? undefined : name;
+}
+
+function buildTelegramThreadNamePrompt(cwd: string): string {
+  const project = basenameFilesystemPath(normalizeFilesystemPath(cwd));
+  return `Name the chat tab for a coding session working in the project folder "${project || cwd}".`;
+}
+
+async function loadTelegramThreadNameTitleGenerator(): Promise<
+  TelegramThreadNameTitleGenerator | undefined
+> {
+  try {
+    const { generateTitleOnline } = await import(
+      "@oh-my-pi/pi-coding-agent/utils/title-generator"
+    );
+    return typeof generateTitleOnline === "function"
+      ? generateTitleOnline
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Asks the host title model for a two-word thread name; resolves undefined instead of throwing. */
+export async function generateTelegramThreadName(
+  input: TelegramThreadNameGenerationInput,
+): Promise<string | undefined> {
+  try {
+    const registry = input.ctx?.modelRegistry;
+    if (!registry) return undefined;
+    const generateTitle =
+      input.generateTitle ?? (await loadTelegramThreadNameTitleGenerator());
+    if (!generateTitle) return undefined;
+    const cwd = getExtensionContextCwd(input.ctx);
+    return clampTelegramThreadName(
+      await generateTitle(
+        buildTelegramThreadNamePrompt(cwd),
+        registry,
+        await resolveSettingsForCwd(cwd),
+        undefined,
+        getExtensionContextModel(input.ctx),
+        undefined,
+        input.signal,
+        TELEGRAM_THREAD_NAME_SYSTEM_PROMPT,
+      ),
+    );
+  } catch {
+    return undefined;
+  }
 }

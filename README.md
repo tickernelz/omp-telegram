@@ -229,6 +229,9 @@ Run these inside OMP.
 | `/telegram-connect <profile>` | Activate a named profile and acquire its transport ownership |
 | `/telegram-connect [profile] as=Name` | Give a fresh Workspace Thread one unique capitalized Latin-word identity while connecting |
 | `/telegram-disconnect` | Confirm, then stop polling, release ownership, and delete this instance's Threaded Mode tab; a graceful OMP quit always preserves restart ownership and independently deletes the tab only when automatic cleanup is enabled |
+| `/telegram-rename <name>` | Rename this instance's Workspace Thread to an explicit display name |
+| `/telegram-rename` | Ask the host title model for a name of at most two words and apply it; leaves the current name unchanged when no usable name comes back |
+| `/telegram-rename --reset` | Restore the automatically generated Workspace Thread name |
 | `/telegram-status` | Inspect connection, mode, separate polling/worker progress, journal depth, queue, transport, automatic retry state, and recent diagnostics |
 
 Named profile identifiers contain only lowercase ASCII letters and digits (maximum 32 characters); `default`, `main`, and `active` remain reserved. If graceful thread deletion was interrupted, a same-profile replacement reuses its still-active thread and cancels the superseded cleanup instead of deleting and recreating the tab during startup.
@@ -289,7 +292,7 @@ Classic private DM mode is the base product mode. When Telegram private-chat Thr
 - Unknown threads are preserved and offered explicit reroute/restore choices.
 - Telegram never launches hidden OMP processes.
 
-In Threaded Mode, open Settings → **🧵 Thread display** to choose **Letters** (default), **Names**, or **Directories** for this bot profile. Fresh tabs are created with the active mode's title instead of being visibly renamed afterward. Telegram tab titles, OMP terminal status, live Thread choosers/notices, prompt attribution, and named `telegram_message` targeting use the same acknowledged display name; target IDs and live registrations still own routing. Names shows the generated dictionary name chosen for the slot, such as `Anchor` for slot `A`. Directory mode adds persistent global-letter suffixes when a Workspace has multiple instances, such as `extensions_a` and `extensions_c`. `/name` sets a manual Thread display name; **Reset to automatic** restores the selected automatic projection. Switching preserves Thread IDs, slots, generated recovery identity, and queue ownership. Partial application reports an error and can be retried without recreating Threads.
+In Threaded Mode, open Settings → **🧵 Thread display** to choose **Names** (default), **Letters**, or **Directories** for this bot profile. Fresh tabs are created with the active mode's title instead of being visibly renamed afterward. Telegram tab titles, OMP terminal status, live Thread choosers/notices, prompt attribution, and named `telegram_message` targeting use the same acknowledged display name; target IDs and live registrations still own routing. Names shows the generated dictionary name chosen for the slot, such as `Anchor` for slot `A`. Directory mode adds persistent global-letter suffixes when a Workspace has multiple instances, such as `extensions_a` and `extensions_c`. `/name` sets a manual Thread display name; **Reset to automatic** restores the selected automatic projection. Switching preserves Thread IDs, slots, generated recovery identity, and queue ownership. Partial application reports an error and can be retried without recreating Threads.
 
 | Mode | Best for | Runtime shape |
 | --- | --- | --- |

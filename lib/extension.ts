@@ -1665,6 +1665,22 @@ export default function (pi: Pi.ExtensionAPI) {
         undefined,
       );
     },
+    validateManualThreadName(threadName) {
+      return Threads.getTelegramManualThreadDisplayNameValidationError(
+        threadName,
+      );
+    },
+    getCurrentThreadTarget() {
+      const record = findCurrentThreadRecord();
+      const threadId = record?.target.threadId;
+      if (!record || typeof threadId !== "number") return undefined;
+      return { chatId: record.target.chatId, threadId };
+    },
+    renameCurrentThread: telegramThreadDisplayNameRenameBinding.rename,
+    resetCurrentThreadName: telegramThreadDisplayNameResetBinding.reset,
+    async generateThreadName(ctx) {
+      return Pi.generateTelegramThreadName({ ctx });
+    },
     onTransportChanged() {
       deliveryLifecycleRuntime.onSessionStart();
       activityVerbosityRuntime.reset();

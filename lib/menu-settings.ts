@@ -181,8 +181,8 @@ export function buildThreadDisplaySettingsText(mode: TelegramThreadDisplayMode):
     "",
     "Choose how this bot profile labels Telegram tabs and OMP terminal status. Each slot is unique across this bot profile.",
     "",
-    "<code>-</code> <code>letters</code> (default): show the unique slot, such as <b><i>A</i></b> or <b><i>B</i></b>.",
-    "<code>-</code> <code>names</code>: show the generated dictionary name for the slot, such as <b><i>Anchor</i></b> or <b><i>Briar</i></b>.",
+    "<code>-</code> <code>letters</code>: show the unique slot, such as <b><i>A</i></b> or <b><i>B</i></b>.",
+    "<code>-</code> <code>names</code> (default): show the generated dictionary name for the slot, such as <b><i>Anchor</i></b> or <b><i>Briar</i></b>.",
     "<code>-</code> <code>directories</code>: show the directory, such as <b><i>extensions</i></b>; shared Workspaces keep slot suffixes, such as <b><i>extensions_a</i></b> and <b><i>extensions_c</i></b>.",
   ].join("\n");
 }

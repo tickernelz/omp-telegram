@@ -141,11 +141,11 @@ export type TelegramThreadDisplayMode = "letters" | "names" | "directories";
 export function resolveTelegramThreadDisplayMode(
   config: Pick<TelegramConfig, "threadDisplayMode">,
 ): TelegramThreadDisplayMode {
-  return config.threadDisplayMode === "names"
-    ? "names"
+  return config.threadDisplayMode === "letters"
+    ? "letters"
     : config.threadDisplayMode === "directories"
       ? "directories"
-      : "letters";
+      : "names";
 }
 
 export async function setTelegramThreadDisplayMode(

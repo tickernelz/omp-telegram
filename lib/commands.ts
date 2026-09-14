@@ -405,6 +405,29 @@ export interface TelegramBridgeCommandRegistrationDeps {
     profileName: string,
   ) => Promise<boolean>;
   validateThreadName?: (threadName: string) => string | undefined;
+  validateManualThreadName?: (threadName: string) => string | undefined;
+  getCurrentThreadTarget?: () =>
+    | { chatId: number; threadId?: number }
+    | undefined;
+  renameCurrentThread?: TelegramThreadDisplayNameRenamePort;
+  resetCurrentThreadName?: TelegramThreadDisplayNameResetPort;
+  generateThreadName?: (
+    ctx: ExtensionCommandContext,
+  ) => Promise<string | undefined>;
+}
+
+export type TelegramThreadRenameRequest =
+  | { kind: "reset" }
+  | { kind: "generate" }
+  | { kind: "manual"; threadName: string };
+
+export function parseTelegramThreadRenameRequest(
+  args: string,
+): TelegramThreadRenameRequest {
+  const trimmed = args.trim().replace(/\s+/g, " ");
+  if (trimmed.length === 0) return { kind: "generate" };
+  if (/^--reset$/i.test(trimmed)) return { kind: "reset" };
+  return { kind: "manual", threadName: trimmed };
 }
 
 export type TelegramThreadDisplayNameRenamePort = (
@@ -488,6 +511,18 @@ function formatTelegramTakeoverPrompt(
   const to = theme.fg("muted", "to:");
   const source = owner ?? "another OMP instance";
   return `${action}\n\n${from} ${source}\n${to} ${ctx.cwd}`;
+}
+
+async function resolveGeneratedTelegramThreadName(
+  ctx: ExtensionCommandContext,
+  deps: Pick<
+    TelegramBridgeCommandRegistrationDeps,
+    "generateThreadName" | "validateManualThreadName"
+  >,
+): Promise<string | undefined> {
+  const generated = await deps.generateThreadName?.(ctx);
+  if (!generated) return undefined;
+  return deps.validateManualThreadName?.(generated) ? undefined : generated;
 }
 
 export function registerTelegramBridgeCommands(
@@ -621,6 +656,64 @@ export function registerTelegramBridgeCommands(
       deps.updateStatus(ctx);
     },
   });
+  const renameCurrentThread = deps.renameCurrentThread;
+  const resetCurrentThreadName = deps.resetCurrentThreadName;
+  const getCurrentThreadTarget = deps.getCurrentThreadTarget;
+  if (renameCurrentThread && resetCurrentThreadName && getCurrentThreadTarget) {
+    pi.registerCommand("telegram-rename", {
+      description:
+        "Rename this Telegram Workspace Thread. Use /telegram-rename <name>, no argument for a generated name, or --reset for the automatic name.",
+      handler: async (args, ctx) => {
+        const target = getCurrentThreadTarget();
+        if (!target) {
+          ctx.ui.notify(
+            "No Telegram Workspace Thread is connected. Run /telegram-connect first.",
+            "warning",
+          );
+          return;
+        }
+        const request = parseTelegramThreadRenameRequest(args);
+        if (request.kind === "reset") {
+          const reset = await resetCurrentThreadName(target);
+          ctx.ui.notify(
+            reset.ok
+              ? `Telegram Workspace Thread name reset to ${reset.threadName}.`
+              : (reset.message ?? "Thread display name reset failed."),
+            reset.ok ? "info" : "error",
+          );
+          deps.updateStatus(ctx);
+          return;
+        }
+        const requestedThreadName =
+          request.kind === "manual"
+            ? request.threadName
+            : await resolveGeneratedTelegramThreadName(ctx, deps);
+        if (!requestedThreadName) {
+          ctx.ui.notify(
+            "Could not generate a Telegram Workspace Thread name. The current name is unchanged; use /telegram-rename <name> to set one.",
+            "warning",
+          );
+          return;
+        }
+        if (request.kind === "manual") {
+          const validationError =
+            deps.validateManualThreadName?.(requestedThreadName);
+          if (validationError) {
+            ctx.ui.notify(validationError, "warning");
+            return;
+          }
+        }
+        const renamed = await renameCurrentThread(target, requestedThreadName);
+        ctx.ui.notify(
+          renamed.ok
+            ? `Telegram Workspace Thread renamed to ${renamed.threadName ?? requestedThreadName}.`
+            : (renamed.message ?? "Telegram Workspace Thread rename failed."),
+          renamed.ok ? "info" : "error",
+        );
+        deps.updateStatus(ctx);
+      },
+    });
+  }
   pi.registerCommand("telegram-disconnect", {
     description:
       "Stop Telegram; in Threaded Mode, delete this instance's current thread",

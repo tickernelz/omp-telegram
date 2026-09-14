@@ -503,6 +503,11 @@ interface TelegramCommandsAndToolsBindingDeps {
     threadName: string | undefined,
   ) => void;
   validateThreadName?: Commands.TelegramBridgeCommandRegistrationDeps["validateThreadName"];
+  validateManualThreadName?: Commands.TelegramBridgeCommandRegistrationDeps["validateManualThreadName"];
+  getCurrentThreadTarget?: Commands.TelegramBridgeCommandRegistrationDeps["getCurrentThreadTarget"];
+  renameCurrentThread?: Commands.TelegramBridgeCommandRegistrationDeps["renameCurrentThread"];
+  resetCurrentThreadName?: Commands.TelegramBridgeCommandRegistrationDeps["resetCurrentThreadName"];
+  generateThreadName?: Commands.TelegramBridgeCommandRegistrationDeps["generateThreadName"];
   onTransportChanged?: () => Promise<void> | void;
   getStatusLines: (
     options?: Status.TelegramBridgeStatusLineOptions,
@@ -549,6 +554,11 @@ export function registerTelegramCommandsAndTools({
   getDisconnectThreadName,
   setRequestedThreadNameForPollingStart,
   validateThreadName,
+  validateManualThreadName,
+  getCurrentThreadTarget,
+  renameCurrentThread,
+  resetCurrentThreadName,
+  generateThreadName,
   onTransportChanged,
   getStatusLines,
   buttonActionStore,
@@ -717,6 +727,11 @@ export function registerTelegramCommandsAndTools({
     recoverPollingStart,
     getDisconnectThreadName,
     validateThreadName,
+    validateManualThreadName,
+    getCurrentThreadTarget,
+    renameCurrentThread,
+    resetCurrentThreadName,
+    generateThreadName,
     queueAgentConnectionContext,
     updateStatus,
     getProfileNames: () =>

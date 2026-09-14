@@ -12,8 +12,11 @@ import {
   compactExtensionContext,
   createExtensionApiRuntimePorts,
   createScopedModelPatternPersister,
+  clampTelegramThreadName,
   createSettingsManager,
   type ExtensionContext,
+  generateTelegramThreadName,
+  type TelegramThreadNameTitleGenerator,
   getExtensionContextCwd,
   formatPollingStartBlockedByRunMode,
   getExtensionContextMode,
@@ -255,4 +258,88 @@ test("OMP context helpers expose model, idle, pending-message, and compact adapt
   assert.equal(isExtensionContextIdle(ctx), true);
   assert.equal(hasExtensionContextPendingMessages(ctx), false);
   assert.deepEqual(events, ["compact", "complete"]);
+});
+
+function createThreadNameContext(
+  overrides: Record<string, unknown> = {},
+): ExtensionContext {
+  return {
+    cwd: "/work/flightprice",
+    model: { id: "demo-model" },
+    modelRegistry: { models: [] },
+    ...overrides,
+  } as unknown as ExtensionContext;
+}
+
+test("Thread name generation clamps a verbose model answer to two words", async () => {
+  const calls: unknown[][] = [];
+  const generateTitle: TelegramThreadNameTitleGenerator = async (...args) => {
+    calls.push(args);
+    return 'Sure! Here it is: "Atlas Rover Deep Dive Session".';
+  };
+  assert.equal(
+    await generateTelegramThreadName({
+      ctx: createThreadNameContext(),
+      generateTitle,
+    }),
+    "Atlas Rover",
+  );
+  assert.equal(calls.length, 1);
+  assert.match(String(calls[0][0]), /flightprice/);
+  assert.match(String(calls[0][7]), /at most two words/i);
+  assert.equal(
+    await generateTelegramThreadName({
+      ctx: createThreadNameContext(),
+      generateTitle: async () => "Atlas Rover Deep Dive",
+    }),
+    "Atlas Rover",
+  );
+});
+
+test("Thread name generation yields undefined instead of throwing", async () => {
+  const ctx = createThreadNameContext();
+  const rejecting: TelegramThreadNameTitleGenerator = async () => {
+    throw new Error("title model unavailable");
+  };
+  assert.equal(
+    await generateTelegramThreadName({ ctx, generateTitle: rejecting }),
+    undefined,
+  );
+  assert.equal(
+    await generateTelegramThreadName({
+      ctx,
+      generateTitle: async () => null,
+    }),
+    undefined,
+  );
+  assert.equal(
+    await generateTelegramThreadName({
+      ctx,
+      generateTitle: async () => "!!! ??? ...",
+    }),
+    undefined,
+  );
+});
+
+test("Thread name generation declines without a host model registry", async () => {
+  let called = false;
+  assert.equal(
+    await generateTelegramThreadName({
+      ctx: createThreadNameContext({ modelRegistry: undefined }),
+      generateTitle: async () => {
+        called = true;
+        return "Atlas Rover";
+      },
+    }),
+    undefined,
+  );
+  assert.equal(called, false);
+});
+
+test("Thread name clamping rejects labels it cannot make usable", () => {
+  assert.equal(clampTelegramThreadName("  Nimbus   Ledger  "), "Nimbus Ledger");
+  assert.equal(clampTelegramThreadName("naïve café"), "na ve");
+  assert.equal(clampTelegramThreadName(""), undefined);
+  assert.equal(clampTelegramThreadName(null), undefined);
+  assert.equal(clampTelegramThreadName(`${"x".repeat(80)} ${"y".repeat(80)}`), undefined);
 });

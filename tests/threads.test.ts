@@ -47,6 +47,7 @@ import {
   isTelegramTopicModeUnavailableError,
   isTelegramTopicTargetStaleError,
   normalizeTelegramWorkspacePath,
+  TELEGRAM_THREAD_NAME_PALETTE,
 } from "../lib/threads.ts";
 import { createTelegramLockRuntime } from "../lib/locks.ts";
 import { createTelegramWorkspaceAdmissionLedger } from "../lib/workspace-admission.ts";
@@ -242,24 +243,63 @@ test("Thread names are deterministic for the same seed", () => {
   );
 });
 
+function drainTelegramThreadNamePalette(slot: string): string[] {
+  const drained: string[] = [];
+  for (let guard = 0; guard < 200; guard += 1) {
+    const name = chooseTelegramThreadName({
+      slot,
+      getRandom: () => 0,
+      occupied: drained,
+    });
+    if (!name || !name.startsWith(slot)) return drained;
+    drained.push(name);
+  }
+  throw new Error(`Palette for slot ${slot} never exhausted`);
+}
+
 test("Baked thread names stay compact for narrow Telegram tabs", () => {
-  for (const slot of "ABCDEFGHIJKLMNOPQRSTUVWXYZ") {
-    const seen = new Set<string>();
-    for (let index = 0; index < 5; index += 1) {
-      const name = chooseTelegramThreadName({
-        slot,
-        getRandom: () => index / 5,
-      });
-      assert.ok(name, `Expected baked name for slot ${slot}`);
-      assert.equal(name.startsWith(slot), true);
+  const everyName = new Set<string>();
+  const slots = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  assert.deepEqual(Object.keys(TELEGRAM_THREAD_NAME_PALETTE).sort().join(""), slots);
+  for (const slot of slots) {
+    const names = TELEGRAM_THREAD_NAME_PALETTE[slot];
+    assert.ok(
+      names.length >= 12,
+      `Slot ${slot} offers ${names.length} names, expected at least 12`,
+    );
+    for (const name of names) {
+      assert.equal(name.startsWith(slot), true, `${name} should start with ${slot}`);
+      assert.match(name, /^[A-Za-z]+$/u, `${name} should be one Latin word`);
       assert.ok(
         name.length >= 4 && name.length <= 6,
         `${name} should be 4-6 letters`,
       );
-      seen.add(name);
+      assert.equal(isTelegramTopicThreadNameValidForSlot(name, slot), true, name);
+      assert.equal(everyName.has(name), false, `${name} is duplicated in the palette`);
+      everyName.add(name);
     }
-    assert.equal(seen.size, 5, `Expected five names for slot ${slot}`);
   }
+});
+
+test("Every palette name is reachable through the baked-name chooser", () => {
+  for (const slot of "ABCDEFGHIJKLMNOPQRSTUVWXYZ") {
+    assert.deepEqual(
+      drainTelegramThreadNamePalette(slot),
+      [...TELEGRAM_THREAD_NAME_PALETTE[slot]],
+    );
+  }
+});
+
+test("Baked thread names exhaust a slot before borrowing another letter", () => {
+  const occupied = drainTelegramThreadNamePalette("C");
+  const borrowed = chooseTelegramThreadName({
+    slot: "C",
+    getRandom: () => 0,
+    occupied,
+  });
+  assert.ok(borrowed);
+  assert.equal(borrowed.startsWith("C"), false);
+  assert.equal(occupied.includes(borrowed), false);
 });
 
 test("Baked thread names skip identities reserved by Workspace bindings", () => {

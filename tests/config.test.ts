@@ -65,12 +65,13 @@ import {
   runTelegramSetup,
 } from "../lib/setup.ts";
 
-test("Thread display mode keeps all three modes and maps invalid values to letters", () => {
+test("Thread display mode keeps all three modes and defaults unset values to names", () => {
   for (const mode of [undefined, "invalid", null]) {
     assert.equal(resolveTelegramThreadDisplayMode(legacyConfig({
       threadDisplayMode: mode,
-    })), "letters");
+    })), "names");
   }
+  assert.equal(resolveTelegramThreadDisplayMode({}), "names");
   assert.equal(resolveTelegramThreadDisplayMode({ threadDisplayMode: "names" }), "names");
   assert.equal(resolveTelegramThreadDisplayMode({ threadDisplayMode: "letters" }), "letters");
   assert.equal(resolveTelegramThreadDisplayMode({ threadDisplayMode: "directories" }), "directories");

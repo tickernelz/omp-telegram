@@ -4,6 +4,12 @@
 
 ## Unreleased
 
+## 0.2.0: Thread Names And Rename
+
+- `Thread Names`: The default thread display mode is now `names`, so a Telegram tab reads `Atlas` rather than `A`. A profile that explicitly stored `letters` still resolves to `letters`, so an existing choice is never silently migrated. The per-slot palette widened from 130 names to 312, twelve per letter, which makes a collision across many live sessions far less likely.
+- `Rename Command`: `/telegram-rename <name>` renames the current thread, `/telegram-rename` asks the host title model for a name of at most two words, and `/telegram-rename --reset` restores the automatic palette name. Both name paths clear the same validator the Telegram-side menu rename already used, and the command registers only where its ports are wired, so an instance without them is unchanged.
+- `Generated Names`: The model is reached through the host's own title generator, which resolves the `tiny`, `commit` and `smol` roles before the session model, so no new configuration appears. The answer is clamped to two words locally rather than trusted to obey the prompt. When generation yields nothing usable the command says so and leaves the name untouched; substituting a palette word would discard a name the operator chose because an unrelated call failed.
+
 ## 0.1.3: Multi-Instance Ask Routing
 
 - `Ask Routing`: An ask callback that this process has no pending question for is now left for the bridge's own routing instead of being consumed. Public update handlers run before that routing, so on the bus leader the ask bridge answered every `tgask:` callback itself — including the ones belonging to a follower that was waiting on them. With more than one OMP session live, the question reached Telegram, the buttons rendered, and the first tap answered "This question is no longer active" while the asking session kept waiting. The leader now forwards such a callback to the instance that owns the message, which is the layer that holds the ownership map.

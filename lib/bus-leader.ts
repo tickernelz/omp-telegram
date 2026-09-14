@@ -508,7 +508,7 @@ export function createTelegramBusLeaderRuntimeAssembly<TContext>(
     const automaticTitle = resolveTelegramInitialWorkspaceDisplayName({
       bindings: deps.topicTargetStore.listWorkspaceBindings(),
       binding: { ...binding, manualThreadName: undefined },
-      mode: deps.getThreadDisplayMode?.() ?? "letters",
+      mode: deps.getThreadDisplayMode?.() ?? "names",
       preserveRetainedManualName: false,
     });
     if (!automaticTitle) {

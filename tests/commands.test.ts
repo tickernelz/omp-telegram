@@ -46,6 +46,8 @@ import {
   handleTelegramStopCommand,
   parseTelegramCommand,
   parseTelegramRequestedThreadName,
+  parseTelegramThreadRenameRequest,
+  type TelegramBridgeCommandRegistrationDeps,
   registerTelegramBotCommands,
   registerTelegramCommand,
   registerTelegramBridgeCommands,
@@ -2361,4 +2363,193 @@ test("Command helpers execute command actions through provided handlers", async 
     true,
   );
   assert.deepEqual(events, ["stop", "name:Navigator", "help:start"]);
+});
+
+type ThreadRenameHarnessRecords = {
+  renames: { chatId: number; threadId?: number; threadName: string }[];
+  resets: { chatId: number; threadId?: number }[];
+  validated: string[];
+  notifications: string[];
+};
+
+function createThreadRenameHarness(
+  overrides: Partial<TelegramBridgeCommandRegistrationDeps> = {},
+) {
+  const harness = createCommandRegistrationApiHarness();
+  const records: ThreadRenameHarnessRecords = {
+    renames: [],
+    resets: [],
+    validated: [],
+    notifications: [],
+  };
+  registerTelegramBridgeCommands(harness.api, {
+    promptForConfig: async () => {},
+    getStatusLines: () => [],
+    reloadConfig: async () => {},
+    hasBotToken: () => true,
+    startPolling: async () => {},
+    stopPolling: async () => {},
+    updateStatus: () => {},
+    getCurrentThreadTarget: () => ({ chatId: 42, threadId: 7 }),
+    renameCurrentThread: async (target, threadName) => {
+      records.renames.push({ ...target, threadName });
+      return { ok: true, threadName };
+    },
+    resetCurrentThreadName: async (target) => {
+      records.resets.push(target);
+      return { ok: true, threadName: "Cobalt" };
+    },
+    validateManualThreadName: (threadName) => {
+      records.validated.push(threadName);
+      return threadName.includes("#") ? "Invalid Telegram Thread display name." : undefined;
+    },
+    generateThreadName: async () => "Atlas Rover",
+    ...overrides,
+  });
+  return {
+    records,
+    ctx: createBridgeCommandContext((message) => {
+      records.notifications.push(message);
+    }),
+    command: harness.commands.get("telegram-rename"),
+    commands: harness.commands,
+  };
+}
+
+test("Thread rename parsing separates reset, manual, and generated requests", () => {
+  assert.deepEqual(parseTelegramThreadRenameRequest("   "), { kind: "generate" });
+  assert.deepEqual(parseTelegramThreadRenameRequest(" --RESET "), { kind: "reset" });
+  assert.deepEqual(parseTelegramThreadRenameRequest("  Night   Owl "), {
+    kind: "manual",
+    threadName: "Night Owl",
+  });
+});
+
+test("Thread rename command applies a manually supplied name", async () => {
+  const harness = createThreadRenameHarness();
+  await getRequiredCommand(harness.commands, "telegram-rename").handler(
+    "Night Owl",
+    harness.ctx,
+  );
+  assert.deepEqual(harness.records.renames, [
+    { chatId: 42, threadId: 7, threadName: "Night Owl" },
+  ]);
+  assert.deepEqual(harness.records.validated, ["Night Owl"]);
+  assert.deepEqual(harness.records.resets, []);
+  assert.deepEqual(harness.records.notifications, [
+    "Telegram Workspace Thread renamed to Night Owl.",
+  ]);
+});
+
+test("Thread rename command applies a generated name without an argument", async () => {
+  const harness = createThreadRenameHarness();
+  await getRequiredCommand(harness.commands, "telegram-rename").handler(
+    "",
+    harness.ctx,
+  );
+  assert.deepEqual(harness.records.renames, [
+    { chatId: 42, threadId: 7, threadName: "Atlas Rover" },
+  ]);
+  assert.deepEqual(harness.records.validated, ["Atlas Rover"]);
+  assert.deepEqual(harness.records.notifications, [
+    "Telegram Workspace Thread renamed to Atlas Rover.",
+  ]);
+});
+
+test("Thread rename command restores the automatic name on reset", async () => {
+  const harness = createThreadRenameHarness();
+  await getRequiredCommand(harness.commands, "telegram-rename").handler(
+    "--reset",
+    harness.ctx,
+  );
+  assert.deepEqual(harness.records.resets, [{ chatId: 42, threadId: 7 }]);
+  assert.deepEqual(harness.records.renames, []);
+  assert.deepEqual(harness.records.notifications, [
+    "Telegram Workspace Thread name reset to Cobalt.",
+  ]);
+});
+
+test("Thread rename command keeps the current name when generation yields nothing", async () => {
+  const harness = createThreadRenameHarness({
+    generateThreadName: async () => undefined,
+  });
+  await getRequiredCommand(harness.commands, "telegram-rename").handler(
+    "",
+    harness.ctx,
+  );
+  assert.deepEqual(harness.records.renames, []);
+  assert.deepEqual(harness.records.resets, []);
+  assert.deepEqual(harness.records.notifications, [
+    "Could not generate a Telegram Workspace Thread name. The current name is unchanged; use /telegram-rename <name> to set one.",
+  ]);
+});
+
+test("Thread rename command refuses a generated name that fails manual validation", async () => {
+  const harness = createThreadRenameHarness({
+    generateThreadName: async () => "Atlas #1",
+  });
+  await getRequiredCommand(harness.commands, "telegram-rename").handler(
+    "",
+    harness.ctx,
+  );
+  assert.deepEqual(harness.records.validated, ["Atlas #1"]);
+  assert.deepEqual(harness.records.renames, []);
+  assert.deepEqual(harness.records.notifications, [
+    "Could not generate a Telegram Workspace Thread name. The current name is unchanged; use /telegram-rename <name> to set one.",
+  ]);
+});
+
+test("Thread rename command reports manual validation and port failures", async () => {
+  const invalid = createThreadRenameHarness();
+  await getRequiredCommand(invalid.commands, "telegram-rename").handler(
+    "Atlas #1",
+    invalid.ctx,
+  );
+  assert.deepEqual(invalid.records.renames, []);
+  assert.deepEqual(invalid.records.notifications, [
+    "Invalid Telegram Thread display name.",
+  ]);
+
+  const refused = createThreadRenameHarness({
+    renameCurrentThread: async () => ({
+      ok: false,
+      message: "Telegram Workspace Thread rename requires an active leader or follower connection.",
+    }),
+  });
+  await getRequiredCommand(refused.commands, "telegram-rename").handler(
+    "Night Owl",
+    refused.ctx,
+  );
+  assert.deepEqual(refused.records.notifications, [
+    "Telegram Workspace Thread rename requires an active leader or follower connection.",
+  ]);
+});
+
+test("Thread rename command declines without a connected Workspace Thread", async () => {
+  const harness = createThreadRenameHarness({
+    getCurrentThreadTarget: () => undefined,
+  });
+  await getRequiredCommand(harness.commands, "telegram-rename").handler(
+    "Night Owl",
+    harness.ctx,
+  );
+  assert.deepEqual(harness.records.renames, []);
+  assert.deepEqual(harness.records.notifications, [
+    "No Telegram Workspace Thread is connected. Run /telegram-connect first.",
+  ]);
+});
+
+test("Thread rename command stays unregistered when its ports are unwired", () => {
+  const harness = createCommandRegistrationApiHarness();
+  registerTelegramBridgeCommands(harness.api, {
+    promptForConfig: async () => {},
+    getStatusLines: () => [],
+    reloadConfig: async () => {},
+    hasBotToken: () => true,
+    startPolling: async () => {},
+    stopPolling: async () => {},
+    updateStatus: () => {},
+  });
+  assert.equal(harness.commands.has("telegram-rename"), false);
+  assert.equal(harness.commands.has("telegram-connect"), true);
 });
