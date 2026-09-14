@@ -9,6 +9,7 @@ import test from "node:test";
 
 import {
   createTelegramProgressTailRuntime,
+  renderReasoningSectionHtml,
   extractReasoningTail,
   extractShortToolArgs,
   extractToolResultSummary,
@@ -71,7 +72,6 @@ test("formatProgressTailHtml renders Working status with tools, reasoning, and t
   const html = formatProgressTailHtml(state);
   assert.ok(html.includes("⏳ <b>Working...</b> (2.5s) · <i>Opus 5</i>"));
   assert.ok(html.includes("▰ 💭 <b>Reasoning</b>"));
-  assert.ok(html.includes("<blockquote expandable>"));
   assert.ok(html.includes("Analyzing project dependencies..."));
   assert.ok(html.includes("Checking lockfile versions."));
   assert.ok(html.includes("▰ 🧰 <b>Tools</b> (1 completed, 2 running)"));
@@ -379,5 +379,25 @@ test("formatProgressTailHtml renders tool result in expandable blockquote and li
   assert.ok(html.includes("tool5"));
   assert.ok(html.includes("<blockquote expandable>res2</blockquote>"));
   assert.ok(html.includes("<blockquote expandable>res5</blockquote>"));
+});
+
+
+test("renderReasoningSectionHtml displays latest 1-2 paragraphs directly, earlier in expandable blockquote", () => {
+  const shortText = ["First thought.", "", "Second thought."].join("\n");
+  const shortHtml = renderReasoningSectionHtml(shortText, 2);
+  assert.ok(shortHtml.includes("First thought."));
+  assert.ok(shortHtml.includes("Second thought."));
+  assert.equal(shortHtml.includes("<blockquote expandable>"), false, "1-2 paragraphs must be directly visible without collapsible blockquote");
+
+  const longText = ["Paragraph 1.", "", "Paragraph 2.", "", "Paragraph 3.", "", "Paragraph 4."].join("\n");
+  const longHtml = renderReasoningSectionHtml(longText, 2);
+  assert.ok(longHtml.includes("<blockquote expandable>"), "earlier paragraphs must be in collapsible blockquote");
+  assert.ok(longHtml.includes("Paragraph 1."));
+  assert.ok(longHtml.includes("Paragraph 2."));
+  const bqEnd = longHtml.indexOf("</blockquote>");
+  assert.ok(bqEnd > 0);
+  const afterBq = longHtml.slice(bqEnd);
+  assert.ok(afterBq.includes("Paragraph 3."));
+  assert.ok(afterBq.includes("Paragraph 4."));
 });
 

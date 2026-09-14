@@ -193,6 +193,7 @@ export interface TelegramConfig {
     rendering?: TelegramAssistantRenderingMode;
     activity?: TelegramActivityVerbosity;
     timeInjection?: TelegramTimeMode;
+    progressIntervalMs?: number;
     /** @deprecated use activity */
     activityVerbosity?: TelegramActivityVerbosity;
   };
@@ -1238,6 +1239,41 @@ export function createTelegramAutomaticThreadCleanupSetter(
   };
 }
 
+export const DEFAULT_TELEGRAM_PROGRESS_INTERVAL_MS = 2_000;
+
+export function resolveTelegramProgressIntervalMs(
+  config: Pick<TelegramConfig, "assistant">,
+): number {
+  const ms = config.assistant?.progressIntervalMs;
+  return typeof ms === "number" && Number.isFinite(ms) && ms >= 500
+    ? ms
+    : DEFAULT_TELEGRAM_PROGRESS_INTERVAL_MS;
+}
+
+export function createTelegramProgressIntervalGetter(
+  configStore: Pick<TelegramConfigStore, "get">,
+): () => number {
+  return () => resolveTelegramProgressIntervalMs(configStore.get());
+}
+
+export function createTelegramProgressIntervalSetter(
+  configStore: TelegramMutableConfigStore,
+): (intervalMs: number) => Promise<void> {
+  return async (intervalMs) => {
+    await loadLatestTelegramConfig(configStore);
+    const current = configStore.get();
+    const config = {
+      ...current,
+      assistant: {
+        ...(current.assistant ?? {}),
+        progressIntervalMs: Math.max(500, Math.min(60_000, Math.round(intervalMs))),
+      },
+    };
+    configStore.set(config);
+    await configStore.persist(config);
+  };
+}
+
 export function createTelegramConfigControls(
   configStore: TelegramMutableConfigStore,
 ) {
@@ -1266,6 +1302,10 @@ export function createTelegramConfigControls(
       createTelegramAutomaticThreadCleanupResolver(configStore),
     setAutomaticThreadCleanupEnabled:
       createTelegramAutomaticThreadCleanupSetter(configStore),
+    getProgressIntervalMs:
+      createTelegramProgressIntervalGetter(configStore),
+    setProgressIntervalMs:
+      createTelegramProgressIntervalSetter(configStore),
   };
 }
 

@@ -203,6 +203,56 @@ export function extractToolResultSummary(
   return text;
 }
 
+export function renderReasoningSectionHtml(
+  rawText: string,
+  latestParagraphsCount = 2,
+  maxHistoryParagraphs = 5,
+  maxChars = 1_800,
+): string {
+  if (!rawText) return "";
+  const cleaned = rawText
+    .replace(/<\/?(?:think|thinking|thought|reasoning)\b[^>]*>/gi, "")
+    .replace(/<\|(?:begin|end)_of_thought\|>/gi, "")
+    .replace(/◁\/?think▷/gi, "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .trim();
+  if (!cleaned) return "";
+
+  const paragraphs = cleaned
+    .split(/\n\s*\n+/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+  if (paragraphs.length === 0) return "";
+
+  const latest = paragraphs.slice(-latestParagraphsCount);
+  const earlier = paragraphs.slice(0, -latestParagraphsCount);
+
+  const parts: string[] = [];
+
+  if (earlier.length > 0) {
+    const visibleEarlier = earlier.slice(-maxHistoryParagraphs);
+    const omitted = earlier.length - visibleEarlier.length;
+    const earlierLines: string[] = [];
+    if (omitted > 0) {
+      earlierLines.push(`… [${omitted} earlier thought(s) omitted]`);
+    }
+    earlierLines.push(...visibleEarlier);
+    const earlierText = escapeHtml(earlierLines.join("\n\n"));
+    parts.push(`<blockquote expandable>${earlierText}</blockquote>`);
+  }
+
+  const latestText = escapeHtml(latest.join("\n\n"));
+  parts.push(latestText);
+
+  let rendered = parts.join("\n\n");
+  if (rendered.length > maxChars) {
+    rendered = rendered.slice(-maxChars);
+  }
+  return `▰ 💭 <b>Reasoning</b>\n${rendered}`;
+}
+
 export function extractReasoningTail(
   rawText: string,
   maxParagraphs = 3,
@@ -270,9 +320,9 @@ export function formatProgressTailHtml(state: ProgressTailState): string {
   }
 
   const rawReasoning = state.reasoningBuffer || state.reasoningLines.join("\n");
-  const reasoningTail = extractReasoningTail(rawReasoning, 3, 1_200);
-  if (reasoningTail.length > 0) {
-    sections.push(`▰ 💭 <b>Reasoning</b>\n<blockquote expandable>${escapeHtml(reasoningTail)}</blockquote>`);
+  const reasoningSection = renderReasoningSectionHtml(rawReasoning, 2, 5, 1_800);
+  if (reasoningSection.length > 0) {
+    sections.push(reasoningSection);
   }
 
   if (state.tools.length > 0) {

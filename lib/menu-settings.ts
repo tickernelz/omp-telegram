@@ -970,6 +970,8 @@ export interface TelegramSettingsCommandDeps {
   setTimeInjectionMode: (mode: TelegramTimeMode) => Promise<void>;
   isAutomaticThreadCleanupEnabled: () => boolean;
   setAutomaticThreadCleanupEnabled: (enabled: boolean) => Promise<void>;
+  getProgressIntervalMs?: () => number;
+  setProgressIntervalMs?: (intervalMs: number) => Promise<void>;
   getActiveProfileName?: () => string | undefined;
   loadTuiComponents?: () => Promise<{
     SettingsList: any;
@@ -985,6 +987,7 @@ export function formatTelegramSettingsOverview(
   const profile = deps.getActiveProfileName?.() ?? "default";
   const mode = deps.getThreadDisplayMode?.() ?? "names";
   const activity = deps.getActivityVerbosity();
+  const interval = deps.getProgressIntervalMs?.() ?? 2000;
   const drafts = deps.areDraftPreviewsEnabled() ? "on" : "off";
   const rendering = deps.getAssistantRenderingMode();
   const voice = deps.getVoiceReplyMode();
@@ -999,6 +1002,9 @@ export function formatTelegramSettingsOverview(
     "",
     `• activity: ${activity} [verbose | tools | thinking | quiet]`,
     "  Live progress tail detail in Telegram.",
+    "",
+    `• interval: ${interval}ms [1000ms | 1500ms | 2000ms | 3000ms | 5000ms]`,
+    "  Live progress bubble update cadence.",
     "",
     `• drafts: ${drafts} [on | off]`,
     "  Stream draft previews before completion.",
@@ -1029,6 +1035,7 @@ export function getTelegramSettingsArgumentCompletions(
   const keys = [
     { value: "mode", label: "mode", description: "Topic display naming style (names, letters, directories)" },
     { value: "activity", label: "activity", description: "Progress tail detail (verbose, tools, thinking, quiet)" },
+    { value: "interval", label: "interval", description: "Live progress update cadence (1000ms, 1500ms, 2000ms, 3000ms, 5000ms)" },
     { value: "drafts", label: "drafts", description: "Draft previews streaming (on, off)" },
     { value: "rendering", label: "rendering", description: "Assistant message format (rich, html)" },
     { value: "voice", label: "voice", description: "Voice reply mode (manual, mirror, always)" },
@@ -1047,6 +1054,7 @@ export function getTelegramSettingsArgumentCompletions(
   const optionsByKey: Record<string, string[]> = {
     mode: ["names", "letters", "directories"],
     activity: ["verbose", "tools", "thinking", "quiet"],
+    interval: ["1000ms", "1500ms", "2000ms", "3000ms", "5000ms"],
     drafts: ["on", "off"],
     rendering: ["rich", "html"],
     voice: ["manual", "mirror", "always"],
@@ -1095,6 +1103,13 @@ export async function openTelegramSettingsTui(
         description: "Detail level in the single live progress bubble (verbose: tools + reasoning, tools: tools only, thinking: reasoning only, quiet: disabled)",
         currentValue: deps.getActivityVerbosity(),
         values: ["verbose", "tools", "thinking", "quiet"],
+      },
+      {
+        id: "interval",
+        label: "Progress Interval",
+        description: "Cadence for updating the live progress tail bubble in Telegram",
+        currentValue: `${deps.getProgressIntervalMs?.() ?? 2000}ms`,
+        values: ["1000ms", "1500ms", "2000ms", "3000ms", "5000ms"],
       },
       {
         id: "drafts",
@@ -1147,6 +1162,9 @@ export async function openTelegramSettingsTui(
         await deps.setThreadDisplayMode(newValue as TelegramThreadDisplayMode);
       } else if (id === "activity") {
         await deps.setActivityVerbosity(newValue as TelegramActivityVerbosity);
+      } else if (id === "interval") {
+        const ms = parseInt(newValue, 10) || 2000;
+        await deps.setProgressIntervalMs?.(ms);
       } else if (id === "drafts") {
         await deps.setDraftPreviewsEnabled(newValue === "on");
       } else if (id === "rendering") {
@@ -1244,6 +1262,21 @@ export async function handleTelegramSettingsCommand(
     return;
   }
 
+  if (key === "interval") {
+    let ms = parseInt(value.replace(/[^0-9]/g, ""), 10);
+    if (value.endsWith("s") && !value.endsWith("ms")) {
+      const sec = parseFloat(value);
+      if (!isNaN(sec)) ms = Math.round(sec * 1000);
+    }
+    if (isNaN(ms) || ms < 500 || ms > 60000) {
+      ctx.ui?.notify?.(`Invalid interval "${value}". Allowed: 500ms - 60000ms (e.g. 2000ms, 1500, 2s)`, "error");
+      return;
+    }
+    await deps.setProgressIntervalMs?.(ms);
+    ctx.ui?.notify?.(`✔ Updated interval to "${ms}ms"`, "info");
+    return;
+  }
+
   if (key === "drafts") {
     if (["on", "true", "yes", "1"].includes(value)) {
       await deps.setDraftPreviewsEnabled(true);
@@ -1304,5 +1337,5 @@ export async function handleTelegramSettingsCommand(
     return;
   }
 
-  ctx.ui?.notify?.(`Unknown setting "${key}". Available settings: mode, activity, drafts, rendering, voice, time, cleanup`, "error");
+  ctx.ui?.notify?.(`Unknown setting "${key}". Available settings: mode, activity, interval, drafts, rendering, voice, time, cleanup`, "error");
 }

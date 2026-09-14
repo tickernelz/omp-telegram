@@ -744,6 +744,7 @@ export default function (pi: Pi.ExtensionAPI) {
         const m = currentModelRuntime.getStored();
         return m?.name ?? m?.id;
       },
+      getIntervalMs: configControls.getProgressIntervalMs,
     },
   });
   const {

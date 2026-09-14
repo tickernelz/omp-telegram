@@ -283,7 +283,8 @@ test("agent start refreshes file-backed mode before activity isolation", async (
   await harness.runtime.waitForIdle();
   assert.equal(harness.sends.length, 1);
   const text = harness.sends[0]?.text ?? "";
-  assert.ok(text.includes("<blockquote expandable>"));
+  assert.ok(text.includes("▰ 💭 <b>Reasoning</b>"));
+  assert.ok(text.includes("private thought"));
   assert.equal(text.includes("<b>read</b>"), false);
 });
 
