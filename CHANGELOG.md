@@ -4,6 +4,10 @@
 
 ## Unreleased
 
+## 0.1.1: Surface Degradation Notice
+
+- `Ask Surface`: An interactive session that cannot reach the native ask now records a `surface-degraded` runtime event instead of quietly answering through Telegram alone. The `ctx.invokeTool` guard stays, because a headless run genuinely has no dialog to race, but `ctx.hasUI` separates that from a caller whose wrapper dropped the delegation seam. Observed through omp-fabric, whose capture wrapper built the tool context without naming the tool; fixed upstream in omp-fabric 1.18.3.
+
 ## 0.1.0: OMP Fork
 
 - `Host`: The bridge targets OMP (oh-my-pi) directly instead of the Pi SDK, against a `>=17.4.2` peer floor and verified on 18.1.19. `lib/pi.ts` remains the only file importing the host, its host imports are type-only, and `settings` resolves through a dynamic import so loading the boundary never pulls the SDK into the module graph.
