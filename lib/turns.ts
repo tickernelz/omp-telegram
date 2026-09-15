@@ -204,6 +204,16 @@ export function buildTelegramTurnPrompt(options: {
   voiceContext?: Record<string, string>;
   guestTurn?: boolean;
 }): string {
+  const isContinueDot =
+    options.rawText.trim() === "." &&
+    (!options.files || options.files.length === 0) &&
+    (!options.historyTurns || options.historyTurns.length === 0) &&
+    (!options.handlerOutputs || options.handlerOutputs.length === 0) &&
+    !options.sourceContext &&
+    !options.guestTurn;
+  if (isContinueDot) {
+    return ".";
+  }
   let prompt = options.telegramPrefix;
   if ((options.historyTurns?.length ?? 0) > 0) {
     prompt +=

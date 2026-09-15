@@ -173,7 +173,7 @@ export function extractShortToolArgs(
 
 export function cleanUserPrompt(raw: string, maxChars = 140): string {
   if (!raw) return "";
-  let text = raw.trim().replace(/^\[telegram\]\s*/i, "").trim();
+  let text = raw.trim().replace(/^\[telegram(?:\|[^\]]+)?\]\s*/i, "").trim();
   text = text.replace(/\s+/g, " ").trim();
   if (text.length > maxChars) {
     text = text.slice(0, maxChars) + "…";
@@ -581,7 +581,13 @@ export function createTelegramProgressTailRuntime<TAuthority>(
     admittedAuthority: TAuthority,
   ): boolean => {
     if (deps.getActivityMode() === "quiet") return false;
-    if (activityId === event.activityId) return hasAuthority();
+    if (activityId === event.activityId) {
+      if (target !== undefined && target.threadId === undefined && admittedTarget?.threadId !== undefined) {
+        target = admittedTarget;
+        authority = admittedAuthority;
+      }
+      return hasAuthority();
+    }
     clearAll();
     if (!admittedTarget) return false;
     activityId = event.activityId;

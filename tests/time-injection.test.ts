@@ -26,7 +26,7 @@ function makeRuntime(config: Partial<ResolvedTelegramTimeConfig>) {
 
 test("Time config resolves defaults when keys are missing", () => {
   const resolved = resolveTelegramTimeConfig(undefined);
-  assert.equal(resolved.injectionMode, "interval");
+  assert.equal(resolved.injectionMode, "hidden");
   assert.equal(resolved.interval, 60 * 60 * 1000);
   assert.equal(typeof resolved.timezone, "string");
   assert.ok(resolved.timezone.length > 0);

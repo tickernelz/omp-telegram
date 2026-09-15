@@ -1901,6 +1901,9 @@ export default function (pi: Pi.ExtensionAPI) {
       );
     },
     isSessionContextActive(ctx) {
+      if (!telegramSessionContextStore.get() && ctx) {
+        telegramSessionContextStore.set(ctx);
+      }
       return telegramSessionContextStore.isCurrent(ctx);
     },
     isTurnTransportActive(turn) {

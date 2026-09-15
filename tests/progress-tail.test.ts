@@ -423,6 +423,7 @@ test("renderReasoningSectionRich displays latest 1-2 paragraphs directly, earlie
 
 test("cleanUserPrompt strips [telegram] prefix and truncates cleanly", () => {
   assert.equal(cleanUserPrompt("[telegram] Halo tolong cek bug"), "Halo tolong cek bug");
+  assert.equal(cleanUserPrompt("[telegram|thread:Globe] Halo tolong cek bug"), "Halo tolong cek bug");
   assert.equal(cleanUserPrompt("  [Telegram]   Multiple   spaces  "), "Multiple spaces");
   const long = "x".repeat(300);
   const cleaned = cleanUserPrompt(long, 50);

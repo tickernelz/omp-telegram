@@ -1124,7 +1124,7 @@ export function resolveTelegramTimeConfig(
 ): ResolvedTelegramTimeConfig {
   const injectionMode: TelegramTimeMode =
     timeInjection === undefined
-      ? "interval"
+      ? "hidden"
       : timeInjection === "always" || timeInjection === "interval"
         ? timeInjection
         : "hidden";

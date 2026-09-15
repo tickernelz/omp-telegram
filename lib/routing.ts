@@ -3345,8 +3345,14 @@ export function createTelegramAssistantOutputAuthorityRuntime<
       const target = getCurrentTarget();
       if (
         authority.target === undefined ||
-        target?.chatId !== authority.target.chatId ||
-        target?.threadId !== authority.target.threadId
+        target?.chatId !== authority.target.chatId
+      ) {
+        return false;
+      }
+      if (
+        authority.target.threadId !== undefined &&
+        target?.threadId !== undefined &&
+        target.threadId !== authority.target.threadId
       ) {
         return false;
       }

@@ -97,6 +97,16 @@ test("Turn helpers omit [time] section by default", () => {
   assert.equal(prompt, "[telegram] hello");
 });
 
+test("Turn helpers preserve standalone dot continue without prefix or time", () => {
+  const prompt = buildTelegramTurnPrompt({
+    telegramPrefix: "[telegram|thread:Globe]",
+    rawText: ".",
+    files: [],
+    timeLine: "2026-09-15 17:37:16 Asia/Jakarta",
+  });
+  assert.equal(prompt, ".");
+});
+
 test("Turn helpers inject [time] as the final context section", () => {
   const prompt = buildTelegramTurnPrompt({
     telegramPrefix: "[telegram]",

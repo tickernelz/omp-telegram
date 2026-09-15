@@ -4,6 +4,13 @@
 
 ## Unreleased
 
+## 0.3.19: Dot Continue Parity, Hidden Time Default, And Session Resume Auto-Adoption
+
+- `Native Dot Continue Parity`: Standalone `.` messages from Telegram are now forwarded directly to OMP as pure `.` without any `[telegram]` prefix or `[time]` block, matching exact CLI continue semantics and consuming only 1 token.
+- `Time Injection Defaults to Hidden`: Changed `resolveTelegramTimeConfig` default from `interval` to `hidden` to eliminate redundant `[time]` blocks from prompts, aligning with OMP's native `<system-reminder>` date context.
+- `Resilient Context Store Auto-Adoption`: Enhanced `isSessionContextActive` to lazily adopt active extension context when `session_start` was bypassed on `--resume`, preventing progress tail from remaining dormant in resumed sessions.
+- `Mid-Turn Thread ID Target Resolution`: Updated `progress-tail` and `routing` authority to accept and upgrade thread targets when a turn starts before follower registration completes, ensuring progress bubbles appear reliably in fresh topics.
+
 ## 0.3.18: Seamless Transport Authority Across Role Promotion And Retry Persistence
 
 - `Resilient Authority on Transport Role Promotion`: Fixed a bug where live progress tail froze indefinitely during a turn when a follower instance was promoted to bus leader. `createTelegramAssistantOutputAuthorityRuntime` now recognizes that an active follower turn retains valid delivery authority when the instance becomes the direct leader (`deps.ownsDirect()`), preventing subsequent tool progress from being silently discarded.
