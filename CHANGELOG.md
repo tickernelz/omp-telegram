@@ -4,6 +4,11 @@
 
 ## Unreleased
 
+## 0.3.13: Dedicated Sticky Todo Table And Multi-Phase Task Parsing
+
+- `Dedicated Sticky Todo Table`: Elevated the Todo checklist into its own prominent markdown table placed above the Tools section (`## 📋 Todo (done/total)`), keeping the user's checklist visibly tracked without being buried under tool logs.
+- `Multi-Phase Task Parser`: Enhanced the todo toolResult parser in `progress-tail.ts` to support multi-phase schemas (`details.phases[].tasks[].content`) emitted by OMP's native todo tool, ensuring task states synchronize accurately with the CLI.
+
 ## 0.3.12: Live Session Context Table, Sticky Todo, And Extended Intervals
 
 - `Rich Context Bar`: Added native markdown status table rendering session context (`📂 CWD`, `🌿 Git branch & dirty status`, `🏷️ Title`, and `📊 Usage percent & context window size`) at the top of the live progress tail bubble.

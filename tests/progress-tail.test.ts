@@ -75,16 +75,19 @@ test("formatProgressTailRich renders Working status with tools table, reasoning,
   assert.ok(md.includes("## 💭 Reasoning"));
   assert.ok(md.includes("Analyzing project dependencies..."));
   assert.ok(md.includes("Checking lockfile versions."));
-  assert.ok(md.includes("## 🧰 Tools (1 completed, 2 running)"));
-  assert.ok(md.includes("| St | Tool | Arguments |"));
-  assert.ok(md.includes("| ✓ | read | package.json |"));
-  assert.ok(md.includes("| ⟳ | bash | npm test |"));
-  assert.ok(md.includes("| ⏳ | ask | 1 question(s) |"));
   assert.ok(md.includes("## 📋 Todo (1/3)"));
   assert.ok(md.includes("| St | Task |"));
   assert.ok(md.includes("| ✓ | Read config |"));
   assert.ok(md.includes("| ⟳ | Run tests |"));
   assert.ok(md.includes("|   | Deploy |"));
+  assert.ok(md.includes("## 🧰 Tools (1 completed, 2 running)"));
+  assert.ok(md.includes("| St | Tool | Arguments |"));
+  assert.ok(md.includes("| ✓ | read | package.json |"));
+  assert.ok(md.includes("| ⟳ | bash | npm test |"));
+  assert.ok(md.includes("| ⏳ | ask | 1 question(s) |"));
+  const todoIdx = md.indexOf("## 📋 Todo");
+  const toolsIdx = md.indexOf("## 🧰 Tools");
+  assert.ok(todoIdx < toolsIdx, "Todo section must appear before Tools section for prominent visibility");
 });
 
 test("formatProgressTailRich renders Completed, Cancelled, and Failed states with ask answers", () => {
@@ -521,6 +524,66 @@ test("formatProgressTailRich handles massive reasoning and 50 tools within 7500 
   assert.ok(md.includes("## 🧰 Tools"));
   assert.ok(md.includes("<details>"));
   assert.ok(md.includes("| St | Tool | Arguments |"));
+});
+
+test("Progress tail runtime: parses multi-phase todo results from todo tool", async () => {
+  const sends: TelegramSendRichMessageBody[] = [];
+  const edits: TelegramEditMessageTextBody[] = [];
+  let now = 10_000;
+
+  const runtime = createTelegramProgressTailRuntime({
+    getActivityMode: () => "verbose",
+    getNowMs: () => now,
+    resolveTarget: (e) => e.target,
+    captureAuthority: () => 1,
+    isAuthorityActive: () => true,
+    async sendRichMessage(body) {
+      sends.push(body);
+      return { message_id: 100, date: 1, chat: { id: 42, type: "private" } };
+    },
+    async sendMessage() { throw new Error("unexpected call"); },
+    async editMessageText(body) {
+      edits.push(body);
+      return "edited";
+    },
+  });
+
+  runtime.accept(event("agent-start"));
+  runtime.accept(event("tool-start", {
+    toolCallId: "todo_call_1",
+    toolName: "todo",
+    args: { op: "init" },
+  }));
+  await runtime.waitForIdle();
+
+  runtime.accept(event("tool-end", {
+    toolCallId: "todo_call_1",
+    toolName: "todo",
+    result: {
+      op: "init",
+      details: {
+        phases: [
+          {
+            name: "Implementation",
+            tasks: [
+              { content: "Fix bug 1", status: "completed" },
+              { content: "Implement feature 2", status: "in_progress" },
+              { content: "Verify changes", status: "pending" },
+            ],
+          },
+        ],
+      },
+    },
+    isError: false,
+  }));
+  await runtime.waitForIdle();
+
+  assert.ok(edits.length >= 1);
+  const text = edits.at(-1)?.rich_message?.markdown ?? "";
+  assert.ok(text.includes("## 📋 Todo (1/3)"));
+  assert.ok(text.includes("| ✓ | Fix bug 1 |"));
+  assert.ok(text.includes("| ⟳ | Implement feature 2 |"));
+  assert.ok(text.includes("|   | Verify changes |"));
 });
 
 test("Progress tail runtime: container unwrapping suppresses outer fabric_exec when inner tools execute", async () => {

@@ -416,6 +416,25 @@ export function formatProgressTailRich(state: ProgressTailState): string {
       sections.push(reasoningSection);
     }
 
+    if (state.todoItems.length > 0) {
+      const doneCount = state.todoItems.filter((t) => t.status === "completed").length;
+      const header = `## 📋 Todo (${doneCount}/${state.todoItems.length})`;
+      const tableLines: string[] = [
+        "| St | Task |",
+        "|:---|:-----|",
+      ];
+      for (const item of state.todoItems.slice(0, 8)) {
+        const marker = item.status === "completed" ? "✓" : item.status === "in_progress" ? "⟳" : item.status === "cancelled" ? "-" : " ";
+        const safeTask = item.task.replace(/\|/g, "\\|").replace(/\n/g, " ");
+        tableLines.push(`| ${marker} | ${safeTask} |`);
+      }
+      let todoBlock = `${header}\n\n${tableLines.join("\n")}`;
+      if (state.todoItems.length > 8) {
+        todoBlock += `\n\n_… [${state.todoItems.length - 8} more tasks]_`;
+      }
+      sections.push(todoBlock);
+    }
+
     if (state.tools.length > 0) {
       const completed = state.tools.filter((t) => t.status === "completed" || t.status === "failed");
       const running = state.tools.filter((t) => t.status === "running" || t.status === "waiting");
@@ -463,25 +482,6 @@ export function formatProgressTailRich(state: ProgressTailState): string {
         toolsBlock += `\n\n${detailResults.join("\n\n")}`;
       }
       sections.push(toolsBlock);
-    }
-
-    if (state.todoItems.length > 0) {
-      const doneCount = state.todoItems.filter((t) => t.status === "completed").length;
-      const header = `## 📋 Todo (${doneCount}/${state.todoItems.length})`;
-      const tableLines: string[] = [
-        "| St | Task |",
-        "|:---|:-----|",
-      ];
-      for (const item of state.todoItems.slice(0, 8)) {
-        const marker = item.status === "completed" ? "✓" : item.status === "in_progress" ? "⟳" : item.status === "cancelled" ? "-" : " ";
-        const safeTask = item.task.replace(/\|/g, "\\|").replace(/\n/g, " ");
-        tableLines.push(`| ${marker} | ${safeTask} |`);
-      }
-      let todoBlock = `${header}\n\n${tableLines.join("\n")}`;
-      if (state.todoItems.length > 8) {
-        todoBlock += `\n\n_… [${state.todoItems.length - 8} more tasks]_`;
-      }
-      sections.push(todoBlock);
     }
 
     return sections.join("\n\n");
@@ -821,17 +821,38 @@ export function createTelegramProgressTailRuntime<TAuthority>(
       if (event.toolName === "todo") {
         try {
           const resObj = typeof event.result === "string" ? JSON.parse(event.result) : event.result;
-          const items = (resObj?.details?.items ?? resObj?.items) as Array<{ task?: string; status?: string }> | undefined;
-          if (Array.isArray(items)) {
-            todoItems.length = 0;
-            for (const item of items) {
-              if (item.task) {
-                todoItems.push({
-                  task: item.task,
+          const details = (resObj?.details ?? resObj) as Record<string, unknown> | undefined;
+          const parsed: ProgressTailTodoItem[] = [];
+
+          if (Array.isArray(details?.phases)) {
+            for (const phase of details.phases as Array<{ tasks?: Array<{ content?: string; task?: string; status?: string }> }>) {
+              if (Array.isArray(phase?.tasks)) {
+                for (const t of phase.tasks) {
+                  const taskName = t?.content ?? t?.task;
+                  if (taskName) {
+                    parsed.push({
+                      task: String(taskName),
+                      status: (t.status as ProgressTailTodoItem["status"]) ?? "pending",
+                    });
+                  }
+                }
+              }
+            }
+          } else if (Array.isArray(details?.items)) {
+            for (const item of details.items as Array<{ task?: string; content?: string; status?: string }>) {
+              const taskName = item?.task ?? item?.content;
+              if (taskName) {
+                parsed.push({
+                  task: String(taskName),
                   status: (item.status as ProgressTailTodoItem["status"]) ?? "pending",
                 });
               }
             }
+          }
+
+          if (parsed.length > 0) {
+            todoItems.length = 0;
+            todoItems.push(...parsed);
           }
         } catch {
           void 0;
