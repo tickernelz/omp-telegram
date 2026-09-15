@@ -1026,7 +1026,7 @@ export function getTelegramSettingsArgumentCompletions(
   const keys = [
     { value: "mode", label: "mode", description: "Topic display naming style (names, letters, directories)" },
     { value: "activity", label: "activity", description: "Progress tail detail (verbose, tools, thinking, quiet)" },
-    { value: "interval", label: "interval", description: "Live progress update cadence (2000ms, 3000ms, 5000ms, 7500ms, 10000ms)" },
+    { value: "interval", label: "interval", description: "Live progress update cadence (2000ms, 3000ms, 5000ms, 7500ms, 10000ms, 15000ms, 30000ms)" },
     { value: "drafts", label: "drafts", description: "Draft previews streaming (on, off)" },
     { value: "voice", label: "voice", description: "Voice reply mode (manual, mirror, always)" },
     { value: "time", label: "time", description: "Timestamp injection mode (system, prompt, off)" },
@@ -1044,7 +1044,7 @@ export function getTelegramSettingsArgumentCompletions(
   const optionsByKey: Record<string, string[]> = {
     mode: ["names", "letters", "directories"],
     activity: ["verbose", "tools", "thinking", "quiet"],
-    interval: ["2000ms", "3000ms", "5000ms", "7500ms", "10000ms"],
+    interval: ["2000ms", "3000ms", "5000ms", "7500ms", "10000ms", "15000ms", "30000ms"],
     drafts: ["on", "off"],
     voice: ["manual", "mirror", "always"],
     time: ["always", "interval", "hidden"],
@@ -1098,7 +1098,7 @@ export async function openTelegramSettingsTui(
         label: "Progress Interval",
         description: "Cadence for updating the live progress tail bubble in Telegram",
         currentValue: `${deps.getProgressIntervalMs?.() ?? 5000}ms`,
-        values: ["2000ms", "3000ms", "5000ms", "7500ms", "10000ms"],
+        values: ["2000ms", "3000ms", "5000ms", "7500ms", "10000ms", "15000ms", "30000ms"],
       },
       {
         id: "drafts",

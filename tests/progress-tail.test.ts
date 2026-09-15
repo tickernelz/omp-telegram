@@ -427,18 +427,30 @@ test("cleanUserPrompt strips [telegram] prefix and truncates cleanly", () => {
   assert.ok(cleaned.endsWith("…"));
 });
 
-test("formatProgressTailRich includes user prompt when provided", () => {
+test("formatProgressTailRich includes user prompt and contextInfo table when provided", () => {
   const state: ProgressTailState = {
     status: "working",
     startedAtMs: 1000,
     modelName: "Opus 5",
     userPrompt: "buatkan fitur login oauth",
+    contextInfo: {
+      cwd: "/home/zhafron/Projects/omp-telegram",
+      gitBranch: "main",
+      gitDirty: true,
+      sessionTitle: "Implement sticky todo and context info",
+      contextUsagePercent: 35.4,
+      contextWindow: 1_000_000,
+    },
     reasoningLines: [],
     tools: [],
     todoItems: [],
   };
 
   const md = formatProgressTailRich(state);
+  assert.ok(md.includes("| Context | Detail |"));
+  assert.ok(md.includes("| 📂 CWD | `/home/zhafron/Projects/omp-telegram` (🌿 `main` _[dirty]_) |"));
+  assert.ok(md.includes("| 🏷️ Title | Implement sticky todo and context info |"));
+  assert.ok(md.includes("| 📊 Usage | 35.4% of 1.0M tokens |"));
   assert.ok(md.includes("## 👤 Prompt"));
   assert.ok(md.includes("_buatkan fitur login oauth_"));
 });

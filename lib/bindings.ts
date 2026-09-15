@@ -1270,7 +1270,58 @@ export function registerTelegramLifecycleRuntimeHooks({
       cancelPendingFinalPublication();
       await agentStartWithDedupReset(event, ctx);
       const turn = activeTurnRuntime.get();
-      activityRuntime.onAgentStart(turn?.target, turn?.replyToMessageId, turn?.historyText);
+      let gitBranch: string | undefined;
+      let gitDirty: boolean | undefined;
+      if (ctx.cwd) {
+        try {
+          const { execFileSync } = await import("node:child_process");
+          const branch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+            cwd: ctx.cwd,
+            encoding: "utf8",
+            stdio: ["ignore", "pipe", "ignore"],
+            timeout: 1000,
+          }).trim();
+          if (branch) {
+            gitBranch = branch;
+            const status = execFileSync("git", ["status", "--porcelain"], {
+              cwd: ctx.cwd,
+              encoding: "utf8",
+              stdio: ["ignore", "pipe", "ignore"],
+              timeout: 1000,
+            }).trim();
+            gitDirty = status.length > 0;
+          }
+        } catch {
+          void 0;
+        }
+      }
+      let sessionTitle: string | undefined;
+      const entries = ctx.sessionManager?.getEntries?.();
+      if (Array.isArray(entries)) {
+        for (let i = entries.length - 1; i >= 0; i--) {
+          const entry = entries[i] as { type?: string; title?: string } | undefined;
+          if (entry?.title && (entry.type === "title" || entry.type === "title_change")) {
+            sessionTitle = entry.title;
+            break;
+          }
+        }
+      }
+      let contextUsagePercent: number | undefined;
+      let contextWindow: number | undefined;
+      const usage = ctx.getContextUsage?.();
+      if (usage) {
+        if (typeof usage.percent === "number") contextUsagePercent = usage.percent;
+        contextWindow = usage.contextWindow ?? ctx.model?.contextWindow;
+      }
+      const contextInfo = {
+        cwd: ctx.cwd,
+        gitBranch,
+        gitDirty,
+        sessionTitle,
+        contextUsagePercent,
+        contextWindow,
+      };
+      activityRuntime.onAgentStart(turn?.target, turn?.replyToMessageId, turn?.historyText, contextInfo);
       startAgentActivityTypingLoop(ctx);
     },
     async onToolExecutionStart(event, ctx) {

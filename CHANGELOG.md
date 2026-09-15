@@ -4,6 +4,12 @@
 
 ## Unreleased
 
+## 0.3.12: Live Session Context Table, Sticky Todo, And Extended Intervals
+
+- `Rich Context Bar`: Added native markdown status table rendering session context (`📂 CWD`, `🌿 Git branch & dirty status`, `🏷️ Title`, and `📊 Usage percent & context window size`) at the top of the live progress tail bubble.
+- `Sticky Todo`: Todo items now persist across turn segments and commentary boundaries within the active session, updating in-place alongside tool progress and omitted when empty.
+- `Extended Cadence Options`: Added 15s (`15000ms`) and 30s (`30000ms`) update intervals to `/telegram-settings` (TUI and CLI), providing maximum API quota efficiency for long multi-tool batches.
+
 ## 0.3.11: Full Native Rich Message Markdown Migration And Paragraph Reasoning
 
 - `Native Rich Message Migration`: Fully migrated live progress tail to Bot API 10.1 Rich Message format (`sendRichMessage` and `editMessageText` with `rich_message: { markdown }`). The progress bubble now supports native tables for tools (`| St | Tool | Arguments |`) and todo checklists (`| St | Task |`), plus native collapsible `<details>` blocks for tool result inspection.

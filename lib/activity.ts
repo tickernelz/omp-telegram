@@ -36,8 +36,17 @@ export interface TelegramActivityEnvelope {
   timestamp: number;
 }
 
+export interface TelegramActivityContextInfo {
+  cwd?: string;
+  gitBranch?: string;
+  gitDirty?: boolean;
+  sessionTitle?: string;
+  contextUsagePercent?: number;
+  contextWindow?: number;
+}
+
 export type TelegramActivityPayload =
-  | { type: "agent-start"; promptText?: string }
+  | { type: "agent-start"; promptText?: string; contextInfo?: TelegramActivityContextInfo }
     | {
         type: "assistant-text-delta";
         contentIndex: number;
@@ -423,8 +432,8 @@ export function createTelegramActivityBridgeRuntime(deps: {
     recordInputSource(source, promptText) {
       getRuntime()?.recordInputSource(source, promptText);
     },
-    onAgentStart(target, replyToMessageId, promptText) {
-      getRuntime()?.onAgentStart(target, replyToMessageId, promptText);
+    onAgentStart(target, replyToMessageId, promptText, contextInfo) {
+      getRuntime()?.onAgentStart(target, replyToMessageId, promptText, contextInfo);
     },
     onAssistantEvent(event) {
       getRuntime()?.onAssistantEvent(event);
@@ -493,7 +502,7 @@ export type TelegramAssistantStreamEvent =
 export interface TelegramActivityRuntime {
   onSessionStart?: () => void;
   recordInputSource: (source: TelegramActivityInputSource, promptText?: string) => void;
-  onAgentStart: (activeTelegramTarget?: TelegramActivityTarget, replyToMessageId?: number, promptText?: string) => void;
+  onAgentStart: (activeTelegramTarget?: TelegramActivityTarget, replyToMessageId?: number, promptText?: string, contextInfo?: TelegramActivityContextInfo) => void;
   onAssistantEvent: (event: TelegramAssistantStreamEvent) => void;
   onAssistantMessageEnd: (stopReason?: string) => void;
   onToolStart: (event: {
@@ -634,13 +643,13 @@ export function createTelegramActivityRuntime(deps: {
       pendingInputSource = source;
       pendingPromptText = promptText;
     },
-    onAgentStart(activeTelegramTarget, replyToMessageId, promptText) {
+    onAgentStart(activeTelegramTarget, replyToMessageId, promptText, contextInfo) {
       abandonCompaction();
       ensureActivity(activeTelegramTarget);
       activityReplyToMessageId = activitySource === "telegram" ? replyToMessageId : undefined;
       const finalPrompt = promptText ?? pendingPromptText;
       pendingPromptText = undefined;
-      emit({ type: "agent-start", promptText: finalPrompt });
+      emit({ type: "agent-start", promptText: finalPrompt, contextInfo });
     },
     onAssistantEvent(event) {
       if (event.type === "text_start") {

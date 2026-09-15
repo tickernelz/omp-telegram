@@ -4,7 +4,7 @@
  * Owns single-bubble live progress updates, lazy triggering, roll-over on intermediate commentary, finalization summaries, and rate-limited Telegram edits
  */
 
-import type { TelegramActivityEvent, TelegramActivityPublicationRuntime } from "./activity.ts";
+import type { TelegramActivityContextInfo, TelegramActivityEvent, TelegramActivityPublicationRuntime } from "./activity.ts";
 
 import type { TelegramTarget } from "./target.ts";
 import type {
@@ -40,12 +40,15 @@ export interface ProgressTailTodoItem {
   status: "pending" | "in_progress" | "completed" | "cancelled";
 }
 
+export type ProgressTailContextInfo = TelegramActivityContextInfo;
+
 export interface ProgressTailState {
   status: ProgressTailStatus;
   startedAtMs: number;
   completedAtMs?: number;
   modelName?: string;
   userPrompt?: string;
+  contextInfo?: ProgressTailContextInfo;
   reasoningBuffer?: string;
   reasoningLines: string[];
   tools: ProgressTailToolItem[];
@@ -70,6 +73,7 @@ export interface TelegramProgressTailRuntimeDeps<TAuthority> {
     options?: TelegramApiCallOptions,
   ) => Promise<"edited" | "unchanged">;
   getModelName?: () => string | undefined;
+  getContextInfo?: () => ProgressTailContextInfo | undefined;
   getIntervalMs?: () => number;
   recordFailure?: (
     operation: "config-refresh" | "tail-send" | "tail-edit",
@@ -367,6 +371,41 @@ export function formatProgressTailRich(state: ProgressTailState): string {
       sections.push(`⚠️ **Failed** after ${elapsedSec}s${errText}`);
     }
 
+    if (state.contextInfo) {
+      const info = state.contextInfo;
+      const contextRows: Array<[string, string]> = [];
+      if (info.cwd) {
+        let cwdText = "`" + info.cwd + "`";
+        if (info.gitBranch) {
+          cwdText += " (🌿 `" + info.gitBranch + "`" + (info.gitDirty ? " _[dirty]_" : "") + ")";
+        }
+        contextRows.push(["📂 CWD", cwdText]);
+      }
+      if (info.sessionTitle) {
+        contextRows.push(["🏷️ Title", info.sessionTitle]);
+      }
+      if (typeof info.contextUsagePercent === "number") {
+        let usageText = `${info.contextUsagePercent.toFixed(1)}%`;
+        if (info.contextWindow) {
+          const kTokens = info.contextWindow >= 1_000_000
+            ? `${(info.contextWindow / 1_000_000).toFixed(1)}M`
+            : `${Math.round(info.contextWindow / 1000)}k`;
+          usageText += ` of ${kTokens} tokens`;
+        }
+        contextRows.push(["📊 Usage", usageText]);
+      }
+      if (contextRows.length > 0) {
+        const lines = [
+          "| Context | Detail |",
+          "|:--------|:-------|",
+        ];
+        for (const [k, v] of contextRows) {
+          lines.push(`| ${k} | ${v} |`);
+        }
+        sections.push(lines.join("\n"));
+      }
+    }
+
     if (state.userPrompt) {
       sections.push(`## 👤 Prompt\n\n_${state.userPrompt}_`);
     }
@@ -481,6 +520,7 @@ export function createTelegramProgressTailRuntime<TAuthority>(
   let startedAtMs = 0;
   let completedAtMs: number | undefined;
   let userPrompt: string | undefined;
+  let activeContextInfo: ProgressTailContextInfo | undefined;
   let status: ProgressTailStatus = "working";
   let reasoningBuffer = "";
   let reasoningLines: string[] = [];
@@ -529,7 +569,7 @@ export function createTelegramProgressTailRuntime<TAuthority>(
     authority = undefined;
     target = undefined;
     userPrompt = undefined;
-    todoItems.length = 0;
+    activeContextInfo = undefined;
   };
 
   const ensureActivity = (
@@ -564,6 +604,7 @@ export function createTelegramProgressTailRuntime<TAuthority>(
       completedAtMs,
       modelName: deps.getModelName?.(),
       userPrompt,
+      contextInfo: deps.getContextInfo?.() ?? activeContextInfo,
       reasoningBuffer,
       reasoningLines,
       tools: allTools,
@@ -687,6 +728,9 @@ export function createTelegramProgressTailRuntime<TAuthority>(
       startedAtMs = getNowMs();
       if (event.promptText) {
         userPrompt = cleanUserPrompt(event.promptText);
+      }
+      if (event.contextInfo) {
+        activeContextInfo = event.contextInfo;
       }
       return;
     }
