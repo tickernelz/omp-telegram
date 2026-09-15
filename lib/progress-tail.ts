@@ -673,6 +673,7 @@ export function createTelegramProgressTailRuntime<TAuthority>(
         lastPublishMs = getNowMs();
         dirty = false;
       } catch (error) {
+        dirty = true;
         deps.recordFailure?.("tail-edit", { type: "tool-end" } as TelegramActivityEvent, error);
       } finally {
         publishing = false;

@@ -3356,11 +3356,14 @@ export function createTelegramAssistantOutputAuthorityRuntime<
         );
       }
       if (authority.route === "follower") {
-        return (
+        if (
           !deps.ownsDirect() &&
           deps.isFollowerRegistered() &&
           deps.getFollowerGeneration() === authority.followerGeneration
-        );
+        ) {
+          return true;
+        }
+        return deps.ownsDirect();
       }
       return false;
     },

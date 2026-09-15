@@ -4,6 +4,11 @@
 
 ## Unreleased
 
+## 0.3.18: Seamless Transport Authority Across Role Promotion And Retry Persistence
+
+- `Resilient Authority on Transport Role Promotion`: Fixed a bug where live progress tail froze indefinitely during a turn when a follower instance was promoted to bus leader. `createTelegramAssistantOutputAuthorityRuntime` now recognizes that an active follower turn retains valid delivery authority when the instance becomes the direct leader (`deps.ownsDirect()`), preventing subsequent tool progress from being silently discarded.
+- `Persistent Edit Dirty State`: Ensured `publishToTelegram` retains `dirty = true` on transient Telegram API edit rejections (such as rate limits or concurrent edit cancellations), ensuring pending progress updates are cleanly flushed on subsequent activities or idle ticks rather than lost.
+
 ## 0.3.17: Direct Bot API Backing For Interactive Ask Tool
 
 - `Direct Bot API Backing for Ask Tool`: Fixed an issue where the `ask` tool question message failed to send to Telegram with `(runtime-unavailable)` error while CLI dialog was active. `askRuntime` now directly binds to `telegramApiRuntime.sendMessage` and `call("editMessageText")`, bypassing the fragile global delivery runtime registry and providing reliable question delivery and button interaction across leader and follower sessions.

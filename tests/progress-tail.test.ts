@@ -761,3 +761,45 @@ test("Progress tail runtime: multi-turn continuation with willContinue keeps sam
   const completedEdit = edits.at(-1)?.rich_message?.markdown ?? "";
   assert.ok(completedEdit.includes("✅ **Completed**"), "final settlement marks the bubble completed");
 });
+
+test("Progress tail runtime: refreshes authority across transport role promotion without dropping events", async () => {
+  const sends: TelegramSendRichMessageBody[] = [];
+  const edits: TelegramEditMessageTextBody[] = [];
+  let now = 10_000;
+  let role: "follower" | "leader" = "follower";
+
+  const runtime = createTelegramProgressTailRuntime({
+    getActivityMode: () => "verbose",
+    getNowMs: () => now,
+    resolveTarget: (e) => e.target,
+    captureAuthority: () => ({ role }),
+    isAuthorityActive: (a: { role: string }) => a.role === "follower" ? (role === "follower" || role === "leader") : a.role === role,
+    async sendRichMessage(body) {
+      sends.push(body);
+      return { message_id: 100 + sends.length, date: 1, chat: { id: 42, type: "private" } };
+    },
+    async sendMessage() {
+      throw new Error("unexpected call");
+    },
+    async editMessageText(body) {
+      edits.push(body);
+      return "edited";
+    },
+    getModelName: () => "Opus 5",
+  });
+
+  runtime.accept(event("agent-start"));
+  runtime.accept(event("tool-start", { toolCallId: "1", toolName: "read", args: { path: "a.ts" } }));
+  runtime.accept(event("tool-end", { toolCallId: "1", toolName: "read", isError: false, result: "ok" }));
+  await runtime.waitForIdle();
+  assert.equal(sends.length, 1);
+
+  role = "leader";
+  now = 12_000;
+  runtime.accept(event("tool-start", { toolCallId: "2", toolName: "write", args: { path: "b.ts" } }));
+  runtime.accept(event("tool-end", { toolCallId: "2", toolName: "write", isError: false, result: "ok" }));
+  await runtime.waitForIdle();
+
+  const latestEdit = edits.at(-1)?.rich_message?.markdown ?? "";
+  assert.ok(latestEdit.includes("b.ts"), "must update live bubble after role promotion");
+});
