@@ -1368,7 +1368,8 @@ export function registerTelegramLifecycleRuntimeHooks({
       if (!isSessionContextActive(ctx)) return;
       if (event.message.role === "assistant") {
         previewRuntime.seal();
-        activityRuntime.onAssistantMessageEnd(event.message.stopReason);
+        const extracted = Replies.extractLatestAssistantMessageText([event.message]);
+        activityRuntime.onAssistantMessageEnd(event.message.stopReason, extracted.text);
       }
       if (event.message.role !== "assistant" || event.message.stopReason === "toolUse" || event.message.stopReason === "aborted") return;
       const turn = activeTurnRuntime.get();

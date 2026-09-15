@@ -880,7 +880,7 @@ export function createTelegramProgressTailRuntime<TAuthority>(
     }
 
     if (event.type === "assistant-segment") {
-      if (event.placement === "intermediate" && liveMessage !== undefined) {
+      if ((event.placement === "intermediate" || event.placement === "final") && liveMessage !== undefined) {
         status = "completed";
         completedAtMs = getNowMs();
         await publishToTelegram(acceptedGeneration, true);

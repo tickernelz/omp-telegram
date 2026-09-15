@@ -438,8 +438,8 @@ export function createTelegramActivityBridgeRuntime(deps: {
     onAssistantEvent(event) {
       getRuntime()?.onAssistantEvent(event);
     },
-    onAssistantMessageEnd(stopReason) {
-      getRuntime()?.onAssistantMessageEnd(stopReason);
+    onAssistantMessageEnd(stopReason, fallbackText) {
+      getRuntime()?.onAssistantMessageEnd(stopReason, fallbackText);
     },
     onToolStart(event) {
       getRuntime()?.onToolStart(event);
@@ -504,7 +504,7 @@ export interface TelegramActivityRuntime {
   recordInputSource: (source: TelegramActivityInputSource, promptText?: string) => void;
   onAgentStart: (activeTelegramTarget?: TelegramActivityTarget, replyToMessageId?: number, promptText?: string, contextInfo?: TelegramActivityContextInfo) => void;
   onAssistantEvent: (event: TelegramAssistantStreamEvent) => void;
-  onAssistantMessageEnd: (stopReason?: string) => void;
+  onAssistantMessageEnd: (stopReason?: string, fallbackText?: string) => void;
   onToolStart: (event: {
     toolCallId: string;
     toolName: string;
@@ -564,6 +564,7 @@ export function createTelegramActivityRuntime(deps: {
   let pendingInputSource: TelegramActivityInputSource = "unknown";
   let pendingPromptText: string | undefined;
   let pendingAssistantSegment: PendingAssistantSegment | undefined;
+  let flushedFinalSegment = false;
   let compactionInProgress = false;
   let compactionOwnedActivity = false;
   let uiPromptInProgress = false;
@@ -612,6 +613,7 @@ export function createTelegramActivityRuntime(deps: {
     const segment = pendingAssistantSegment;
     pendingAssistantSegment = undefined;
     if (!segment?.text.trim()) return;
+    if (placement === "final") flushedFinalSegment = true;
     emit({
       type: "assistant-segment",
       contentIndex: segment.contentIndex,
@@ -627,6 +629,7 @@ export function createTelegramActivityRuntime(deps: {
     sequence = 0;
     pendingPromptText = undefined;
     pendingAssistantSegment = undefined;
+    flushedFinalSegment = false;
     compactionInProgress = false;
     compactionOwnedActivity = false;
     uiPromptInProgress = false;
@@ -653,6 +656,7 @@ export function createTelegramActivityRuntime(deps: {
     },
     onAssistantEvent(event) {
       if (event.type === "text_start") {
+        flushedFinalSegment = false;
         flushPendingSegment("intermediate");
         return;
       }
@@ -700,8 +704,18 @@ export function createTelegramActivityRuntime(deps: {
       }
       if (event.type === "error") flushPendingSegment("terminal-partial");
     },
-    onAssistantMessageEnd(stopReason) {
-      if (stopReason === "aborted") pendingAssistantSegment = undefined;
+    onAssistantMessageEnd(stopReason, fallbackText) {
+      if (stopReason === "aborted") {
+        pendingAssistantSegment = undefined;
+        flushedFinalSegment = false;
+        return;
+      }
+      if ((stopReason === "stop" || stopReason === "length") && !flushedFinalSegment) {
+        if (!pendingAssistantSegment && fallbackText && fallbackText.trim().length > 0) {
+          pendingAssistantSegment = { contentIndex: 0, text: fallbackText };
+        }
+        flushPendingSegment("final");
+      }
     },
     onToolStart(event) {
       emit({ type: "tool-start", ...event });

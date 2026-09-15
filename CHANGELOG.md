@@ -4,6 +4,11 @@
 
 ## Unreleased
 
+## 0.3.14: Flush Final Response And Freeze Progress Tail While Subagents Run
+
+- `Final Response Projection While Subagents Run`: Fixed a bug where assistant text responses produced at the end of a turn were withheld from Telegram because OMP does not fire `agent_end` while background subagents or async tasks are still running. `onMessageEnd` now flushes the final assistant segment, and the progress tail bubble freezes upon receiving final text, preventing it from appearing hung in a working state for minutes.
+- `Deduplicated Final Segment Flushing`: Added guard to prevent duplicate delivery of the final text message across streaming `done` and lifecycle `message_end` boundaries.
+
 ## 0.3.13: Dedicated Sticky Todo Table And Multi-Phase Task Parsing
 
 - `Dedicated Sticky Todo Table`: Elevated the Todo checklist into its own prominent markdown table placed above the Tools section (`## 📋 Todo (done/total)`), keeping the user's checklist visibly tracked without being buried under tool logs.
