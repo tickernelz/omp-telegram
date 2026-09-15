@@ -4,6 +4,11 @@
 
 ## Unreleased
 
+## 0.3.15: Dynamic Model Synchronization And Model Info In Context Table
+
+- `Dynamic Model Synchronization`: Fixed an issue where changing models via CLI (e.g. `/model` to DeepSeek V4.1) left the Telegram progress tail displaying the previous model name. `onAgentStart` now automatically synchronizes the active model from the live session context (`ctx.model`) into the model store.
+- `Dedicated Model Context Row`: Added `🤖 Model` as an explicit row inside the Context Table in the progress tail bubble, ensuring the active model name and provider are always prominently visible alongside CWD, Title, and Usage.
+
 ## 0.3.14: Flush Final Response And Freeze Progress Tail While Subagents Run
 
 - `Final Response Projection While Subagents Run`: Fixed a bug where assistant text responses produced at the end of a turn were withheld from Telegram because OMP does not fire `agent_end` while background subagents or async tasks are still running. `onMessageEnd` now flushes the final assistant segment, and the progress tail bubble freezes upon receiving final text, preventing it from appearing hung in a working state for minutes.

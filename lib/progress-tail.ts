@@ -384,6 +384,9 @@ export function formatProgressTailRich(state: ProgressTailState): string {
       if (info.sessionTitle) {
         contextRows.push(["🏷️ Title", info.sessionTitle]);
       }
+      if (info.modelName) {
+        contextRows.push(["🤖 Model", info.modelName]);
+      }
       if (typeof info.contextUsagePercent === "number") {
         let usageText = `${info.contextUsagePercent.toFixed(1)}%`;
         if (info.contextWindow) {
@@ -598,13 +601,15 @@ export function createTelegramProgressTailRuntime<TAuthority>(
       visibleRunning.push(tool);
     }
     const allTools = [...completedTools, ...visibleRunning];
+    const effectiveContextInfo = deps.getContextInfo?.() ?? activeContextInfo;
+    const effectiveModelName = effectiveContextInfo?.modelName ?? deps.getModelName?.();
     return {
       status,
       startedAtMs,
       completedAtMs,
-      modelName: deps.getModelName?.(),
+      modelName: effectiveModelName,
       userPrompt,
-      contextInfo: deps.getContextInfo?.() ?? activeContextInfo,
+      contextInfo: effectiveContextInfo,
       reasoningBuffer,
       reasoningLines,
       tools: allTools,

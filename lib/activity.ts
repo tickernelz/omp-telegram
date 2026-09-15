@@ -43,6 +43,7 @@ export interface TelegramActivityContextInfo {
   sessionTitle?: string;
   contextUsagePercent?: number;
   contextWindow?: number;
+  modelName?: string;
 }
 
 export type TelegramActivityPayload =

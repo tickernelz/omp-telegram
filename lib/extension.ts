@@ -741,7 +741,8 @@ export default function (pi: Pi.ExtensionAPI) {
       sendRichMessage,
       editMessageText: editTelegramMessageText,
       getModelName() {
-        const m = currentModelRuntime.getStored();
+        const ctx = telegramSessionContextStore.get();
+        const m = ctx?.model ?? (ctx ? currentModelRuntime.get(ctx) : undefined) ?? currentModelRuntime.getStored();
         return m?.name ?? m?.id;
       },
       getIntervalMs: configControls.getProgressIntervalMs,

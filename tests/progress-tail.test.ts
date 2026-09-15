@@ -441,6 +441,7 @@ test("formatProgressTailRich includes user prompt and contextInfo table when pro
       gitBranch: "main",
       gitDirty: true,
       sessionTitle: "Implement sticky todo and context info",
+      modelName: "DeepSeek V4.1 Flash",
       contextUsagePercent: 35.4,
       contextWindow: 1_000_000,
     },
@@ -453,6 +454,7 @@ test("formatProgressTailRich includes user prompt and contextInfo table when pro
   assert.ok(md.includes("| Context | Detail |"));
   assert.ok(md.includes("| 📂 CWD | `/home/zhafron/Projects/omp-telegram` (🌿 `main` _[dirty]_) |"));
   assert.ok(md.includes("| 🏷️ Title | Implement sticky todo and context info |"));
+  assert.ok(md.includes("| 🤖 Model | DeepSeek V4.1 Flash |"));
   assert.ok(md.includes("| 📊 Usage | 35.4% of 1.0M tokens |"));
   assert.ok(md.includes("## 👤 Prompt"));
   assert.ok(md.includes("_buatkan fitur login oauth_"));

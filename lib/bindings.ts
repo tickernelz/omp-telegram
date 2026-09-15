@@ -1267,6 +1267,9 @@ export function registerTelegramLifecycleRuntimeHooks({
     async onAgentStart(event, ctx) {
       if (!isSessionContextActive(ctx)) return;
       agentWorkActive = true;
+      if (ctx.model) {
+        await sessionLifecycleRuntime.onModelSelect?.({ model: ctx.model }, ctx);
+      }
       cancelPendingFinalPublication();
       await agentStartWithDedupReset(event, ctx);
       const turn = activeTurnRuntime.get();
@@ -1320,6 +1323,7 @@ export function registerTelegramLifecycleRuntimeHooks({
         sessionTitle,
         contextUsagePercent,
         contextWindow,
+        modelName: ctx.model?.name ?? ctx.model?.id,
       };
       activityRuntime.onAgentStart(turn?.target, turn?.replyToMessageId, turn?.historyText, contextInfo);
       startAgentActivityTypingLoop(ctx);
