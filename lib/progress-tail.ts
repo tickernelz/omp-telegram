@@ -520,7 +520,12 @@ export function createTelegramProgressTailRuntime<TAuthority>(
   let generation = 0;
   let tail = Promise.resolve();
   const getNowMs = deps.getNowMs ?? Date.now;
-  const intervalMs = deps.getIntervalMs?.() ?? TELEGRAM_PROGRESS_TAIL_DEFAULT_INTERVAL_MS;
+  const resolveIntervalMs = (): number => {
+    const configured = deps.getIntervalMs?.();
+    return typeof configured === "number" && Number.isFinite(configured) && configured >= 0
+      ? configured
+      : TELEGRAM_PROGRESS_TAIL_DEFAULT_INTERVAL_MS;
+  };
 
   let activityId: string | undefined;
   let authority: TAuthority | undefined;
@@ -585,6 +590,17 @@ export function createTelegramProgressTailRuntime<TAuthority>(
     activeContextInfo = undefined;
   };
 
+  const shouldAdoptTarget = (
+    current: TelegramTarget | undefined,
+    next: TelegramTarget | undefined,
+  ): boolean => {
+    if (!next) return false;
+    if (!current) return false;
+    if (current.chatId !== next.chatId) return true;
+    if (next.threadId === undefined) return false;
+    return current.threadId !== next.threadId;
+  };
+
   const ensureActivity = (
     event: TelegramActivityEvent,
     admittedTarget: TelegramTarget | undefined,
@@ -592,9 +608,21 @@ export function createTelegramProgressTailRuntime<TAuthority>(
   ): boolean => {
     if (deps.getActivityMode() === "quiet") return false;
     if (activityId === event.activityId) {
-      if (target !== undefined && target.threadId === undefined && admittedTarget?.threadId !== undefined) {
+      if (shouldAdoptTarget(target, admittedTarget) && admittedTarget) {
+        const staleBubble =
+          liveMessage !== undefined &&
+          (liveMessage.target.chatId !== admittedTarget.chatId ||
+            liveMessage.target.threadId !== admittedTarget.threadId);
         target = admittedTarget;
         authority = admittedAuthority;
+        if (staleBubble) {
+          clearTimer();
+          liveMessage = undefined;
+          lastPublishedMarkdown = undefined;
+          consecutivePublishFailures = 0;
+          lastPublishMs = 0;
+          dirty = true;
+        }
       }
       return hasAuthority();
     }
@@ -732,7 +760,7 @@ export function createTelegramProgressTailRuntime<TAuthority>(
         scheduleDeferredPublish(
           acceptedGeneration,
           admittedAuthority,
-          Math.max(0, intervalMs - (getNowMs() - lastPublishMs)),
+          Math.max(0, resolveIntervalMs() - (getNowMs() - lastPublishMs)),
         );
       })
       .catch(() => undefined);
@@ -752,7 +780,7 @@ export function createTelegramProgressTailRuntime<TAuthority>(
       return;
     }
     if (timer !== undefined) return;
-    const delay = Math.max(0, intervalMs - (getNowMs() - lastPublishMs));
+    const delay = Math.max(0, resolveIntervalMs() - (getNowMs() - lastPublishMs));
     if (delay <= 0) {
       await enqueuePublish(acceptedGeneration, admittedAuthority);
       return;

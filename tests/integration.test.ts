@@ -6512,3 +6512,114 @@ test("Extension runtime steers mid-turn Telegram messages into the active turn",
   }
 });
 
+test("Extension runtime projects live progress after a mid-turn telegram-connect", async () => {
+  const telegramConfig = await createRuntimeTelegramConfigFixture();
+  const calls: Array<{ method: string; body: Record<string, unknown> }> = [];
+  const { handlers, commands, pi } = createRuntimePiHarness();
+  let nextMessageId = 700;
+  const restoreFetch = setRuntimeTestFetch(async (input, init) => {
+    const method = getRuntimeTelegramApiMethod(input);
+    const body = parseJsonRequestBody(init) ?? {};
+    if (method === "deleteWebhook" || method === "setMyCommands") {
+      return createRuntimeTelegramApiResponse(true);
+    }
+    if (method === "getUpdates") {
+      return await new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          reject(new DOMException("stop", "AbortError"));
+        });
+      });
+    }
+    if (method === "sendChatAction") return createRuntimeTelegramApiResponse(true);
+    calls.push({ method, body });
+    if (method === "sendRichMessageDraft" || method === "editMessageText") {
+      return createRuntimeTelegramApiResponse(true);
+    }
+    if (method === "sendMessage" || method === "sendRichMessage") {
+      return createRuntimeTelegramApiResponse({ message_id: nextMessageId++ });
+    }
+    throw new Error("Unexpected Telegram API method: " + method);
+  });
+  const ctx = createRuntimeExtensionContext({ cwd: "/repo/midturn-connect" });
+  try {
+    await telegramConfig.write({
+      botToken: "123:abc",
+      allowedUserId: 77,
+      lastUpdateId: 0,
+      assistant: { activity: "verbose", progressIntervalMs: 500 },
+    });
+    await writeRuntimeTelegramLocks({});
+    (await getRuntimeTelegramExtension())(pi);
+    await handlers.get("session_start")?.({}, ctx);
+    await handlers.get("input")?.({ source: "interactive", text: "midturn probe" }, ctx);
+    await handlers.get("agent_start")?.({}, ctx);
+    await handlers.get("tool_execution_start")?.(
+      {
+        type: "tool_execution_start",
+        toolCallId: "pre",
+        toolName: "read",
+        args: { path: "pre.txt" },
+      },
+      ctx,
+    );
+
+    await commands.get("telegram-connect")?.handler("", ctx);
+
+    for (const id of ["post1", "post2"]) {
+      await handlers.get("tool_execution_start")?.(
+        {
+          type: "tool_execution_start",
+          toolCallId: id,
+          toolName: "write",
+          args: { path: id + ".txt" },
+        },
+        ctx,
+      );
+      await handlers.get("tool_execution_end")?.(
+        {
+          type: "tool_execution_end",
+          toolCallId: id,
+          toolName: "write",
+          result: "ok",
+          isError: false,
+        },
+        ctx,
+      );
+    }
+    await waitForCondition(() =>
+      calls.some(
+        (call) =>
+          (call.method === "editMessageText" || call.method === "sendRichMessage") &&
+          String(getRuntimeTelegramApiText(call.body) ?? "").includes("2 completed"),
+      ),
+    );
+
+    const assistantMessage = {
+      role: "assistant",
+      content: [{ type: "text", text: "Mid-turn **answer**" }],
+    };
+    await handlers.get("message_update")?.(
+      {
+        message: assistantMessage,
+        assistantMessageEvent: {
+          type: "text_end",
+          contentIndex: 0,
+          content: "Mid-turn **answer**",
+          partial: assistantMessage,
+        },
+      },
+      ctx,
+    );
+    await handlers.get("agent_end")?.({ messages: [assistantMessage] }, ctx);
+    await waitForCondition(() =>
+      calls.some((call) =>
+        String(getRuntimeTelegramApiText(call.body) ?? "").includes("Mid-turn"),
+      ),
+    );
+  } finally {
+    await commands.get("telegram-disconnect")?.handler("", ctx);
+    await handlers.get("session_shutdown")?.({}, ctx);
+    restoreFetch();
+    await telegramConfig.restore();
+  }
+});

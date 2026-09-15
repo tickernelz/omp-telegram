@@ -4,6 +4,12 @@
 
 ## Unreleased
 
+## 0.4.1: Progress Tail Survives A Mid-Turn Connect
+
+- `Live Bubble Re-Homes On Target Change`: Running `/telegram-connect` mid-turn binds the tail to the DM fallback before the Workspace Thread record exists. `ensureActivity` then accepted the new target but kept editing the message in the old chat, so the Thread stayed empty for the rest of the turn and no API error was raised. The stale bubble is now abandoned and a fresh one is created in the bound chat/thread.
+- `Publish Interval Read Live`: `createTelegramProgressTailRuntime` captured `getIntervalMs()` once at construction, before `configStore.load()`, so `assistant.progressIntervalMs` and every `/telegram-settings` change were ignored until the session restarted. The interval is now resolved per schedule.
+- `Unbound Activity Stays Silent`: Target adoption refuses to bind an activity whose target was deliberately cleared, keeping the fail-closed contract when an activity-mode refresh fails.
+
 ## 0.4.0: Mid-Turn Steering Parity And Self-Healing Progress Tail
 
 - `Mid-Turn Steering Parity`: Telegram messages that arrive while a turn is running are now handed to OMP's steering queue via `sendUserMessage(content, { deliverAs: "steer" })` instead of waiting for `agent_end`, matching OMP CLI semantics. The active turn adopts the new reply anchor and source message ids, and the live progress bubble updates its prompt line. Opt out with `assistant.steering: false` to keep queue-and-drain behaviour.

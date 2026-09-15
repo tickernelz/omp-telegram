@@ -952,3 +952,104 @@ test("Progress tail runtime: repeated edit failures roll over to a fresh bubble"
   assert.equal(sends.length, 2, "an unreachable bubble is replaced instead of going silent");
 });
 
+test("Progress tail runtime: re-homes the live bubble when the delivery target moves mid-activity", async () => {
+  const sends: TelegramSendRichMessageBody[] = [];
+  const edits: TelegramEditMessageTextBody[] = [];
+  let current: { chatId: number; threadId?: number } = { chatId: 77 };
+  const now = 10_000;
+
+  const runtime = createTelegramProgressTailRuntime<{ chatId: number }>({
+    getActivityMode: () => "verbose",
+    getNowMs: () => now,
+    getIntervalMs: () => 0,
+    resolveTarget: () => ({ ...current }),
+    captureAuthority: () => ({ chatId: current.chatId }),
+    isAuthorityActive: (authority) => authority.chatId === current.chatId,
+    async sendRichMessage(body) {
+      sends.push(body);
+      return {
+        message_id: 900 + sends.length,
+        date: 1,
+        chat: { id: current.chatId, type: "private" },
+      };
+    },
+    async sendMessage() {
+      throw new Error("unexpected call");
+    },
+    async editMessageText(body) {
+      edits.push(body);
+      return "edited";
+    },
+  });
+
+  runtime.accept(event("tool-start", { toolCallId: "1", toolName: "read", args: { path: "pre.ts" } }));
+  await runtime.waitForIdle();
+  assert.deepEqual(sends.map((s) => s.chat_id), [77], "first bubble lands in the bound chat");
+
+  current = { chatId: -1009999, threadId: 5 };
+
+  runtime.accept(event("tool-start", { toolCallId: "2", toolName: "write", args: { path: "after.ts" } }));
+  runtime.accept(event("tool-end", { toolCallId: "2", toolName: "write", isError: false, result: "ok" }));
+  await runtime.waitForIdle();
+
+  assert.deepEqual(
+    sends.map((s) => s.chat_id),
+    [77, -1009999],
+    "a moved delivery target gets its own live bubble instead of silence",
+  );
+  assert.equal(
+    sends.at(-1)?.message_thread_id,
+    5,
+    "the new bubble is posted into the bound thread",
+  );
+  assert.ok(
+    edits.every((e) => e.chat_id === -1009999),
+    "the abandoned bubble in the old chat is never edited again",
+  );
+  assert.ok(
+    (sends.at(-1)?.rich_message?.markdown ?? "").includes("after.ts"),
+    "the re-homed bubble carries the accumulated turn state",
+  );
+});
+
+test("Progress tail runtime: honors a publish interval changed after construction", async () => {
+  const sends: TelegramSendRichMessageBody[] = [];
+  const edits: TelegramEditMessageTextBody[] = [];
+  let now = 10_000;
+  let intervalMs = 60_000;
+
+  const runtime = createTelegramProgressTailRuntime({
+    getActivityMode: () => "verbose",
+    getNowMs: () => now,
+    getIntervalMs: () => intervalMs,
+    resolveTarget: (e) => e.target,
+    captureAuthority: () => 1,
+    isAuthorityActive: () => true,
+    async sendRichMessage(body) {
+      sends.push(body);
+      return { message_id: 950, date: 1, chat: { id: 42, type: "private" } };
+    },
+    async sendMessage() {
+      throw new Error("unexpected call");
+    },
+    async editMessageText(body) {
+      edits.push(body);
+      return "edited";
+    },
+  });
+
+  runtime.accept(event("tool-start", { toolCallId: "1", toolName: "read", args: { path: "a.ts" } }));
+  await runtime.waitForIdle();
+  assert.equal(sends.length, 1);
+
+  intervalMs = 0;
+  now += 10;
+  runtime.accept(event("tool-end", { toolCallId: "1", toolName: "read", isError: false, result: "ok" }));
+  await new Promise<void>((resolve) => setTimeout(resolve, 50));
+
+  assert.ok(
+    edits.some((e) => (e.rich_message?.markdown ?? "").includes("1 completed")),
+    "a live interval change must take effect without restarting the session",
+  );
+  await runtime.waitForIdle();
+});
