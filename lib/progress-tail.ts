@@ -22,6 +22,7 @@ export const TELEGRAM_PROGRESS_TAIL_MAX_TOOL_ARG_CHARS = 120;
 export const TELEGRAM_PROGRESS_TAIL_MAX_TOOL_RESULT_CHARS = 250;
 export const TELEGRAM_PROGRESS_TAIL_MAX_MESSAGE_CHARS = 7_500;
 export const TELEGRAM_PROGRESS_TAIL_REASONING_BUFFER_MAX_CHARS = 6_000;
+export const TELEGRAM_PROGRESS_TAIL_MAX_PUBLISH_FAILURES = 3;
 
 export type ProgressTailStatus = "working" | "completed" | "cancelled" | "failed";
 
@@ -358,21 +359,22 @@ export function formatProgressTailRich(state: ProgressTailState): string {
     const sections: string[] = [];
     const endMs = state.completedAtMs ?? Date.now();
     const elapsedSec = Math.max(0.1, (endMs - state.startedAtMs) / 1000).toFixed(1);
-    const modelPart = state.modelName ? ` · _${state.modelName}_` : "";
 
+    let statusLine = "";
     if (state.status === "working") {
-      sections.push(`⏳ **Working...** (${elapsedSec}s)${modelPart}`);
+      statusLine = `⏳ **Working...** (${elapsedSec}s)`;
     } else if (state.status === "completed") {
-      sections.push(`✅ **Completed** in ${elapsedSec}s · ${state.tools.length} tools${modelPart}`);
+      statusLine = `✅ **Completed** in ${elapsedSec}s · ${state.tools.length} tools`;
     } else if (state.status === "cancelled") {
-      sections.push(`⏹ **Cancelled** after ${elapsedSec}s · ${state.tools.length} tools${modelPart}`);
+      statusLine = `⏹ **Cancelled** after ${elapsedSec}s · ${state.tools.length} tools`;
     } else {
       const errText = state.errorMessage ? `: ${state.errorMessage}` : "";
-      sections.push(`⚠️ **Failed** after ${elapsedSec}s${errText}`);
+      statusLine = `⚠️ **Failed** after ${elapsedSec}s${errText}`;
     }
 
-    if (state.contextInfo) {
-      const info = state.contextInfo;
+    const effectiveContextInfo = state.contextInfo ?? (state.modelName ? { modelName: state.modelName } : undefined);
+    if (effectiveContextInfo) {
+      const info = effectiveContextInfo;
       const contextRows: Array<[string, string]> = [];
       if (info.cwd) {
         let cwdText = "`" + info.cwd + "`";
@@ -384,8 +386,9 @@ export function formatProgressTailRich(state: ProgressTailState): string {
       if (info.sessionTitle) {
         contextRows.push(["🏷️ Title", info.sessionTitle]);
       }
-      if (info.modelName) {
-        contextRows.push(["🤖 Model", info.modelName]);
+      const modelDisplay = info.modelName ?? state.modelName;
+      if (modelDisplay) {
+        contextRows.push(["🤖 Model", modelDisplay]);
       }
       if (typeof info.contextUsagePercent === "number") {
         let usageText = `${info.contextUsagePercent.toFixed(1)}%`;
@@ -487,6 +490,10 @@ export function formatProgressTailRich(state: ProgressTailState): string {
       sections.push(toolsBlock);
     }
 
+    if (statusLine) {
+      sections.push(statusLine);
+    }
+
     return sections.join("\n\n");
   };
 
@@ -535,7 +542,9 @@ export function createTelegramProgressTailRuntime<TAuthority>(
   let timer: NodeJS.Timeout | undefined;
   let lastPublishMs = 0;
   let dirty = false;
-  let publishing = false;
+  let lastPublishedMarkdown: string | undefined;
+  let consecutivePublishFailures = 0;
+  let publishChain: Promise<void> = Promise.resolve();
 
   const hasAuthority = (): boolean =>
     authority !== undefined && deps.isAuthorityActive(authority);
@@ -563,7 +572,8 @@ export function createTelegramProgressTailRuntime<TAuthority>(
     activeContainers.clear();
     lastPublishMs = 0;
     dirty = false;
-    publishing = false;
+    lastPublishedMarkdown = undefined;
+    consecutivePublishFailures = 0;
   };
 
   const clearAll = (): void => {
@@ -626,84 +636,128 @@ export function createTelegramProgressTailRuntime<TAuthority>(
   const hasRealActivity = (): boolean =>
     runningTools.size > 0 || completedTools.length > 0 || reasoningLines.length > 0 || todoItems.length > 0;
 
-  const publishToTelegram = async (
+  const canPublish = (
     acceptedGeneration: number,
-    forceImmediate = false,
+    admittedAuthority: TAuthority | undefined,
+  ): boolean =>
+    isCurrent(acceptedGeneration, admittedAuthority) &&
+    target !== undefined &&
+    deps.getActivityMode() !== "quiet" &&
+    (hasRealActivity() || liveMessage !== undefined);
+
+  const deliverCurrentState = async (
+    acceptedGeneration: number,
+    admittedAuthority: TAuthority | undefined,
   ): Promise<void> => {
-    const admittedAuthority = authority;
-    if (!isCurrent(acceptedGeneration, admittedAuthority) || !target) return;
-    if (deps.getActivityMode() === "quiet") return;
-    if (!hasRealActivity() && liveMessage === undefined) return;
-
-    const currentMarkdown = formatProgressTailRich(buildCurrentState());
-
-    if (liveMessage === undefined) {
-      try {
-        publishing = true;
+    if (!canPublish(acceptedGeneration, admittedAuthority) || !target) return;
+    const markdown = formatProgressTailRich(buildCurrentState());
+    if (liveMessage !== undefined && markdown === lastPublishedMarkdown) {
+      dirty = false;
+      return;
+    }
+    const creating = liveMessage === undefined;
+    dirty = false;
+    try {
+      if (creating) {
         let sent: TelegramSentMessage;
         if (deps.sendRichMessage) {
           sent = await deps.sendRichMessage({
             chat_id: target.chatId,
             ...(target.threadId === undefined ? {} : { message_thread_id: target.threadId }),
-            rich_message: { markdown: currentMarkdown },
+            rich_message: { markdown },
           });
         } else {
           sent = await deps.sendMessage({
             chat_id: target.chatId,
             ...(target.threadId === undefined ? {} : { message_thread_id: target.threadId }),
-            text: currentMarkdown,
+            text: markdown,
             link_preview_options: { is_disabled: true },
           });
         }
-        if (!isCurrent(acceptedGeneration, admittedAuthority)) return;
+        if (!isCurrent(acceptedGeneration, admittedAuthority) || !target) return;
         liveMessage = { messageId: sent.message_id, target: { ...target } };
-        lastPublishMs = getNowMs();
-        dirty = false;
-      } catch (error) {
-        deps.recordFailure?.("tail-send", { type: "tool-start" } as TelegramActivityEvent, error);
-      } finally {
-        publishing = false;
-      }
-      return;
-    }
-
-    if (forceImmediate) {
-      clearTimer();
-      try {
-        publishing = true;
+      } else if (liveMessage) {
         await deps.editMessageText({
           chat_id: liveMessage.target.chatId,
           message_id: liveMessage.messageId,
-          rich_message: { markdown: currentMarkdown },
+          rich_message: { markdown },
         }, { retryRateLimit: false });
-        lastPublishMs = getNowMs();
-        dirty = false;
-      } catch (error) {
-        dirty = true;
-        deps.recordFailure?.("tail-edit", { type: "tool-end" } as TelegramActivityEvent, error);
-      } finally {
-        publishing = false;
       }
-      return;
+      lastPublishedMarkdown = markdown;
+      lastPublishMs = getNowMs();
+      consecutivePublishFailures = 0;
+    } catch (error) {
+      lastPublishMs = getNowMs();
+      consecutivePublishFailures += 1;
+      dirty = true;
+      deps.recordFailure?.(
+        creating ? "tail-send" : "tail-edit",
+        { type: creating ? "tool-start" : "tool-end" } as TelegramActivityEvent,
+        error,
+      );
+      if (consecutivePublishFailures >= TELEGRAM_PROGRESS_TAIL_MAX_PUBLISH_FAILURES) {
+        consecutivePublishFailures = 0;
+        lastPublishedMarkdown = undefined;
+        if (creating) {
+          dirty = false;
+        } else {
+          liveMessage = undefined;
+        }
+      }
     }
+  };
 
-    dirty = true;
-    if (timer !== undefined || publishing) return;
-
-    const elapsed = getNowMs() - lastPublishMs;
-    const delay = Math.max(0, intervalMs - elapsed);
-    if (delay <= 0) {
-      await publishToTelegram(acceptedGeneration, true);
-      return;
-    }
-
+  const scheduleDeferredPublish = (
+    acceptedGeneration: number,
+    admittedAuthority: TAuthority | undefined,
+    delay: number,
+  ): void => {
+    if (timer !== undefined) return;
     timer = setTimeout(() => {
       timer = undefined;
-      if (dirty && liveMessage && isCurrent(acceptedGeneration, admittedAuthority)) {
-        void publishToTelegram(acceptedGeneration, true);
-      }
+      if (!dirty || !isCurrent(acceptedGeneration, admittedAuthority)) return;
+      void enqueuePublish(acceptedGeneration, admittedAuthority);
     }, delay);
     timer?.unref?.();
+  };
+
+  const enqueuePublish = (
+    acceptedGeneration: number,
+    admittedAuthority: TAuthority | undefined,
+  ): Promise<void> => {
+    publishChain = publishChain
+      .then(() => deliverCurrentState(acceptedGeneration, admittedAuthority))
+      .then(() => {
+        if (!dirty || !isCurrent(acceptedGeneration, admittedAuthority)) return;
+        scheduleDeferredPublish(
+          acceptedGeneration,
+          admittedAuthority,
+          Math.max(0, intervalMs - (getNowMs() - lastPublishMs)),
+        );
+      })
+      .catch(() => undefined);
+    return publishChain;
+  };
+
+  const publishToTelegram = async (
+    acceptedGeneration: number,
+    forceImmediate = false,
+  ): Promise<void> => {
+    const admittedAuthority = authority;
+    if (!canPublish(acceptedGeneration, admittedAuthority)) return;
+    dirty = true;
+    if (forceImmediate) {
+      clearTimer();
+      await enqueuePublish(acceptedGeneration, admittedAuthority);
+      return;
+    }
+    if (timer !== undefined) return;
+    const delay = Math.max(0, intervalMs - (getNowMs() - lastPublishMs));
+    if (delay <= 0) {
+      await enqueuePublish(acceptedGeneration, admittedAuthority);
+      return;
+    }
+    scheduleDeferredPublish(acceptedGeneration, admittedAuthority, delay);
   };
 
   const process = async (
@@ -959,12 +1013,11 @@ export function createTelegramProgressTailRuntime<TAuthority>(
     },
     async waitForIdle() {
       await tail;
-      if (timer !== undefined) {
-        clearTimer();
-        if (dirty && liveMessage && active) {
-          await publishToTelegram(generation, true);
-        }
+      clearTimer();
+      if (dirty && active) {
+        await publishToTelegram(generation, true);
       }
+      await publishChain;
       await tail;
     },
   };

@@ -71,7 +71,8 @@ test("formatProgressTailRich renders Working status with tools table, reasoning,
   };
 
   const md = formatProgressTailRich(state);
-  assert.ok(md.includes("⏳ **Working...** (2.5s) · _Opus 5_"));
+  assert.ok(md.includes("⏳ **Working...** (2.5s)"));
+  assert.ok(md.includes("| 🤖 Model | Opus 5 |"));
   assert.ok(md.includes("## 💭 Reasoning"));
   assert.ok(md.includes("Analyzing project dependencies..."));
   assert.ok(md.includes("Checking lockfile versions."));
@@ -105,7 +106,8 @@ test("formatProgressTailRich renders Completed, Cancelled, and Failed states wit
     todoItems: [],
   };
   const completedMd = formatProgressTailRich(completedState);
-  assert.ok(completedMd.includes("✅ **Completed** in 5.2s · 3 tools · _Claude 3.5 Sonnet_"));
+  assert.ok(completedMd.includes("✅ **Completed** in 5.2s · 3 tools"));
+  assert.ok(completedMd.includes("| 🤖 Model | Claude 3.5 Sonnet |"));
   assert.ok(completedMd.includes("| ✓ (Tele) | ask | - |"));
   assert.ok(completedMd.includes("| ✓ (CLI) | ask | - |"));
   assert.ok(completedMd.includes("| ✗ | edit | src/app.ts |"));
@@ -804,3 +806,149 @@ test("Progress tail runtime: refreshes authority across transport role promotion
   const latestEdit = edits.at(-1)?.rich_message?.markdown ?? "";
   assert.ok(latestEdit.includes("b.ts"), "must update live bubble after role promotion");
 });
+
+test("Progress tail runtime: a change during an in-flight edit still reaches Telegram", async () => {
+  const sends: TelegramSendRichMessageBody[] = [];
+  const edits: TelegramEditMessageTextBody[] = [];
+  const now = 10_000;
+  let releaseFirstEdit: (() => void) | undefined;
+  const firstEditStarted = Promise.withResolvers<void>();
+  const throttleMs = 20;
+
+  const runtime = createTelegramProgressTailRuntime({
+    getActivityMode: () => "verbose",
+    getNowMs: () => now,
+    getIntervalMs: () => throttleMs,
+    resolveTarget: (e) => e.target,
+    captureAuthority: () => 1,
+    isAuthorityActive: () => true,
+    async sendRichMessage(body) {
+      sends.push(body);
+      return { message_id: 500, date: 1, chat: { id: 42, type: "private" } };
+    },
+    async sendMessage() {
+      throw new Error("unexpected call");
+    },
+    async editMessageText(body) {
+      edits.push(body);
+      if (edits.length === 2) {
+        firstEditStarted.resolve();
+        await new Promise<void>((resolve) => {
+          releaseFirstEdit = resolve;
+        });
+      }
+      return "edited";
+    },
+  });
+
+  runtime.accept(event("tool-start", { toolCallId: "1", toolName: "read", args: { path: "first.ts" } }));
+  runtime.accept(event("tool-end", { toolCallId: "1", toolName: "read", isError: false, result: "ok" }));
+  await runtime.waitForIdle();
+  runtime.accept(event("tool-end", { toolCallId: "1b", toolName: "grep", isError: false, result: "ok" }));
+  await new Promise<void>((resolve) => setTimeout(resolve, throttleMs + 10));
+  await firstEditStarted.promise;
+
+  runtime.accept(event("tool-start", { toolCallId: "2", toolName: "write", args: { path: "second.ts" } }));
+  await new Promise<void>((resolve) => setTimeout(resolve, 5));
+  releaseFirstEdit?.();
+
+  await runtime.waitForIdle();
+
+  assert.equal(sends.length, 1, "one live bubble");
+  assert.ok(
+    (edits.at(-1)?.rich_message?.markdown ?? "").includes("second.ts"),
+    "a state change made during an in-flight edit must still reach the bubble",
+  );
+});
+
+test("Progress tail runtime: unchanged state does not re-edit the bubble", async () => {
+  const sends: TelegramSendRichMessageBody[] = [];
+  const edits: TelegramEditMessageTextBody[] = [];
+  const now = 10_000;
+
+  const runtime = createTelegramProgressTailRuntime({
+    getActivityMode: () => "verbose",
+    getNowMs: () => now,
+    getIntervalMs: () => 0,
+    resolveTarget: (e) => e.target,
+    captureAuthority: () => 1,
+    isAuthorityActive: () => true,
+    async sendRichMessage(body) {
+      sends.push(body);
+      return { message_id: 501, date: 1, chat: { id: 42, type: "private" } };
+    },
+    async sendMessage() {
+      throw new Error("unexpected call");
+    },
+    async editMessageText(body) {
+      edits.push(body);
+      return "edited";
+    },
+  });
+
+  runtime.accept(event("tool-start", { toolCallId: "1", toolName: "read", args: { path: "a.ts" } }));
+  await runtime.waitForIdle();
+  const editsAfterFirst = edits.length;
+
+  runtime.accept(event("reasoning-delta", { delta: "" }));
+  await runtime.waitForIdle();
+
+  assert.equal(sends.length, 1);
+  assert.equal(edits.length, editsAfterFirst, "identical rendered state must not issue another edit");
+});
+
+test("Progress tail runtime: repeated edit failures roll over to a fresh bubble", async () => {
+  const sends: TelegramSendRichMessageBody[] = [];
+  const failures: string[] = [];
+  let editAttempts = 0;
+  let now = 10_000;
+
+  const runtime = createTelegramProgressTailRuntime({
+    getActivityMode: () => "verbose",
+    getNowMs: () => now,
+    getIntervalMs: () => 0,
+    resolveTarget: (e) => e.target,
+    captureAuthority: () => 1,
+    isAuthorityActive: () => true,
+    async sendRichMessage(body) {
+      sends.push(body);
+      return { message_id: 600 + sends.length, date: 1, chat: { id: 42, type: "private" } };
+    },
+    async sendMessage() {
+      throw new Error("unexpected call");
+    },
+    async editMessageText() {
+      editAttempts += 1;
+      throw new Error("message to edit not found");
+    },
+    recordFailure(operation) {
+      failures.push(operation);
+    },
+  });
+
+  runtime.accept(event("tool-start", { toolCallId: "1", toolName: "read", args: { path: "a.ts" } }));
+  await runtime.waitForIdle();
+  assert.equal(sends.length, 1, "first bubble created");
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    now += 1_000;
+    runtime.accept(
+      event("tool-start", {
+        toolCallId: "t" + attempt,
+        toolName: "read",
+        args: { path: "f" + attempt + ".ts" },
+      }),
+    );
+    await runtime.waitForIdle();
+  }
+
+  assert.equal(editAttempts, 3, "gives up on the dead message after the failure budget");
+  assert.ok(failures.every((operation) => operation === "tail-edit"));
+
+  now += 1_000;
+  runtime.accept(event("tool-start", { toolCallId: "9", toolName: "write", args: { path: "z.ts" } }));
+  await runtime.waitForIdle();
+
+  assert.equal(sends.length, 2, "an unreachable bubble is replaced instead of going silent");
+});
+

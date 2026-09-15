@@ -774,6 +774,8 @@ export default function (pi: Pi.ExtensionAPI) {
     promptDispatch: promptDispatchRuntime,
     isIdle,
     hasPendingMessages,
+    isSteeringEnabled: configControls.isSteeringEnabled,
+    activity: activityRuntime,
     updateStatus,
     sendTextReply,
     sendUserMessage,

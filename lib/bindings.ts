@@ -60,7 +60,9 @@ export function createTelegramQueueBindingRuntime<TContext>(deps: {
     Runtime.TelegramBridgeRuntime["lifecycle"],
     "isCompactionInProgress" | "hasDispatchPending"
   >;
-  activeTurn: Pick<Queue.TelegramActiveTurnStore, "has">;
+  activeTurn: Pick<Queue.TelegramActiveTurnStore, "has" | "get" | "set">;
+  isSteeringEnabled?: (ctx: TContext) => boolean;
+  activity?: Pick<Activity.TelegramActivityRuntime, "recordSteeredPrompt">;
   admission: {
     getSettlement: () =>
       | {
@@ -132,6 +134,7 @@ export function createTelegramQueueBindingRuntime<TContext>(deps: {
     hasDispatchContext: deps.deferredDispatch.isBound,
     getDispatchGeneration: deps.deferredDispatch.getGeneration,
     isDispatchGenerationActive: deps.deferredDispatch.isGenerationActive,
+    isSteeringEnabled: deps.isSteeringEnabled,
     isQueueItemTransportActive(item) {
       return deps.transportStamp.isActive(item.transportStamp);
     },
@@ -150,6 +153,19 @@ export function createTelegramQueueBindingRuntime<TContext>(deps: {
       if (!settlement?.onPromptHandedOff) return false;
       settlement.onPromptHandedOff(item, ctx);
       return !settlement.isItemReady(item);
+    },
+    onPromptSteered(item) {
+      const current = deps.activeTurn.get();
+      if (current) {
+        deps.activeTurn.set({
+          ...current,
+          replyToMessageId: item.replyToMessageId,
+          sourceMessageIds: [...current.sourceMessageIds, ...item.sourceMessageIds],
+        });
+      }
+      if (item.historyText) {
+        deps.activity?.recordSteeredPrompt(item.historyText);
+      }
     },
     onControlSettled(item, ctx) {
       deps.admission.getSettlement()?.onControlSettled(item, ctx);

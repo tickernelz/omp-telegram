@@ -6330,3 +6330,44 @@ await test("executeTelegramQueueDispatchPlan sends ready prompts as normal user 
     },
   );
 });
+
+test("Dispatch planning plans steer when canSteer is true while busy", () => {
+  const promptItem: TelegramQueueItem = createQueueTestPromptTurn({
+    queueOrder: 2,
+    laneOrder: 2,
+    historyText: "steer prompt",
+  });
+  const result = planNextTelegramQueueAction([promptItem], false, true);
+  assert.equal(result.kind, "steer");
+  assert.equal(result.kind === "steer" ? result.item.historyText : "", "steer prompt");
+});
+
+test("executeTelegramQueueDispatchPlan dispatches steer as deliverAs steer", () => {
+  const sentCalls: Array<{ content: unknown; options?: unknown }> = [];
+  const steeredItems: unknown[] = [];
+  const deps: TelegramDispatchRuntimeDeps<unknown> = {
+    executeControlItem: () => {},
+    onPromptDispatchStart: () => {},
+    onPromptSteered: (item) => steeredItems.push(item),
+    sendUserMessage: (content, options) => {
+      sentCalls.push({ content, options });
+    },
+    onPromptDispatchFailure: () => {},
+    onIdle: () => {},
+  };
+
+  const item: PendingTelegramTurn = createQueueTestPromptTurn({
+    queueOrder: 1,
+    laneOrder: 1,
+    historyText: "mid turn message",
+  });
+
+  executeTelegramQueueDispatchPlan(
+    { kind: "steer", item, remainingItems: [] },
+    deps,
+  );
+
+  assert.equal(sentCalls.length, 1);
+  assert.deepEqual(sentCalls[0].options, { deliverAs: "steer" });
+  assert.equal(steeredItems.length, 1);
+});

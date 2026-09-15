@@ -4,6 +4,14 @@
 
 ## Unreleased
 
+## 0.4.0: Mid-Turn Steering Parity And Self-Healing Progress Tail
+
+- `Mid-Turn Steering Parity`: Telegram messages that arrive while a turn is running are now handed to OMP's steering queue via `sendUserMessage(content, { deliverAs: "steer" })` instead of waiting for `agent_end`, matching OMP CLI semantics. The active turn adopts the new reply anchor and source message ids, and the live progress bubble updates its prompt line. Opt out with `assistant.steering: false` to keep queue-and-drain behaviour.
+- `Progress Tail Lost-Update Fix`: `publishToTelegram` now serializes every publish through one chain and renders state at send time. Previously a timer-driven edit that overlapped an incoming event cleared `dirty` on completion, stranding the newest tools/reasoning until an unrelated event arrived - the root cause of bubbles that froze mid-turn.
+- `Idempotent Edits`: Identical rendered markdown is never re-sent, removing redundant `editMessageText` calls that burned rate-limit budget and produced Telegram `message is not modified` rejections.
+- `Self-Healing Bubble`: After `TELEGRAM_PROGRESS_TAIL_MAX_PUBLISH_FAILURES` consecutive edit failures the dead message is abandoned and a fresh bubble is created, instead of the tail going permanently silent against an unreachable message.
+- `Status Line Moved To Bottom`: The working/completed status row now renders last and no longer duplicates the model name, which stays in the context table.
+
 ## 0.3.19: Dot Continue Parity, Hidden Time Default, And Session Resume Auto-Adoption
 
 - `Native Dot Continue Parity`: Standalone `.` messages from Telegram are now forwarded directly to OMP as pure `.` without any `[telegram]` prefix or `[time]` block, matching exact CLI continue semantics and consuming only 1 token.

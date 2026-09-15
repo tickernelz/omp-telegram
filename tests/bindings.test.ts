@@ -242,7 +242,7 @@ test("Queue binding requires durable handoff for every burst item and fails clos
     const runtime = createTelegramQueueBindingRuntime({
       store, queue: { allocateItemOrder: () => 0 }, deferredDispatch,
       lifecycle: { isCompactionInProgress: () => false, hasDispatchPending: () => false },
-      activeTurn: { has: () => false },
+      activeTurn: { has: () => false, get: () => undefined, set: () => {} },
       admission: {
         getSettlement: () => available ? settlement : undefined,
         hasPendingQueueMutationForItem: () => false,
@@ -300,7 +300,7 @@ test("Queue binding composes mutation, admission, dispatch, and watchdog ports",
       isCompactionInProgress: () => false,
       hasDispatchPending: () => false,
     },
-    activeTurn: { has: () => false },
+    activeTurn: { has: () => false, get: () => undefined, set: () => {} },
     admission: {
       getSettlement: () => ({
         onItemsDiscarded: (items) => {

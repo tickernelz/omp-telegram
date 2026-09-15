@@ -943,7 +943,7 @@ type RuntimeHarnessTool = {
 };
 type RuntimePiHarnessOptions = {
   sendMessage?: (message: unknown, options?: unknown) => void;
-  sendUserMessage?: (content: RuntimeHarnessMessage) => void;
+  sendUserMessage?: (content: RuntimeHarnessMessage, options?: unknown) => void;
   activeTools?: string[];
   getThinkingLevel?: () => string;
   setModel?: (model: { provider: string; id: string }) => Promise<boolean>;
@@ -3550,6 +3550,7 @@ test(`Extension runtime preserves accepted work and fences delivery after ${loss
       botToken: "123:abc",
       allowedUserId: 77,
       lastUpdateId: 0,
+      assistant: { steering: false },
     });
     await writeRuntimeTelegramLocks({});
     (await getRuntimeTelegramExtension())(pi);
@@ -5626,6 +5627,7 @@ test("Extension runtime applies reaction priority and removal before the next di
       botToken: "123:abc",
       allowedUserId: 77,
       lastUpdateId: 0,
+      assistant: { steering: false },
     });
     (await getRuntimeTelegramExtension())(pi);
     const idleCtx = createRuntimeExtensionContext();
@@ -6417,3 +6419,96 @@ test("Extension runtime delays model-switch abort until the active tool finishes
     await telegramConfig.restore();
   }
 });
+
+test("Extension runtime steers mid-turn Telegram messages into the active turn", async () => {
+  const telegramConfig = await createRuntimeTelegramConfigFixture();
+  await writeRuntimeTelegramLocks({});
+  const dispatched: Array<{ text: string; options?: unknown }> = [];
+  let firstDispatchResolved = false;
+  const secondUpdates = createRuntimeDeferredResponse();
+  const { handlers, commands, pi } = createRuntimePiHarness({
+    sendUserMessage: (content, options) => {
+      dispatched.push({ text: getRuntimeHarnessMessageText(content), options });
+      firstDispatchResolved = true;
+    },
+  });
+  let getUpdatesCalls = 0;
+  const restoreFetch = setRuntimeTestFetch(async (input) => {
+    const method = getRuntimeTelegramApiMethod(input);
+    if (method === "deleteWebhook") return createRuntimeTelegramApiResponse(true);
+    if (method === "getUpdates") {
+      getUpdatesCalls += 1;
+      if (getUpdatesCalls === 1) {
+        return createRuntimeTelegramApiResponse([
+          {
+            _: "other",
+            update_id: 1,
+            message: {
+              message_id: 41,
+              chat: { id: 77, type: "private" },
+              from: { id: 77, is_bot: false, first_name: "Test" },
+              text: "first telegram turn",
+            },
+          },
+        ]);
+      }
+      if (getUpdatesCalls === 2) return secondUpdates.promise;
+      throw new DOMException("stop", "AbortError");
+    }
+    if (method === "sendMessage" || method === "sendRichMessage") {
+      return createRuntimeTelegramApiResponse({ message_id: 100 + getUpdatesCalls });
+    }
+    if (method === "editMessageText") return createRuntimeTelegramApiResponse(true);
+    if (method === "sendMessageDraft" || method === "sendChatAction") {
+      return createRuntimeTelegramApiResponse(true);
+    }
+    throw new Error("Unexpected Telegram API method: " + method);
+  });
+  const idleCtx = createRuntimeExtensionContext();
+  const activeCtx = createRuntimeExtensionContext({ isIdle: () => false });
+  try {
+    await telegramConfig.write({
+      botToken: "123:abc",
+      allowedUserId: 77,
+      lastUpdateId: 0,
+    });
+    (await getRuntimeTelegramExtension())(pi);
+    await handlers.get("session_start")?.({}, idleCtx);
+    await commands.get("telegram-connect")?.handler("", idleCtx);
+    await waitForCondition(() => firstDispatchResolved);
+    await handlers.get("agent_start")?.({}, activeCtx);
+    secondUpdates.resolve(
+      createRuntimeTelegramApiResponse([
+        {
+          _: "other",
+          update_id: 2,
+          message: {
+            message_id: 42,
+            chat: { id: 77, type: "private" },
+            from: { id: 77, is_bot: false, first_name: "Test" },
+            text: "mid turn steer",
+          },
+        },
+      ]),
+    );
+
+    await waitForCondition(() => dispatched.length === 2);
+    assert.match(dispatched[1]?.text ?? "", /mid turn steer/);
+    assert.deepEqual(
+      dispatched[1]?.options,
+      { deliverAs: "steer" },
+      "a mid-turn Telegram message must reach the running turn as a steer, not wait for agent_end",
+    );
+    assert.equal(
+      dispatched[0]?.options,
+      undefined,
+      "the turn-starting prompt stays a normal user turn",
+    );
+  } finally {
+    await commands.get("telegram-disconnect")?.handler("", idleCtx);
+    await handlers.get("session_shutdown")?.({}, idleCtx);
+    restoreFetch();
+    await telegramConfig.restore();
+  }
+});
+

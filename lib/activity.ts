@@ -434,6 +434,9 @@ export function createTelegramActivityBridgeRuntime(deps: {
     recordInputSource(source, promptText) {
       getRuntime()?.recordInputSource(source, promptText);
     },
+    recordSteeredPrompt(promptText) {
+      getRuntime()?.recordSteeredPrompt(promptText);
+    },
     onAgentStart(target, replyToMessageId, promptText, contextInfo) {
       getRuntime()?.onAgentStart(target, replyToMessageId, promptText, contextInfo);
     },
@@ -504,6 +507,7 @@ export type TelegramAssistantStreamEvent =
 export interface TelegramActivityRuntime {
   onSessionStart?: () => void;
   recordInputSource: (source: TelegramActivityInputSource, promptText?: string) => void;
+  recordSteeredPrompt: (promptText: string) => void;
   onAgentStart: (activeTelegramTarget?: TelegramActivityTarget, replyToMessageId?: number, promptText?: string, contextInfo?: TelegramActivityContextInfo) => void;
   onAssistantEvent: (event: TelegramAssistantStreamEvent) => void;
   onAssistantMessageEnd: (stopReason?: string, fallbackText?: string) => void;
@@ -650,6 +654,10 @@ export function createTelegramActivityRuntime(deps: {
       if (activityId && promptText && promptText.trim().length > 0) {
         emit({ type: "prompt-update", promptText });
       }
+    },
+    recordSteeredPrompt(promptText) {
+      if (!activityId || promptText.trim().length === 0) return;
+      emit({ type: "prompt-update", promptText });
     },
     onAgentStart(activeTelegramTarget, replyToMessageId, promptText, contextInfo) {
       abandonCompaction();

@@ -194,6 +194,7 @@ export interface TelegramConfig {
     activity?: TelegramActivityVerbosity;
     timeInjection?: TelegramTimeMode;
     progressIntervalMs?: number;
+    steering?: boolean;
     /** @deprecated use activity */
     activityVerbosity?: TelegramActivityVerbosity;
   };
@@ -1274,6 +1275,30 @@ export function createTelegramProgressIntervalSetter(
   };
 }
 
+export function createTelegramSteeringChecker(
+  configStore: Pick<TelegramConfigStore, "get">,
+): () => boolean {
+  return () => configStore.get().assistant?.steering ?? true;
+}
+
+export function createTelegramSteeringSetter(
+  configStore: TelegramMutableConfigStore,
+): (enabled: boolean) => Promise<void> {
+  return async (enabled) => {
+    await loadLatestTelegramConfig(configStore);
+    const current = configStore.get();
+    const config = {
+      ...current,
+      assistant: {
+        ...(current.assistant ?? {}),
+        steering: enabled,
+      },
+    };
+    configStore.set(config);
+    await configStore.persist(config);
+  };
+}
+
 export function createTelegramConfigControls(
   configStore: TelegramMutableConfigStore,
 ) {
@@ -1306,6 +1331,8 @@ export function createTelegramConfigControls(
       createTelegramProgressIntervalGetter(configStore),
     setProgressIntervalMs:
       createTelegramProgressIntervalSetter(configStore),
+    isSteeringEnabled: createTelegramSteeringChecker(configStore),
+    setSteeringEnabled: createTelegramSteeringSetter(configStore),
   };
 }
 

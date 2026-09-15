@@ -1050,6 +1050,16 @@ export function canDispatchTelegramTurnState(
   );
 }
 
+export function canSteerTelegramTurnState(
+  state: TelegramDispatchGuardState,
+): boolean {
+  return (
+    !state.compactionInProgress &&
+    !state.hasPendingTelegramDispatch &&
+    (!state.isIdle || state.hasActiveTelegramTurn)
+  );
+}
+
 export interface TelegramDispatchReadinessDeps<TContext> {
   isCompactionInProgress: () => boolean;
   hasActiveTurn: () => boolean;
@@ -1063,6 +1073,22 @@ export function createTelegramDispatchReadinessChecker<TContext>(
 ): (ctx: TContext) => boolean {
   return (ctx) =>
     canDispatchTelegramTurnState({
+      compactionInProgress: deps.isCompactionInProgress(),
+      hasActiveTelegramTurn: deps.hasActiveTurn(),
+      hasPendingTelegramDispatch: deps.hasDispatchPending(),
+      isIdle: deps.isIdle(ctx),
+      hasPendingMessages: deps.hasPendingMessages(ctx),
+    });
+}
+
+export function createTelegramSteerReadinessChecker<TContext>(
+  deps: TelegramDispatchReadinessDeps<TContext> & {
+    isSteeringEnabled?: (ctx: TContext) => boolean;
+  },
+): (ctx: TContext) => boolean {
+  return (ctx) =>
+    (deps.isSteeringEnabled?.(ctx) ?? false) &&
+    canSteerTelegramTurnState({
       compactionInProgress: deps.isCompactionInProgress(),
       hasActiveTelegramTurn: deps.hasActiveTurn(),
       hasPendingTelegramDispatch: deps.hasDispatchPending(),
@@ -1136,13 +1162,19 @@ export type TelegramQueueDispatchAction<TContext = unknown> =
       kind: "prompt";
       item: PendingTelegramTurn;
       remainingItems: TelegramQueueItem<TContext>[];
+    }
+  | {
+      kind: "steer";
+      item: PendingTelegramTurn;
+      remainingItems: TelegramQueueItem<TContext>[];
     };
 
 export function planNextTelegramQueueAction<TContext = unknown>(
   items: TelegramQueueItem<TContext>[],
   canDispatch: boolean,
+  canSteer = false,
 ): TelegramQueueDispatchAction<TContext> {
-  if (!canDispatch || items.length === 0) {
+  if (items.length === 0) {
     return { kind: "none", remainingItems: items };
   }
   const [firstItem, ...remainingItems] = items;
@@ -1151,7 +1183,16 @@ export function planNextTelegramQueueAction<TContext = unknown>(
   }
   assertTelegramQueueItemAdmissionValid(firstItem);
   if (isPendingTelegramTurn(firstItem)) {
-    return { kind: "prompt", item: firstItem, remainingItems: items };
+    if (canDispatch) {
+      return { kind: "prompt", item: firstItem, remainingItems: items };
+    }
+    if (canSteer) {
+      return { kind: "steer", item: firstItem, remainingItems };
+    }
+    return { kind: "none", remainingItems: items };
+  }
+  if (!canDispatch) {
+    return { kind: "none", remainingItems: items };
   }
   return { kind: "control", item: firstItem, remainingItems };
 }
@@ -3002,7 +3043,7 @@ export function createTelegramQueueDispatchWatchdogRuntime<TContext = unknown>(
 // --- Dispatch Runtime ---
 
 export interface TelegramPromptDeliveryOptions {
-  deliverAs: "followUp";
+  deliverAs?: "followUp" | "steer";
 }
 
 export interface TelegramDispatchRuntimeDeps<TContext = unknown> {
@@ -3014,12 +3055,15 @@ export interface TelegramDispatchRuntimeDeps<TContext = unknown> {
   ) => void;
   onPromptDispatchStart: (chatId: number) => void;
   commitPromptDispatch?: (
-    item: Extract<TelegramQueueDispatchAction<TContext>, { kind: "prompt" }>["item"],
+    item: Extract<TelegramQueueDispatchAction<TContext>, { kind: "prompt" | "steer" }>["item"],
   ) => boolean;
+  onPromptSteered?: (
+    item: Extract<TelegramQueueDispatchAction<TContext>, { kind: "steer" }>["item"],
+  ) => void;
   sendUserMessage: (
     content: Extract<
       TelegramQueueDispatchAction,
-      { kind: "prompt" }
+      { kind: "prompt" | "steer" }
     >["item"]["content"],
     options?: TelegramPromptDeliveryOptions,
   ) => void;
@@ -3033,6 +3077,7 @@ export interface TelegramQueueDispatchControllerDeps<
   getQueuedItems: () => TelegramQueueItem<TContext>[];
   setQueuedItems: (items: TelegramQueueItem<TContext>[]) => void;
   canDispatch: (ctx: TContext) => boolean;
+  canSteer?: (ctx: TContext) => boolean;
   hasDispatchContext?: () => boolean;
   getDispatchGeneration?: () => number;
   isDispatchGenerationActive?: (generation: number) => boolean;
@@ -3040,9 +3085,13 @@ export interface TelegramQueueDispatchControllerDeps<
   sendTextReply: TelegramControlRuntimeDeps<TContext>["sendTextReply"];
   onPromptDispatchStart: (ctx: TContext, chatId: number) => void;
   commitPromptDispatch?: (
-    item: Extract<TelegramQueueDispatchAction<TContext>, { kind: "prompt" }>["item"],
+    item: Extract<TelegramQueueDispatchAction<TContext>, { kind: "prompt" | "steer" }>["item"],
     ctx: TContext,
   ) => boolean;
+  onPromptSteered?: (
+    item: Extract<TelegramQueueDispatchAction<TContext>, { kind: "steer" }>["item"],
+    ctx: TContext,
+  ) => void;
   sendUserMessage: TelegramDispatchRuntimeDeps<TContext>["sendUserMessage"];
   onPromptDispatchFailure: (ctx: TContext, message: string) => void;
   isQueueItemTransportActive?: (item: TelegramQueueItem<TContext>) => boolean;
@@ -3073,6 +3122,19 @@ export function executeTelegramQueueDispatchPlan<TContext = unknown>(
     deps.executeControlItem(plan.item);
     return;
   }
+  if (plan.kind === "steer") {
+    try {
+      if (deps.commitPromptDispatch && !deps.commitPromptDispatch(plan.item)) {
+        throw new Error("Telegram prompt steering could not be committed durably.");
+      }
+      deps.onPromptSteered?.(plan.item);
+      deps.sendUserMessage(plan.item.content, { deliverAs: "steer" });
+    } catch (error) {
+      const message = getTelegramQueueErrorMessage(error);
+      deps.onPromptDispatchFailure(message);
+    }
+    return;
+  }
   deps.onPromptDispatchStart(plan.item.chatId);
   try {
     if (deps.commitPromptDispatch && !deps.commitPromptDispatch(plan.item)) {
@@ -3087,9 +3149,11 @@ export function executeTelegramQueueDispatchPlan<TContext = unknown>(
 
 export type TelegramQueueDispatchRuntimeDeps<TContext = unknown> = Omit<
   TelegramQueueDispatchControllerDeps<TContext>,
-  "canDispatch"
+  "canDispatch" | "canSteer"
 > &
-  TelegramDispatchReadinessDeps<TContext>;
+  TelegramDispatchReadinessDeps<TContext> & {
+    isSteeringEnabled?: (ctx: TContext) => boolean;
+  };
 
 export function createTelegramQueueDispatchRuntime<TContext = unknown>(
   deps: TelegramQueueDispatchRuntimeDeps<TContext>,
@@ -3104,6 +3168,14 @@ export function createTelegramQueueDispatchRuntime<TContext = unknown>(
       isIdle: deps.isIdle,
       hasPendingMessages: deps.hasPendingMessages,
     }),
+    canSteer: createTelegramSteerReadinessChecker({
+      isCompactionInProgress: deps.isCompactionInProgress,
+      hasActiveTurn: deps.hasActiveTurn,
+      hasDispatchPending: deps.hasDispatchPending,
+      isIdle: deps.isIdle,
+      hasPendingMessages: deps.hasPendingMessages,
+      isSteeringEnabled: deps.isSteeringEnabled,
+    }),
     hasDispatchContext: deps.hasDispatchContext,
     getDispatchGeneration: deps.getDispatchGeneration,
     isDispatchGenerationActive: deps.isDispatchGenerationActive,
@@ -3111,6 +3183,7 @@ export function createTelegramQueueDispatchRuntime<TContext = unknown>(
     sendTextReply: deps.sendTextReply,
     onPromptDispatchStart: deps.onPromptDispatchStart,
     commitPromptDispatch: deps.commitPromptDispatch,
+    onPromptSteered: deps.onPromptSteered,
     sendUserMessage: deps.sendUserMessage,
     onPromptDispatchFailure: deps.onPromptDispatchFailure,
     isQueueItemTransportActive: deps.isQueueItemTransportActive,
@@ -3164,6 +3237,7 @@ export function createTelegramQueueDispatchController<TContext = unknown>(
         );
       }
       const canDispatch = deps.canDispatch(ctx);
+      const canSteer = deps.canSteer?.(ctx) ?? false;
       let nextActiveIndex = 0;
       if (canDispatch) {
         while (nextActiveIndex < activeItems.length) {
@@ -3231,6 +3305,7 @@ export function createTelegramQueueDispatchController<TContext = unknown>(
       const dispatchPlan = planNextTelegramQueueAction(
         dispatchableItems,
         canDispatch,
+        canSteer,
       );
       if (dispatchPlan.kind !== "none") {
         deps.setQueuedItems([
@@ -3275,6 +3350,9 @@ export function createTelegramQueueDispatchController<TContext = unknown>(
         },
         commitPromptDispatch: deps.commitPromptDispatch
           ? (item) => deps.commitPromptDispatch!(item, ctx)
+          : undefined,
+        onPromptSteered: deps.onPromptSteered
+          ? (item) => deps.onPromptSteered!(item, ctx)
           : undefined,
         sendUserMessage: deps.sendUserMessage,
         onPromptDispatchFailure: (message) => {
