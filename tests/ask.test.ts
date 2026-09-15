@@ -275,3 +275,61 @@ await test("an ask callback this process owns is consumed", async () => {
   controller.abort();
 });
 
+await test("ask delivers questions directly through Telegram API runtime", async () => {
+  const sentBodies: Array<Record<string, unknown>> = [];
+  const editCalls: Array<{ method: string; body: Record<string, unknown> }> = [];
+  const ownership: Array<unknown> = [];
+  const api = {
+    async sendMessage(body: Record<string, unknown>) {
+      sentBodies.push(body);
+      return { message_id: 1234 };
+    },
+    async call(method: string, body: Record<string, unknown>) {
+      editCalls.push({ method, body });
+      return true;
+    },
+  };
+  const runtime = createTelegramAskRuntime({
+    api: api as never,
+    recordOwnership: (record) => ownership.push(record),
+    getAllowedChatId: () => 77,
+    getDefaultTarget: () => ({ chatId: 77, threadId: 10 }),
+    getActiveTurn: () => undefined,
+    answerCallbackQuery: async () => {},
+  });
+  const tools = new Map<string, { execute: Function }>();
+  runtime.register({
+    registerTool: (definition: { name: string; execute: Function }) => {
+      tools.set(definition.name, definition);
+    },
+  } as never);
+
+  const controller = new AbortController();
+  const pending = tools.get("ask")!.execute("call-api", question, controller.signal, undefined, { hasUI: false });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  assert.equal(sentBodies.length, 1);
+  assert.equal(sentBodies[0].chat_id, 77);
+  assert.equal(sentBodies[0].message_thread_id, 10);
+  assert.equal(ownership.length, 1);
+
+  const markup = sentBodies[0].reply_markup as { inline_keyboard?: Array<Array<{ callback_data?: string }>> };
+  const data = markup?.inline_keyboard?.[0]?.[0]?.callback_data;
+  assert.ok(data?.startsWith("tgask:"));
+
+  const verdict = await runtime.resolveFromUpdate({
+    callback_query: {
+      id: "cb-api",
+      data,
+      message: { message_id: 1234, chat: { id: 77 } },
+      from: { id: 77 },
+    },
+  });
+  assert.equal(verdict, "consume");
+  const result = await pending;
+  assert.match(String(result.content?.[0]?.text ?? ""), /Answered via Telegram\./);
+  assert.equal(editCalls.length, 1);
+  assert.equal(editCalls[0].method, "editMessageText");
+  controller.abort();
+});
+

@@ -34,10 +34,18 @@ import {
   type TelegramDeliveryScope,
   type TelegramDeliveryView,
 } from "./delivery.ts";
-import type { TelegramInlineKeyboardMarkup } from "./keyboard.ts";
+import {
+  assertTelegramInlineKeyboardCallbackData,
+  type TelegramInlineKeyboardMarkup,
+} from "./keyboard.ts";
 import { markTelegramButtonSelected } from "./outbound-buttons.ts";
 import type { AgentToolResult, ExtensionAPI } from "./pi.ts";
 import type { TelegramTarget } from "./target.ts";
+import {
+  isTelegramMessageNotModifiedError,
+  type TelegramBridgeApiRuntime,
+  type TelegramSendMessageBody,
+} from "./telegram-api.ts";
 import {
   createTelegramUpdateExecutionFenceGuard,
   type TelegramUpdateHandler,
@@ -135,6 +143,13 @@ export type TelegramAskEditView = (
 export interface TelegramAskRuntimeDeps {
   getActiveTurn: () => unknown;
   getDefaultTarget?: () => TelegramTarget | undefined;
+  api?: TelegramBridgeApiRuntime;
+  recordOwnership?: (input: {
+    chatId: number;
+    messageId: number;
+    target?: TelegramTarget;
+  }) => void;
+  getAllowedChatId?: () => number | undefined;
   sendView?: TelegramAskSendView;
   editView?: TelegramAskEditView;
   answerCallbackQuery?: (
@@ -437,8 +452,98 @@ export function createTelegramAskRuntime(
   deps: TelegramAskRuntimeDeps,
 ): TelegramAskRuntime {
   const pendingRequests = new Map<string, TelegramAskPendingRequest>();
-  const sendView = deps.sendView ?? sendTelegramView;
-  const editView = deps.editView ?? editTelegramView;
+  const defaultSendView: TelegramAskSendView = deps.api
+    ? async function (view, options) {
+        const target =
+          options.scope.kind === "target"
+            ? options.scope.target
+            : options.scope.kind === "active-turn"
+              ? ((deps.getActiveTurn() as { target?: TelegramTarget } | undefined)?.target ?? deps.getDefaultTarget?.())
+              : deps.getDefaultTarget?.();
+        if (!target) {
+          return {
+            ok: false,
+            reason: "target-unavailable",
+            message: "Telegram delivery target is unavailable.",
+          };
+        }
+        const allowedChatId = deps.getAllowedChatId?.();
+        if (allowedChatId !== undefined && target.chatId !== allowedChatId) {
+          return {
+            ok: false,
+            reason: "target-unauthorized",
+            message: "Telegram delivery target is unauthorized.",
+          };
+        }
+        try {
+          assertTelegramInlineKeyboardCallbackData(view.replyMarkup);
+          const body: TelegramSendMessageBody = {
+            chat_id: target.chatId,
+            text: view.text,
+            ...(target.threadId !== undefined
+              ? { message_thread_id: target.threadId }
+              : {}),
+            ...(view.replyMarkup ? { reply_markup: view.replyMarkup } : {}),
+          };
+          const sent = await deps.api!.sendMessage(body);
+          deps.recordOwnership?.({
+            chatId: target.chatId,
+            messageId: sent.message_id,
+            target,
+          });
+          return {
+            ok: true,
+            value: {
+              target: { ...target },
+              messageIds: [sent.message_id],
+              generation: String(Date.now()),
+            },
+          };
+        } catch (error) {
+          return {
+            ok: false,
+            reason: "transport-failed",
+            message: error instanceof Error ? error.message : String(error),
+          };
+        }
+      }
+    : sendTelegramView;
+
+  const defaultEditView: TelegramAskEditView = deps.api
+    ? async function (handle, view) {
+        const target = handle.target;
+        const messageId = handle.messageIds[0];
+        if (!messageId) {
+          return {
+            ok: false,
+            reason: "stale-handle",
+            message: "No message ID to edit.",
+          };
+        }
+        try {
+          assertTelegramInlineKeyboardCallbackData(view.replyMarkup);
+          await deps.api!.call("editMessageText", {
+            chat_id: target.chatId,
+            message_id: messageId,
+            text: view.text,
+            ...(view.replyMarkup ? { reply_markup: view.replyMarkup } : {}),
+          });
+          return { ok: true, value: handle };
+        } catch (error) {
+          if (isTelegramMessageNotModifiedError(error)) {
+            return { ok: true, value: handle };
+          }
+          return {
+            ok: false,
+            reason: "transport-failed",
+            message: error instanceof Error ? error.message : String(error),
+          };
+        }
+      }
+    : editTelegramView;
+
+  const sendView = deps.sendView ?? defaultSendView;
+  const editView = deps.editView ?? defaultEditView;
 
   const record = (error: unknown, details: Record<string, unknown>): void => {
     deps.recordRuntimeEvent?.("ask", error, details);
@@ -549,7 +654,7 @@ export function createTelegramAskRuntime(
     );
     if (!sent.ok) {
       throw new TelegramAskDeliveryError(
-        `Telegram rejected the question message (${sent.reason}).`,
+        `Telegram rejected the question message (${sent.reason}${sent.message ? `: ${sent.message}` : ""}).`,
       );
     }
     let pending: TelegramAskPendingRequest | undefined;

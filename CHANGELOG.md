@@ -4,6 +4,11 @@
 
 ## Unreleased
 
+## 0.3.17: Direct Bot API Backing For Interactive Ask Tool
+
+- `Direct Bot API Backing for Ask Tool`: Fixed an issue where the `ask` tool question message failed to send to Telegram with `(runtime-unavailable)` error while CLI dialog was active. `askRuntime` now directly binds to `telegramApiRuntime.sendMessage` and `call("editMessageText")`, bypassing the fragile global delivery runtime registry and providing reliable question delivery and button interaction across leader and follower sessions.
+- `Descriptive Ask Delivery Diagnostics`: Enhanced `TelegramAskDeliveryError` to include both failure reason and detailed error description from the delivery transport layer.
+
 ## 0.3.16: Multi-Turn Progress Tail Continuity, Cold Token Stamp Grace, And Eager Delivery Bind
 
 - `Multi-Turn Progress Tail Continuity`: Fixed an issue where the live progress bubble became stale in multi-turn sessions (autonomous tasks, subagents, and sequential tool runs). `progress-tail` now maintains a single active bubble across turns with `willContinue: true`, decouples from publication reservation deadlock, and finalizes cleanly upon session settlement.

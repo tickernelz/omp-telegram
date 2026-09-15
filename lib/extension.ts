@@ -1639,6 +1639,9 @@ export default function (pi: Pi.ExtensionAPI) {
     },
   }.reset);
   const askRuntime = Ask.createTelegramAskRuntime({
+    api: telegramApiRuntime,
+    recordOwnership: messageOwnershipRuntime.recordLocal,
+    getAllowedChatId: configStore.getAllowedUserId,
     getActiveTurn: activeTurnRuntime.get,
     getDefaultTarget: proactivePushTargetGetter,
     answerCallbackQuery,
