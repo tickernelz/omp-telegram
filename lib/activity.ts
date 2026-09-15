@@ -48,6 +48,7 @@ export interface TelegramActivityContextInfo {
 
 export type TelegramActivityPayload =
   | { type: "agent-start"; promptText?: string; contextInfo?: TelegramActivityContextInfo }
+  | { type: "prompt-update"; promptText: string }
     | {
         type: "assistant-text-delta";
         contentIndex: number;
@@ -102,7 +103,7 @@ export type TelegramActivityPayload =
         title?: string;
       }
     | { type: "ui-prompt-end" }
-    | { type: "agent-end" }
+    | { type: "agent-end"; willContinue?: boolean }
   | { type: "agent-settled" };
 
 export type TelegramActivityEvent = TelegramActivityEnvelope &
@@ -466,8 +467,8 @@ export function createTelegramActivityBridgeRuntime(deps: {
     onUiPromptEnd() {
       getRuntime()?.onUiPromptEnd();
     },
-    onAgentEnd() {
-      getRuntime()?.onAgentEnd();
+    onAgentEnd(willContinue) {
+      getRuntime()?.onAgentEnd(willContinue);
     },
     onAgentSettled() {
       getRuntime()?.onAgentSettled();
@@ -534,7 +535,7 @@ export interface TelegramActivityRuntime {
     title?: string,
   ) => void;
   onUiPromptEnd: () => void;
-  onAgentEnd: () => void;
+  onAgentEnd: (willContinue?: boolean) => void;
   onAgentSettled: () => void;
   onSessionShutdown: () => void;
 }
@@ -646,6 +647,9 @@ export function createTelegramActivityRuntime(deps: {
     recordInputSource(source, promptText) {
       pendingInputSource = source;
       pendingPromptText = promptText;
+      if (activityId && promptText && promptText.trim().length > 0) {
+        emit({ type: "prompt-update", promptText });
+      }
     },
     onAgentStart(activeTelegramTarget, replyToMessageId, promptText, contextInfo) {
       abandonCompaction();
@@ -755,8 +759,8 @@ export function createTelegramActivityRuntime(deps: {
       uiPromptInProgress = false;
       emit({ type: "ui-prompt-end" });
     },
-    onAgentEnd() {
-      if (activityId) emit({ type: "agent-end" });
+    onAgentEnd(willContinue) {
+      if (activityId) emit({ type: "agent-end", ...(willContinue !== undefined ? { willContinue } : {}) });
     },
     onAgentSettled() {
       if (!activityId) return;

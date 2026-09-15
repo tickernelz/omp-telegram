@@ -729,13 +729,26 @@ export function createTelegramProgressTailRuntime<TAuthority>(
     const showTools = mode === "tools" || mode === "verbose";
 
     if (event.type === "agent-start") {
-      clearSegment();
-      startedAtMs = getNowMs();
+      if (status === "completed") {
+        clearSegment();
+      }
+      if (startedAtMs === 0) {
+        startedAtMs = getNowMs();
+      }
+      status = "working";
       if (event.promptText) {
         userPrompt = cleanUserPrompt(event.promptText);
       }
       if (event.contextInfo) {
         activeContextInfo = event.contextInfo;
+      }
+      return;
+    }
+
+    if (event.type === "prompt-update") {
+      if (event.promptText) {
+        userPrompt = cleanUserPrompt(event.promptText);
+        await publishToTelegram(acceptedGeneration, false);
       }
       return;
     }
@@ -885,7 +898,7 @@ export function createTelegramProgressTailRuntime<TAuthority>(
     }
 
     if (event.type === "assistant-segment") {
-      if ((event.placement === "intermediate" || event.placement === "final") && liveMessage !== undefined) {
+      if (event.placement === "intermediate" && liveMessage !== undefined) {
         status = "completed";
         completedAtMs = getNowMs();
         await publishToTelegram(acceptedGeneration, true);
@@ -895,12 +908,19 @@ export function createTelegramProgressTailRuntime<TAuthority>(
     }
 
     if (event.type === "agent-end" || event.type === "agent-settled") {
+      if (event.type === "agent-end" && event.willContinue) {
+        if (liveMessage !== undefined && dirty) {
+          await publishToTelegram(acceptedGeneration, true);
+        }
+        return;
+      }
       if (liveMessage !== undefined) {
         status = "completed";
         completedAtMs = getNowMs();
         await publishToTelegram(acceptedGeneration, true);
       }
       clearAll();
+      return;
     }
   };
 

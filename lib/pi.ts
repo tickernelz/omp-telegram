@@ -364,8 +364,11 @@ export function clampTelegramThreadName(
   return name.length > TELEGRAM_THREAD_NAME_MAX_LENGTH ? undefined : name;
 }
 
-function buildTelegramThreadNamePrompt(cwd: string): string {
+function buildTelegramThreadNamePrompt(cwd: string, sessionTitle?: string): string {
   const project = basenameFilesystemPath(normalizeFilesystemPath(cwd));
+  if (sessionTitle && sessionTitle.trim().length > 0) {
+    return `Name the chat tab for a coding session in project "${project || cwd}" working on "${sessionTitle.trim()}".`;
+  }
   return `Name the chat tab for a coding session working in the project folder "${project || cwd}".`;
 }
 
@@ -395,9 +398,20 @@ export async function generateTelegramThreadName(
       input.generateTitle ?? (await loadTelegramThreadNameTitleGenerator());
     if (!generateTitle) return undefined;
     const cwd = getExtensionContextCwd(input.ctx);
+    let sessionTitle: string | undefined;
+    const entries = (input.ctx as unknown as { sessionManager?: { getEntries?: () => unknown[] } })?.sessionManager?.getEntries?.();
+    if (Array.isArray(entries)) {
+      for (let i = entries.length - 1; i >= 0; i--) {
+        const entry = entries[i] as { type?: string; title?: string } | undefined;
+        if (entry?.title && (entry.type === "title" || entry.type === "title_change")) {
+          sessionTitle = entry.title;
+          break;
+        }
+      }
+    }
     return clampTelegramThreadName(
       await generateTitle(
-        buildTelegramThreadNamePrompt(cwd),
+        buildTelegramThreadNamePrompt(cwd, sessionTitle),
         registry,
         await resolveSettingsForCwd(cwd),
         undefined,

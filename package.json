@@ -1,6 +1,6 @@
 {
   "name": "@tickernelz/omp-telegram",
-  "version": "0.3.15",
+  "version": "0.3.16",
   "private": false,
   "publishConfig": {
     "access": "public"

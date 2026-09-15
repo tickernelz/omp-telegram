@@ -338,7 +338,6 @@ export function isTelegramDeliveryExplicitTargetAuthorized(
   if (view.followerTarget) {
     return areDeliveryTargetsEqual(candidate, view.followerTarget);
   }
-  if (!view.ownsDirect) return false;
   if (
     view.leaderTarget &&
     areDeliveryTargetsEqual(candidate, view.leaderTarget)

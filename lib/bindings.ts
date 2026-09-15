@@ -1405,8 +1405,11 @@ export function registerTelegramLifecycleRuntimeHooks({
         cancelPendingFinalPublication();
         return;
       }
-      activityRuntime.onAgentEnd();
+      activityRuntime.onAgentEnd(event.willContinue);
       await agentLifecycleHooks.onAgentEnd(event, ctx);
+      if (pendingFinalPublication) {
+        cancelPendingFinalPublication();
+      }
     },
     async onAgentSettled(event, ctx) {
       if (!isSessionContextActive(ctx)) return;

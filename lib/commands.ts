@@ -705,7 +705,12 @@ export function registerTelegramBridgeCommands(
             return;
           }
         }
-        const renamed = await renameCurrentThread(target, requestedThreadName);
+        let renamed = await renameCurrentThread(target, requestedThreadName);
+        if (!renamed.ok && request.kind !== "manual" && renamed.message?.includes("already reserved")) {
+          const fallback = `${requestedThreadName} 2`;
+          const secondAttempt = await renameCurrentThread(target, fallback);
+          if (secondAttempt.ok) renamed = secondAttempt;
+        }
         ctx.ui.notify(
           renamed.ok
             ? `Telegram Workspace Thread renamed to ${renamed.threadName ?? requestedThreadName}.`

@@ -487,6 +487,43 @@ test("Progress tail runtime captures and displays promptText from agent-start", 
   assert.equal(sends[0]?.rich_message?.markdown?.includes("[telegram]"), false, "[telegram] prefix must be stripped");
 });
 
+test("Progress tail runtime updates userPrompt on prompt-update steering message mid-turn", async () => {
+  const sends: TelegramSendRichMessageBody[] = [];
+  const edits: TelegramEditMessageTextBody[] = [];
+  const runtime = createTelegramProgressTailRuntime({
+    getActivityMode: () => "verbose",
+    resolveTarget: (e) => e.target,
+    captureAuthority: () => 1,
+    isAuthorityActive: () => true,
+    async sendRichMessage(body) {
+      sends.push(body);
+      return { message_id: 1, date: 1, chat: { id: 42, type: "private" } };
+    },
+    async sendMessage() {
+      throw new Error("unexpected call");
+    },
+    async editMessageText(body) {
+      edits.push(body);
+      return "edited";
+    },
+  });
+
+  runtime.accept(event("agent-start", { promptText: "initial user prompt" }));
+  runtime.accept(event("tool-start", { toolCallId: "1", toolName: "read", args: { path: "api.ts" } }));
+  await runtime.waitForIdle();
+
+  assert.equal(sends.length, 1);
+  assert.ok(sends[0]?.rich_message?.markdown?.includes("initial user prompt"));
+
+  runtime.accept(event("prompt-update", { promptText: "steering: tolong ubah port ke 8080" }));
+  await runtime.waitForIdle();
+
+  assert.ok(edits.length >= 1);
+  const updatedMarkdown = edits.at(-1)?.rich_message?.markdown ?? "";
+  assert.ok(updatedMarkdown.includes("steering: tolong ubah port ke 8080"));
+  assert.equal(updatedMarkdown.includes("initial user prompt"), false, "old prompt must be replaced by new steering prompt");
+});
+
 test("formatProgressTailRich handles massive reasoning and 50 tools within 7500 chars limit", () => {
   const massiveReasoning = [
     "Paragraph 1 describing initial investigation and findings in great detail.",
@@ -669,4 +706,58 @@ test("Progress tail runtime: container unwrapping suppresses outer fabric_exec w
 
   const pureEdit = edits.at(-1)?.rich_message?.markdown ?? "";
   assert.ok(pureEdit.includes("| ✓ | fabric_exec | Pure computation |"), "standalone fabric_exec without children must be retained");
+});
+
+test("Progress tail runtime: multi-turn continuation with willContinue keeps same live message across turns", async () => {
+  const sends: TelegramSendRichMessageBody[] = [];
+  const edits: TelegramEditMessageTextBody[] = [];
+  let now = 10_000;
+
+  const runtime = createTelegramProgressTailRuntime({
+    getActivityMode: () => "verbose",
+    getNowMs: () => now,
+    resolveTarget: (e) => e.target,
+    captureAuthority: () => 1,
+    isAuthorityActive: () => true,
+    async sendRichMessage(body) {
+      sends.push(body);
+      return { message_id: 100 + sends.length, date: 1, chat: { id: 42, type: "private" } };
+    },
+    async sendMessage() {
+      throw new Error("unexpected call");
+    },
+    async editMessageText(body) {
+      edits.push(body);
+      return "edited";
+    },
+    getModelName: () => "Opus 5",
+  });
+
+  runtime.accept(event("agent-start"));
+  runtime.accept(event("tool-start", { toolCallId: "1", toolName: "read", args: { path: "a.ts" } }));
+  runtime.accept(event("tool-end", { toolCallId: "1", toolName: "read", isError: false, result: "ok" }));
+  await runtime.waitForIdle();
+  assert.equal(sends.length, 1, "first bubble created for turn 1");
+
+  now = 12_000;
+  runtime.accept(event("agent-end", { willContinue: true }));
+  await runtime.waitForIdle();
+  assert.equal(sends.length, 1, "no new message created on multi-turn continuation");
+
+  now = 13_000;
+  runtime.accept(event("agent-start"));
+  runtime.accept(event("tool-start", { toolCallId: "2", toolName: "write", args: { path: "b.ts" } }));
+  runtime.accept(event("tool-end", { toolCallId: "2", toolName: "write", isError: false, result: "ok" }));
+  await runtime.waitForIdle();
+  assert.equal(sends.length, 1, "must NOT send a new message; must continue editing the same live message");
+
+  const latestEdit = edits.at(-1)?.rich_message?.markdown ?? "";
+  assert.ok(latestEdit.includes("b.ts"), "must update existing bubble with turn 2 tools");
+
+  now = 15_000;
+  runtime.accept(event("agent-settled"));
+  await runtime.waitForIdle();
+  assert.equal(sends.length, 1, "only 1 message sent across the entire multi-turn session");
+  const completedEdit = edits.at(-1)?.rich_message?.markdown ?? "";
+  assert.ok(completedEdit.includes("✅ **Completed**"), "final settlement marks the bubble completed");
 });

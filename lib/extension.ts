@@ -268,19 +268,6 @@ export default function (pi: Pi.ExtensionAPI) {
     });
   modelContextAvailabilityBinding.bind(modelContextAvailabilityRuntime);
   const activeTurnRuntime = Queue.createTelegramActiveTurnStore();
-  const proactivePushTargetGetter =
-    Config.createTelegramProactivePushTargetGetter({
-      getActiveTurnTarget: activeTurnRuntime.getTarget,
-      getAssignedTarget() {
-        return (
-          telegramBusFollowerRegistrationState.getTarget() ??
-          telegramBusLeaderState.getTarget()
-        );
-      },
-      getAllowedUserId: configStore.getAllowedUserId,
-    });
-  const proactivePushChatIdGetter =
-    Config.createTelegramProactivePushChatIdGetter(proactivePushTargetGetter);
   const buttonActionStore = Outbound.createTelegramButtonActionStore();
   const planGenerativeAppOutput =
     Outbound.createTelegramOutboundReplyPlanner(
@@ -438,6 +425,20 @@ export default function (pi: Pi.ExtensionAPI) {
     },
   });
   const findCurrentThreadRecord = currentInstanceThreadRuntime.findRecord;
+  const proactivePushTargetGetter =
+    Config.createTelegramProactivePushTargetGetter({
+      getActiveTurnTarget: activeTurnRuntime.getTarget,
+      getAssignedTarget: function () {
+        return (
+          telegramBusFollowerRegistrationState.getTarget() ??
+          telegramBusLeaderState.getTarget() ??
+          findCurrentThreadRecord()?.target
+        );
+      },
+      getAllowedUserId: configStore.getAllowedUserId,
+    });
+  const proactivePushChatIdGetter =
+    Config.createTelegramProactivePushChatIdGetter(proactivePushTargetGetter);
   const getCurrentInstanceThreadIdentity =
     currentInstanceThreadRuntime.getIdentity;
   const statusRuntime = Status.createTelegramBridgeStatusRuntime<
@@ -637,8 +638,18 @@ export default function (pi: Pi.ExtensionAPI) {
       ownsDirect: lockRuntime.owns,
       isFollowerRegistered: telegramBusFollowerRegistrationState.isRegistered,
       getAllowedChatId: configStore.getAllowedUserId,
-      getFollowerTarget: telegramBusFollowerRegistrationState.getTarget,
-      getLeaderTarget: telegramBusLeaderState.getTarget,
+      getFollowerTarget() {
+        return (
+          telegramBusFollowerRegistrationState.getTarget() ??
+          findCurrentThreadRecord?.()?.target
+        );
+      },
+      getLeaderTarget() {
+        return (
+          telegramBusLeaderState.getTarget() ??
+          findCurrentThreadRecord?.()?.target
+        );
+      },
       listThreadRecords: threadStore.list,
       getActiveTurnTarget: activeTurnRuntime.getTarget,
       getActiveGuestQueryId: activeTurnRuntime.getGuestQueryId,
@@ -1894,5 +1905,9 @@ export default function (pi: Pi.ExtensionAPI) {
     },
     updateStatus,
     recordRuntimeEvent,
+  });
+
+  void deliveryLifecycleRuntime.onSessionStart().catch(function (error) {
+    recordRuntimeEvent("delivery", error, { phase: "eager-startup-bind" });
   });
 }

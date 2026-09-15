@@ -4,6 +4,13 @@
 
 ## Unreleased
 
+## 0.3.16: Multi-Turn Progress Tail Continuity, Cold Token Stamp Grace, And Eager Delivery Bind
+
+- `Multi-Turn Progress Tail Continuity`: Fixed an issue where the live progress bubble became stale in multi-turn sessions (autonomous tasks, subagents, and sequential tool runs). `progress-tail` now maintains a single active bubble across turns with `willContinue: true`, decouples from publication reservation deadlock, and finalizes cleanly upon session settlement.
+- `Cold Token Stamp Grace`: Fixed `runtime-unavailable` rejections on `ask` tool delivery caused by generation increments during initial token loading. `createTelegramTransportStampRuntime` now adopts the bot token on cold startup without bumping generation or invalidating initial transport stamps.
+- `Eager Delivery Runtime Startup`: Bound delivery lifecycle runtime eagerly at extension load, ensuring `sendTelegramView` and `ask` are immediately functional even before `session_start` lifecycle events trigger.
+- `Resilient Thread Target Resolution`: Enhanced `proactivePushTargetGetter` and delivery authorization to fallback to `findCurrentThreadRecord()?.target`, preventing thread ID loss when transient active turn state clears.
+
 ## 0.3.15: Dynamic Model Synchronization And Model Info In Context Table
 
 - `Dynamic Model Synchronization`: Fixed an issue where changing models via CLI (e.g. `/model` to DeepSeek V4.1) left the Telegram progress tail displaying the previous model name. `onAgentStart` now automatically synchronizes the active model from the live session context (`ctx.model`) into the model store.

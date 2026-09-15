@@ -393,9 +393,13 @@ export function createTelegramTransportStampRuntime(deps: {
     const nextProfile = deps.getProfileName() ?? "default";
     const nextBotToken = deps.getBotToken();
     if (nextProfile !== profile || nextBotToken !== botToken) {
+      const isInitialTokenLoad =
+        profile === nextProfile && botToken === undefined && nextBotToken !== undefined;
       profile = nextProfile;
       botToken = nextBotToken;
-      generation += 1;
+      if (!isInitialTokenLoad) {
+        generation += 1;
+      }
     }
     return { profile: nextProfile, generation: String(generation) };
   };

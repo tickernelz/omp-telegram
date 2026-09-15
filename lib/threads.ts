@@ -653,6 +653,7 @@ export interface TelegramTopicTargetRenamerDeps {
     | "list"
     | "listWorkspaceBindings"
     | "listPendingProvisions"
+    | "listSyncObservations"
   >;
   callApi: <TResponse>(
     method: string,
@@ -3296,9 +3297,14 @@ export function listOccupiedTelegramThreadIdentities(input: {
   records: readonly TelegramTopicTargetRecord[];
   workspaceBindings?: readonly TelegramWorkspaceThreadBinding[];
   pendingProvisions?: readonly TelegramThreadPendingProvision[];
+  syncObservations?: readonly TelegramTopicSyncObservation[];
   exceptTarget?: TelegramTarget;
   exceptWorkspaceBindingKey?: string;
 }): string[] {
+  const deletedTargets = (input.syncObservations ?? []).filter((obs) => obs.syncStatus === "deleted");
+  const isTargetDeleted = (target: TelegramTarget): boolean =>
+    deletedTargets.some((obs) => targetMatches(obs.target, target));
+
   const occupied = new Set<string>();
   const add = (threadName: string | undefined): void => {
     if (!threadName) return;
@@ -3308,6 +3314,7 @@ export function listOccupiedTelegramThreadIdentities(input: {
     if (!isCurrentThreadRecord(record)) continue;
     if (input.exceptTarget && targetMatches(record.target, input.exceptTarget))
       continue;
+    if (isTargetDeleted(record.target)) continue;
     add(record.manualThreadName);
     add(record.threadName);
   }
@@ -3315,6 +3322,7 @@ export function listOccupiedTelegramThreadIdentities(input: {
     if (binding.bindingKey === input.exceptWorkspaceBindingKey) continue;
     if (input.exceptTarget && targetMatches(binding.target, input.exceptTarget))
       continue;
+    if (isTargetDeleted(binding.target)) continue;
     add(binding.manualThreadName);
     add(binding.threadName);
   }
@@ -3326,6 +3334,7 @@ export function listOccupiedTelegramThreadIdentities(input: {
     ) {
       continue;
     }
+    if (pending.target && isTargetDeleted(pending.target)) continue;
     add(pending.threadName);
   }
   return Array.from(occupied);
@@ -4529,6 +4538,7 @@ export function createTelegramTopicTargetRenamer(
         records: deps.store.list(),
         workspaceBindings: deps.store.listWorkspaceBindings(),
         pendingProvisions: deps.store.listPendingProvisions(),
+        syncObservations: deps.store.listSyncObservations?.(),
         exceptTarget: request.target,
       }),
     );
