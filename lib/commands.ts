@@ -629,8 +629,9 @@ export function registerTelegramBridgeCommands(
           }
         }
       };
+      const forceFresh = /(?:^|\s)--fresh(?:\s|$)/i.test(args);
       let result = await startWithRecovery({
-        forceFreshLeaderThread: true,
+        forceFreshLeaderThread: forceFresh,
         ...(requestedThreadName ? { requestedThreadName } : {}),
       });
       if (result && !result.ok && result.canTakeover) {
@@ -645,7 +646,7 @@ export function registerTelegramBridgeCommands(
         }
         result = await startWithRecovery({
           force: true,
-          forceFreshLeaderThread: true,
+          forceFreshLeaderThread: forceFresh,
           ...(requestedThreadName ? { requestedThreadName } : {}),
         });
       }

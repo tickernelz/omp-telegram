@@ -42,6 +42,7 @@ import {
   setTelegramApiHttpsFetchForTesting,
   prepareTelegramTempDir,
   TELEGRAM_FILE_MAX_BYTES,
+  TelegramApiHttpError,
   TelegramApiWorkspaceAdmissionError,
   type TelegramApiCallOptions,
   type TelegramApiClient,
@@ -2283,3 +2284,103 @@ test("Telegram API client resolves bot tokens lazily for wrapped calls", async (
     restoreFetch();
   }
 });
+
+test("callTelegramWithRetry throws immediately when 429 retryAfter exceeds 60s cap", async () => {
+  let callCount = 0;
+  const restoreFetch = setApiTestFetch(async () => {
+    callCount += 1;
+    return new Response(
+      JSON.stringify({
+        ok: false,
+        error_code: 429,
+        description: "Too Many Requests: retry after 1703",
+        parameters: { retry_after: 1703 },
+      }),
+      { status: 429, headers: { "content-type": "application/json" } },
+    );
+  });
+  try {
+    const startedAt = Date.now();
+    await assert.rejects(
+      async () => {
+        await callTelegram("createForumTopic", "123:abc", { chat_id: 123, name: "test" });
+      },
+      (error: unknown) => {
+        assert.ok(error instanceof TelegramApiHttpError);
+        assert.equal(error.status, 429);
+        assert.equal(error.retryAfterSeconds, 1703);
+        return true;
+      },
+    );
+    const elapsed = Date.now() - startedAt;
+    assert.ok(elapsed < 2000, "Must throw immediately instead of sleeping 28 minutes, elapsed: " + elapsed + "ms");
+    assert.equal(callCount, 1, "Should not retry excessive rate limits");
+  } finally {
+    restoreFetch();
+  }
+});
+
+test("Telegram bridge API runtime spaces outbound messages to the same chat by chatOutboundMinIntervalMs", async () => {
+  const callTimes: number[] = [];
+  const runtime = createTelegramBridgeApiRuntime({
+    tempDir: "/tmp/telegram",
+    maxFileSizeBytes: 123,
+    tempFileMaxAgeMs: 60_000,
+    chatOutboundMinIntervalMs: 25,
+    recordRuntimeEvent: () => {},
+    client: createApiRuntimeClient({
+      call: async <TResponse>() => {
+        callTimes.push(Date.now());
+        return true as TResponse;
+      },
+    }),
+  });
+
+  const p1 = runtime.sendMessage({ chat_id: 1, text: "msg1" });
+  const p2 = runtime.sendMessage({ chat_id: 1, text: "msg2" });
+  await Promise.all([p1, p2]);
+
+  assert.equal(callTimes.length, 2);
+  assert.ok(callTimes[1]! >= callTimes[0]! + 20, "Second call must be paced by min interval");
+});
+
+test("Telegram bridge API runtime backs off subsequent outbound calls to a chat after 429", async () => {
+  const events: Array<Record<string, unknown>> = [];
+  let nowMs = 10_000;
+  let callCount = 0;
+  const runtime = createTelegramBridgeApiRuntime({
+    tempDir: "/tmp/telegram",
+    maxFileSizeBytes: 123,
+    tempFileMaxAgeMs: 60_000,
+    chatOutboundMinIntervalMs: 20,
+    now: () => nowMs,
+    recordRuntimeEvent: (kind, _error, details) => {
+      events.push({ kind, details });
+    },
+    client: createApiRuntimeClient({
+      call: async <TResponse>() => {
+        callCount += 1;
+        if (callCount === 1) {
+          throw new TelegramApiHttpError("Too Many Requests: retry after 2", 429, 2);
+        }
+        return true as TResponse;
+      },
+    }),
+  });
+
+  await assert.rejects(
+    async () => {
+      await runtime.sendMessage({ chat_id: 99, text: "first" });
+    },
+    (err: unknown) => err instanceof TelegramApiHttpError && err.status === 429,
+  );
+
+  assert.equal(callCount, 1);
+  assert.ok(events.some((e) => (e.details as Record<string, unknown>)?.rateLimited === true && (e.details as Record<string, unknown>)?.retryAfterMs === 2000));
+
+  const callPromise = runtime.sendMessage({ chat_id: 99, text: "second" });
+  nowMs += 2000;
+  await callPromise;
+  assert.equal(callCount, 2);
+});
+

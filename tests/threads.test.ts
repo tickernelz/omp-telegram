@@ -54,6 +54,7 @@ import { createTelegramWorkspaceAdmissionLedger } from "../lib/workspace-admissi
 import {
   isTelegramApiCommitUnknownError,
   TelegramApiCommitUnknownError,
+  TelegramApiHttpError,
 } from "../lib/telegram-api.ts";
 
 test("Stale-target invalidation fences the durable commit and preserves a replacement binding", async () => {
@@ -4705,3 +4706,41 @@ test("Thread store persists only current state statuses", async () => {
     await rm(dir, { force: true, recursive: true });
   }
 });
+
+test("Own bus topic provisioner falls back gracefully when createForumTopic hits HTTP 429", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "pi-telegram-429-fallback-"));
+  const calls: unknown[] = [];
+  const events: Array<{ category: string; message: string; details?: Record<string, unknown> }> = [];
+  const store = createTelegramTopicTargetStore({
+    path: join(dir, "telegram-targets.json"),
+    getNowMs: () => 2000,
+  });
+  try {
+    const result = await provisionOwnBusTopic({
+      getAllowedUserId: () => 7,
+      instanceId: "leader-a",
+      cwd: "/repo",
+      store,
+      async callApi<TResponse>(method: string, body: Record<string, unknown>): Promise<TResponse> {
+        calls.push({ method, body });
+        throw new TelegramApiHttpError("Too Many Requests: retry after 1703", 429, 1703);
+      },
+      recordEvent(category, message, details) {
+        events.push({ category, message, details });
+      },
+    });
+    assert.ok(result !== undefined);
+    assert.deepEqual(result.target, { chatId: 7, threadId: 1 });
+    assert.equal(result.reused, true);
+    assert.equal(
+      events.some(
+        (event) => event.details?.phase === "topic-provision-rate-limited",
+      ),
+      true,
+    );
+    assert.equal(store.getByProfileKey("cwd:/repo")?.status, "active");
+  } finally {
+    await rm(dir, { force: true, recursive: true });
+  }
+});
+

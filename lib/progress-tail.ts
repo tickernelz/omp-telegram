@@ -7,15 +7,16 @@
 import type { TelegramActivityContextInfo, TelegramActivityEvent, TelegramActivityPublicationRuntime } from "./activity.ts";
 
 import type { TelegramTarget } from "./target.ts";
-import type {
-  TelegramApiCallOptions,
-  TelegramEditMessageTextBody,
-  TelegramSendMessageBody,
-  TelegramSendRichMessageBody,
-  TelegramSentMessage,
+import {
+  TelegramApiHttpError,
+  type TelegramApiCallOptions,
+  type TelegramEditMessageTextBody,
+  type TelegramSendMessageBody,
+  type TelegramSendRichMessageBody,
+  type TelegramSentMessage,
 } from "./telegram-api.ts";
 
-export const TELEGRAM_PROGRESS_TAIL_DEFAULT_INTERVAL_MS = 5_000;
+export const TELEGRAM_PROGRESS_TAIL_DEFAULT_INTERVAL_MS = 10_000;
 export const TELEGRAM_PROGRESS_TAIL_MAX_TOOLS = 10;
 export const TELEGRAM_PROGRESS_TAIL_MAX_REASONING_LINES = 14;
 export const TELEGRAM_PROGRESS_TAIL_MAX_TOOL_ARG_CHARS = 200;
@@ -789,8 +790,23 @@ export function createTelegramProgressTailRuntime<TAuthority>(
       lastPublishMs = getNowMs();
       consecutivePublishFailures = 0;
     } catch (error) {
-      lastPublishMs = getNowMs();
-      consecutivePublishFailures += 1;
+      const isRateLimit =
+        error instanceof TelegramApiHttpError && error.status === 429;
+      const retryAfterSeconds =
+        (error as { retryAfterSeconds?: number })?.retryAfterSeconds;
+      if (
+        isRateLimit &&
+        typeof retryAfterSeconds === "number" &&
+        retryAfterSeconds > 0
+      ) {
+        lastPublishMs =
+          getNowMs() + retryAfterSeconds * 1_000 - resolveIntervalMs();
+      } else {
+        lastPublishMs = getNowMs();
+      }
+      if (!isRateLimit) {
+        consecutivePublishFailures += 1;
+      }
       dirty = true;
       deps.recordFailure?.(
         creating ? "tail-send" : "tail-edit",

@@ -11,6 +11,7 @@ import {
   createTelegramProgressTailRuntime,
   cleanUserPrompt,
   isCommandInvocationPrompt,
+  TELEGRAM_PROGRESS_TAIL_DEFAULT_INTERVAL_MS,
   TELEGRAM_PROGRESS_TAIL_MAX_MESSAGE_BYTES,
   TELEGRAM_PROGRESS_TAIL_MAX_TOOLS,
   TELEGRAM_PROGRESS_TAIL_TODO_RETENTION_MS,
@@ -22,7 +23,11 @@ import {
   type ProgressTailState,
 } from "../lib/progress-tail.ts";
 import type { TelegramActivityEvent } from "../lib/activity.ts";
-import type { TelegramEditMessageTextBody, TelegramSendRichMessageBody } from "../lib/telegram-api.ts";
+import {
+  TelegramApiHttpError,
+  type TelegramEditMessageTextBody,
+  type TelegramSendRichMessageBody,
+} from "../lib/telegram-api.ts";
 
 function event(
   type: TelegramActivityEvent["type"],
@@ -1219,3 +1224,66 @@ test("Progress tail runtime: the todo section disappears once every task has age
   const later = edits.at(-1)?.rich_message?.markdown ?? "";
   assert.equal(later.includes("## 📋 Todo"), false, "an all-settled todo list stops occupying the bubble");
 });
+
+test("TELEGRAM_PROGRESS_TAIL_DEFAULT_INTERVAL_MS is 10000ms", () => {
+  assert.equal(TELEGRAM_PROGRESS_TAIL_DEFAULT_INTERVAL_MS, 10_000);
+});
+
+test("Progress tail runtime: 429 rate limits do not discard liveMessage and back off by retryAfterSeconds", async () => {
+  const sends: TelegramSendRichMessageBody[] = [];
+  const edits: TelegramEditMessageTextBody[] = [];
+  let now = 10_000;
+  let throwRateLimit = false;
+
+  const runtime = createTelegramProgressTailRuntime({
+    getActivityMode: () => "verbose",
+    getNowMs: () => now,
+    getIntervalMs: () => 1_000,
+    resolveTarget: (e) => e.target,
+    captureAuthority: () => 1,
+    isAuthorityActive: () => true,
+    async sendRichMessage(body) {
+      sends.push(body);
+      return { message_id: 1000 + sends.length, date: 1, chat: { id: 42, type: "private" } };
+    },
+    async sendMessage() {
+      throw new Error("unexpected call");
+    },
+    async editMessageText(body) {
+      if (throwRateLimit) {
+        throw new TelegramApiHttpError("Too Many Requests: retry after 8", 429, 8);
+      }
+      edits.push(body);
+      return "edited";
+    },
+  });
+
+  runtime.accept(event("tool-start", { toolCallId: "1", toolName: "read", args: { path: "a.ts" } }));
+  await runtime.waitForIdle();
+  assert.equal(sends.length, 1, "first bubble created");
+
+  throwRateLimit = true;
+  for (let i = 0; i < 5; i += 1) {
+    now += 500;
+    runtime.accept(event("tool-start", { toolCallId: "t" + i, toolName: "read", args: { path: "f" + i + ".ts" } }));
+    await runtime.waitForIdle();
+  }
+
+  assert.equal(
+    sends.length,
+    1,
+    "429 rate limits must not discard liveMessage or spam new bubbles",
+  );
+
+  throwRateLimit = false;
+  now += 8_000;
+  runtime.accept(event("tool-start", { toolCallId: "after-limit", toolName: "write", args: { path: "resumed.ts" } }));
+  await runtime.waitForIdle();
+
+  assert.equal(sends.length, 1, "continues editing the same bubble after rate limit clears");
+  assert.ok(
+    (edits.at(-1)?.rich_message?.markdown ?? "").includes("resumed.ts"),
+    "updated content reaches the existing bubble",
+  );
+});
+

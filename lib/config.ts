@@ -1240,7 +1240,7 @@ export function createTelegramAutomaticThreadCleanupSetter(
   };
 }
 
-export const DEFAULT_TELEGRAM_PROGRESS_INTERVAL_MS = 5_000;
+export const DEFAULT_TELEGRAM_PROGRESS_INTERVAL_MS = 10_000;
 
 export function resolveTelegramProgressIntervalMs(
   config: Pick<TelegramConfig, "assistant">,

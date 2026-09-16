@@ -4,6 +4,14 @@
 
 ## Unreleased
 
+## 0.4.3: Telegram 429 Resilience, Topic Reuse, And 10s Paced Progress
+
+- `Topic Reuse by Default`: `/telegram-connect` no longer forces `createForumTopic` on every run. Existing active workspace topics are preserved and reused cleanly; pass `--fresh` or `as=Name` to explicitly request a fresh topic.
+- `Graceful 429 Topic Fallback`: When Telegram supergroup flood control returns 429 (e.g. `retry after 1703`) on `createForumTopic`, provisioning catches the error and falls back to an existing topic or General chat, letting the bridge connect immediately instead of aborting.
+- `Outbound Chat Pacing & 429 Cooldown`: Per-chat outbound message and multipart calls enforce flood cooldown tracking. When a 429 is received on a chat, subsequent calls to that chat back off until the `retry_after` window expires.
+- `Capped 429 Retry Sleep`: Automatic API retry sleep is capped at 60s via `TELEGRAM_MAX_RATE_LIMIT_SLEEP_MS`. Long administrative penalties (>60s) fail fast so callers can execute graceful fallbacks instead of stalling the event loop for half an hour.
+- `10s Default Progress Cadence`: Raised default progress tail update interval from 5s to 10s (`TELEGRAM_PROGRESS_TAIL_DEFAULT_INTERVAL_MS = 10_000`) and added dynamic 429 backoff on edits without dropping the live bubble.
+
 ## 0.4.2: Todo Retention, Command-Free Prompt, And Wider Sections
 
 - `Settled Todos Age Out`: A task that reaches completed or cancelled stays in the Todo table for `TELEGRAM_PROGRESS_TAIL_TODO_RETENTION_MS` (60s) and then drops out, so the newest work is visible instead of a wall of checkmarks. The header keeps counting every task (`9/11`), hidden rows are reported as `[N settled tasks hidden]`, a dedicated expiry timer republishes the bubble when the window elapses, and an all-settled list removes the section entirely.

@@ -982,7 +982,7 @@ export function formatTelegramSettingsOverview(
   const profile = deps.getActiveProfileName?.() ?? "default";
   const mode = deps.getThreadDisplayMode?.() ?? "names";
   const activity = deps.getActivityVerbosity();
-  const interval = deps.getProgressIntervalMs?.() ?? 2000;
+  const interval = deps.getProgressIntervalMs?.() ?? 10000;
   const drafts = deps.areDraftPreviewsEnabled() ? "on" : "off";
   const voice = deps.getVoiceReplyMode();
   const time = deps.getTimeInjectionMode();
@@ -997,7 +997,7 @@ export function formatTelegramSettingsOverview(
     `• activity: ${activity} [verbose | tools | thinking | quiet]`,
     "  Live progress tail detail in Telegram.",
     "",
-    `• interval: ${interval}ms [1000ms | 1500ms | 2000ms | 3000ms | 5000ms]`,
+    `• interval: ${interval}ms [5000ms | 10000ms | 15000ms | 30000ms]`,
     "  Live progress bubble update cadence.",
     "",
     `• drafts: ${drafts} [on | off]`,
@@ -1097,8 +1097,8 @@ export async function openTelegramSettingsTui(
         id: "interval",
         label: "Progress Interval",
         description: "Cadence for updating the live progress tail bubble in Telegram",
-        currentValue: `${deps.getProgressIntervalMs?.() ?? 5000}ms`,
-        values: ["2000ms", "3000ms", "5000ms", "7500ms", "10000ms", "15000ms", "30000ms"],
+        currentValue: `${deps.getProgressIntervalMs?.() ?? 10000}ms`,
+        values: ["5000ms", "10000ms", "15000ms", "30000ms"],
       },
       {
         id: "drafts",

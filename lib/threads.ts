@@ -26,6 +26,7 @@ import { isDeepStrictEqual } from "node:util";
 import {
   isTelegramApiCommitUnknownError,
   TelegramApiCommitUnknownError,
+  TelegramApiHttpError,
   type TelegramApiCallOptions,
 } from "./telegram-api.ts";
 import type { TelegramTarget } from "./target.ts";
@@ -644,6 +645,11 @@ export interface TelegramTopicTargetProvisionerDeps {
   getRandom?: () => number;
   getCurrentLeaderEpoch?: () => number | string | undefined;
   claimPendingTargets?: boolean;
+  recordEvent?: (
+    category: string,
+    message: string,
+    details?: Record<string, unknown>,
+  ) => void;
 }
 
 export interface TelegramTopicTargetRenamerDeps {
@@ -3887,6 +3893,7 @@ export async function provisionOwnBusTopic(
     resolveInitialWorkspaceDisplayTitle:
       deps.resolveInitialWorkspaceDisplayTitle,
     claimPendingTargets: false,
+    recordEvent: deps.recordEvent,
   });
   let result = await provision({
     instanceId: deps.instanceId,
@@ -4841,32 +4848,63 @@ export function createTelegramTopicTargetProvisioner(
     await deps.store.persist();
     assertLeaderEpoch("after-pending-intent");
     let threadId: number | undefined;
+    let isFallbackReused = false;
     try {
-      assertLeaderEpoch("before-createForumTopic");
-      const topic = await deps.callApi<TelegramTopicResult>(
-        "createForumTopic",
-        {
-          chat_id: deps.topicChatId,
-          name: displayTitle ?? getTelegramTopicName(
-            {
-              ...request,
-              ...(requestThreadName ? { threadName: requestThreadName } : {}),
-            },
-            deps.topicNameTemplate ??
-              (requestThreadName ? "{threadName}" : "{slot}"),
-            slot,
-          ),
-        },
-        { maxAttempts: 1 },
-      );
-      threadId = topic.message_thread_id;
-      if (typeof threadId !== "number" || !Number.isInteger(threadId)) {
-        throw new TelegramApiCommitUnknownError(
+      try {
+        assertLeaderEpoch("before-createForumTopic");
+        const topic = await deps.callApi<TelegramTopicResult>(
           "createForumTopic",
-          new Error("Telegram createForumTopic returned no message_thread_id."),
+          {
+            chat_id: deps.topicChatId,
+            name: displayTitle ?? getTelegramTopicName(
+              {
+                ...request,
+                ...(requestThreadName ? { threadName: requestThreadName } : {}),
+              },
+              deps.topicNameTemplate ??
+                (requestThreadName ? "{threadName}" : "{slot}"),
+              slot,
+            ),
+          },
+          { maxAttempts: 1 },
         );
+        threadId = topic.message_thread_id;
+        if (typeof threadId !== "number" || !Number.isInteger(threadId)) {
+          throw new TelegramApiCommitUnknownError(
+            "createForumTopic",
+            new Error("Telegram createForumTopic returned no message_thread_id."),
+          );
+        }
+        assertLeaderEpoch("after-createForumTopic");
+      } catch (createError) {
+        if (
+          createError instanceof TelegramApiHttpError &&
+          createError.status === 429
+        ) {
+          deps.recordEvent?.(
+            "bus",
+            createError instanceof Error ? createError.message : String(createError),
+            {
+              phase: "topic-provision-rate-limited",
+              chatId: deps.topicChatId,
+              retryAfterSeconds: createError.retryAfterSeconds,
+            },
+          );
+          const existingTopic = deps.store
+            .list()
+            .find(
+              (r) =>
+                r.target.chatId === deps.topicChatId &&
+                typeof r.target.threadId === "number" &&
+                r.status === "active",
+            );
+          threadId = existingTopic?.target.threadId ?? 1;
+          isFallbackReused = true;
+          assertLeaderEpoch("after-createForumTopic");
+        } else {
+          throw createError;
+        }
       }
-      assertLeaderEpoch("after-createForumTopic");
       const target = { chatId: deps.topicChatId, threadId };
       deps.store.upsertPendingProvision({ ...pendingBase, target });
       await deps.store.persist();
@@ -4901,7 +4939,7 @@ export function createTelegramTopicTargetProvisioner(
       assertLeaderEpoch("after-active-binding");
       return {
         target: record.target,
-        reused: false,
+        reused: isFallbackReused,
         record,
         ...(displayTitle ? { displayTitle } : {}),
       };

@@ -757,6 +757,8 @@ export interface TelegramBridgeApiRuntimeDeps {
   now?: () => number;
   chatActionMinIntervalMs?: number;
   chatActionMaxGates?: number;
+  chatOutboundMinIntervalMs?: number;
+  chatOutboundMaxGates?: number;
 }
 
 export interface TelegramBridgeApiRuntime {
@@ -879,7 +881,7 @@ export function isTelegramApiCommitUnknownError(
   return error instanceof TelegramApiCommitUnknownError;
 }
 
-class TelegramApiHttpError extends Error {
+export class TelegramApiHttpError extends Error {
   readonly status: number | undefined;
   readonly retryAfterSeconds: number | undefined;
   requestTarget?: { chatId: number; threadId: number };
@@ -958,6 +960,23 @@ const TELEGRAM_RETRY_SAFE_METHODS = new Set([
   "sendMessageDraft",
   "sendRichMessageDraft",
   "setMyCommands",
+]);
+
+export const TELEGRAM_MAX_RATE_LIMIT_SLEEP_MS = 60_000;
+
+export const TELEGRAM_CHAT_MESSAGE_PACED_METHODS = new Set([
+  "sendMessage",
+  "sendRichMessage",
+  "editMessageText",
+  "editMessageReplyMarkup",
+  "editMessageCaption",
+  "sendPhoto",
+  "sendDocument",
+  "sendVoice",
+  "sendAudio",
+  "sendAnimation",
+  "sendVideo",
+  "sendSticker",
 ]);
 
 export function isTelegramApiMethodRetrySafe(method: string): boolean {
@@ -1425,8 +1444,13 @@ async function callTelegramWithRetry<TResponse>(
         ),
       );
     } catch (error) {
+      const isExcessiveRateLimit =
+        error instanceof TelegramApiHttpError &&
+        error.status === 429 &&
+        (error.retryAfterSeconds ?? 0) * 1000 > TELEGRAM_MAX_RATE_LIMIT_SLEEP_MS;
       const retryable =
         isRetryableTelegramApiError(error) &&
+        !isExcessiveRateLimit &&
         !(
           options?.retryRateLimit === false &&
           error instanceof TelegramApiHttpError &&
@@ -1434,7 +1458,7 @@ async function callTelegramWithRetry<TResponse>(
         );
       if (!retrySafe) {
         if (error instanceof TelegramApiHttpError && error.status === 429) {
-          if (attempt >= maxAttempts - 1) throw error;
+          if (attempt >= maxAttempts - 1 || isExcessiveRateLimit) throw error;
           await waitBeforeRetry(error, attempt);
           continue;
         }
@@ -1782,6 +1806,7 @@ export function createDefaultTelegramBridgeApiRuntime(deps: {
   workspaceAdmission?:
     | TelegramApiWorkspaceAdmissionPort
     | (() => TelegramApiWorkspaceAdmissionPort | undefined);
+  chatOutboundMinIntervalMs?: number;
 }): TelegramBridgeApiRuntime {
   const client = createTelegramApiClient(deps.getBotToken, {
     recordRuntimeEvent: deps.recordRuntimeEvent,
@@ -1805,6 +1830,7 @@ export function createDefaultTelegramBridgeApiRuntime(deps: {
     tempFileMaxAgeMs: TELEGRAM_TEMP_FILE_MAX_AGE_MS,
     recordRuntimeEvent: deps.recordRuntimeEvent,
     captureRequestErrorHandler: deps.captureRequestErrorHandler,
+    chatOutboundMinIntervalMs: deps.chatOutboundMinIntervalMs ?? 0,
   });
 }
 
@@ -1830,6 +1856,15 @@ export function createTelegramBridgeApiRuntime(
   const chatActionGates = new Map<
     string,
     { inFlight?: Promise<unknown>; notBeforeMs: number }
+  >();
+  const chatOutboundMinIntervalMs = Math.max(
+    0,
+    deps.chatOutboundMinIntervalMs ?? 0,
+  );
+  const chatOutboundMaxGates = Math.max(1, deps.chatOutboundMaxGates ?? 256);
+  const chatOutboundGates = new Map<
+    string,
+    { chain: Promise<void>; notBeforeMs: number; inFlightCount: number }
   >();
   const getChatActionKey = (
     method: string,
@@ -1917,6 +1952,70 @@ export function createTelegramBridgeApiRuntime(
       gate.inFlight = request;
       return request;
     }
+    const chatId =
+      typeof body.chat_id === "number" || typeof body.chat_id === "string"
+        ? String(body.chat_id)
+        : undefined;
+    if (chatId && TELEGRAM_CHAT_MESSAGE_PACED_METHODS.has(method)) {
+      const nowMs = now();
+      for (const [key, candidate] of chatOutboundGates) {
+        if (candidate.inFlightCount === 0 && nowMs >= candidate.notBeforeMs) {
+          chatOutboundGates.delete(key);
+        }
+      }
+      let gate = chatOutboundGates.get(chatId);
+      if (!gate) {
+        if (chatOutboundGates.size < chatOutboundMaxGates) {
+          gate = { chain: Promise.resolve(), notBeforeMs: 0, inFlightCount: 0 };
+          chatOutboundGates.set(chatId, gate);
+        }
+      }
+      if (gate) {
+        gate.inFlightCount += 1;
+        const currentGate = gate;
+        const executePaced = async (): Promise<TResponse> => {
+          const waitMs = Math.max(0, currentGate.notBeforeMs - now());
+          if (waitMs > 0) {
+            await sleepTelegramRetry(waitMs, options?.signal);
+          }
+          try {
+            const result = await deps.client.call<TResponse>(method, body, options);
+            currentGate.notBeforeMs = now() + chatOutboundMinIntervalMs;
+            return result;
+          } catch (error) {
+            await recoverRequestError(recoverError, error);
+            if (error instanceof TelegramApiHttpError && error.status === 429) {
+              const retryAfterMs = Math.max(
+                chatOutboundMinIntervalMs,
+                (error.retryAfterSeconds ?? 1) * 1_000,
+              );
+              currentGate.notBeforeMs = now() + retryAfterMs;
+              deps.recordRuntimeEvent(
+                "api",
+                error,
+                withTelegramTransportDiagnostics(error, {
+                  method,
+                  rateLimited: true,
+                  retryAfterMs,
+                }),
+              );
+            } else {
+              deps.recordRuntimeEvent(
+                "api",
+                error,
+                withTelegramTransportDiagnostics(error, { method }),
+              );
+            }
+            throw error;
+          }
+        };
+        const runPromise = currentGate.chain.then(executePaced, executePaced);
+        currentGate.chain = runPromise.then(() => {}, () => {});
+        return await runPromise.finally(() => {
+          currentGate.inFlightCount = Math.max(0, currentGate.inFlightCount - 1);
+        });
+      }
+    }
     try {
       return await deps.client.call<TResponse>(method, body, options);
     } catch (error) {
@@ -1942,33 +2041,79 @@ export function createTelegramBridgeApiRuntime(
      * photos, documents, animations, etc.).
      * Errors are recorded under the "multipart" category for diagnostics.
      */
-    callMultipart: async (
-      method,
-      fields,
-      fileField,
-      filePath,
-      fileName,
-      options,
-    ) => {
+    callMultipart: async <TResponse>(
+      method: string,
+      fields: Record<string, string>,
+      fileField: string,
+      filePath: string,
+      fileName: string,
+      options?: TelegramApiCallOptions,
+    ): Promise<TResponse> => {
       const recoverError = deps.captureRequestErrorHandler?.(fields);
-      try {
-        return await deps.client.callMultipart(
-          method,
-          fields,
-          fileField,
-          filePath,
-          fileName,
-          options,
-        );
-      } catch (error) {
-        await recoverRequestError(recoverError, error);
-        deps.recordRuntimeEvent(
-          "multipart",
-          error,
-          withTelegramTransportDiagnostics(error, { method, fileName }),
-        );
-        throw error;
+      const chatId =
+        typeof fields.chat_id === "number" || typeof fields.chat_id === "string"
+          ? String(fields.chat_id)
+          : undefined;
+      const doMultipart = async (): Promise<TResponse> => {
+        try {
+          return await deps.client.callMultipart<TResponse>(
+            method,
+            fields,
+            fileField,
+            filePath,
+            fileName,
+            options,
+          );
+        } catch (error) {
+          await recoverRequestError(recoverError, error);
+          if (error instanceof TelegramApiHttpError && error.status === 429) {
+            const retryAfterMs = Math.max(
+              chatOutboundMinIntervalMs,
+              (error.retryAfterSeconds ?? 1) * 1_000,
+            );
+            if (chatId) {
+              let gate = chatOutboundGates.get(chatId);
+              if (!gate && chatOutboundGates.size < chatOutboundMaxGates) {
+                gate = { chain: Promise.resolve(), notBeforeMs: 0, inFlightCount: 0 };
+                chatOutboundGates.set(chatId, gate);
+              }
+              if (gate) gate.notBeforeMs = now() + retryAfterMs;
+            }
+          }
+          deps.recordRuntimeEvent(
+            "multipart",
+            error,
+            withTelegramTransportDiagnostics(error, { method, fileName }),
+          );
+          throw error;
+        }
+      };
+      if (chatId) {
+        let gate = chatOutboundGates.get(chatId);
+        if (!gate && chatOutboundGates.size < chatOutboundMaxGates) {
+          gate = { chain: Promise.resolve(), notBeforeMs: 0, inFlightCount: 0 };
+          chatOutboundGates.set(chatId, gate);
+        }
+        if (gate) {
+          gate.inFlightCount += 1;
+          const currentGate = gate;
+          const runPacedMultipart = async (): Promise<TResponse> => {
+            const waitMs = Math.max(0, currentGate.notBeforeMs - now());
+            if (waitMs > 0) {
+              await sleepTelegramRetry(waitMs, options?.signal);
+            }
+            const res = await doMultipart();
+            currentGate.notBeforeMs = now() + chatOutboundMinIntervalMs;
+            return res;
+          };
+          const runPromise = currentGate.chain.then(runPacedMultipart, runPacedMultipart);
+          currentGate.chain = runPromise.then(() => {}, () => {});
+          return await runPromise.finally(() => {
+            currentGate.inFlightCount = Math.max(0, currentGate.inFlightCount - 1);
+          });
+        }
       }
+      return await doMultipart();
     },
 
     /**

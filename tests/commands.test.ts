@@ -2749,3 +2749,30 @@ test("Telegram settings command opens interactive TUI when in TUI mode", async (
   assert.equal(customCalled, true, "custom TUI must be opened");
   assert.ok(notifications[0]?.includes("settings saved"));
 });
+
+test("telegram-connect defaults forceFreshLeaderThread to false unless --fresh is supplied", async () => {
+  const harness = createCommandRegistrationApiHarness();
+  const capturedOptions: Array<{ forceFreshLeaderThread?: boolean }> = [];
+  registerTelegramBridgeCommands(harness.api, {
+    promptForConfig: async () => {},
+    getStatusLines: () => [],
+    reloadConfig: async () => {},
+    hasBotToken: () => true,
+    startPolling: async (_ctx, options) => {
+      capturedOptions.push({ forceFreshLeaderThread: options?.forceFreshLeaderThread });
+    },
+    stopPolling: async () => {},
+    updateStatus: () => {},
+  });
+  const ctx = createBridgeCommandContext();
+  const connect = getRequiredCommand(harness.commands, "telegram-connect");
+
+  await connect.handler("", ctx);
+  assert.equal(capturedOptions.length, 1);
+  assert.equal(capturedOptions[0]?.forceFreshLeaderThread, false, "default connect must not force fresh topic");
+
+  await connect.handler("--fresh", ctx);
+  assert.equal(capturedOptions.length, 2);
+  assert.equal(capturedOptions[1]?.forceFreshLeaderThread, true, "--fresh connect must force fresh topic");
+});
+
