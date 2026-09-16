@@ -10,6 +10,10 @@ import test from "node:test";
 import {
   createTelegramProgressTailRuntime,
   cleanUserPrompt,
+  isCommandInvocationPrompt,
+  TELEGRAM_PROGRESS_TAIL_MAX_MESSAGE_BYTES,
+  TELEGRAM_PROGRESS_TAIL_MAX_TOOLS,
+  TELEGRAM_PROGRESS_TAIL_TODO_RETENTION_MS,
   renderReasoningSectionRich,
   extractReasoningTail,
   extractShortToolArgs,
@@ -378,29 +382,32 @@ test("extractToolResultSummary extracts text content and truncates safely", () =
   assert.ok(truncated.length <= 620);
 });
 
-test("formatProgressTailRich renders tool result in details block and limits table rows to 4 newest tools", () => {
+test("formatProgressTailRich renders tool results and keeps the newest tools within the configured cap", () => {
+  const total = TELEGRAM_PROGRESS_TAIL_MAX_TOOLS + 1;
   const state: ProgressTailState = {
     status: "working",
     startedAtMs: 1000,
     modelName: "Opus 5",
     reasoningLines: [],
-    tools: [
-      { id: "1", name: "tool1", args: "arg1", status: "completed", resultSummary: "res1" },
-      { id: "2", name: "tool2", args: "arg2", status: "completed", resultSummary: "res2" },
-      { id: "3", name: "tool3", args: "arg3", status: "completed", resultSummary: "res3" },
-      { id: "4", name: "tool4", args: "arg4", status: "completed", resultSummary: "res4" },
-      { id: "5", name: "tool5", args: "arg5", status: "completed", resultSummary: "res5" },
-    ],
+    tools: Array.from({ length: total }, (_unused, index) => ({
+      id: String(index + 1),
+      name: `tool${index + 1}`,
+      args: `arg${index + 1}`,
+      status: "completed" as const,
+      resultSummary: `res${index + 1}`,
+    })),
     todoItems: [],
   };
 
   const md = formatProgressTailRich(state);
-  assert.ok(md.includes("… [1 earlier tools omitted]"), "must show omitted count when > 4 tools");
-  assert.equal(md.includes("| tool1 |"), false, "tool1 is the oldest and should be omitted from table");
+  assert.ok(md.includes("… [1 earlier tools omitted]"), "must show omitted count beyond the cap");
+  assert.equal(md.includes("| tool1 |"), false, "the oldest tool is dropped from the table");
   assert.ok(md.includes("| tool2 |"));
-  assert.ok(md.includes("| tool5 |"));
+  assert.ok(md.includes(`| tool${total} |`));
   assert.ok(md.includes("<details>\n<summary>Result: tool2 · tap to expand</summary>\n\n```\nres2\n```\n\n</details>"));
-  assert.ok(md.includes("<details>\n<summary>Result: tool5 · tap to expand</summary>\n\n```\nres5\n```\n\n</details>"));
+  assert.ok(
+    md.includes(`<details>\n<summary>Result: tool${total} · tap to expand</summary>\n\n\`\`\`\nres${total}\n\`\`\`\n\n</details>`),
+  );
 });
 
 test("renderReasoningSectionRich displays latest 1-2 paragraphs directly, earlier in details block", () => {
@@ -527,7 +534,7 @@ test("Progress tail runtime updates userPrompt on prompt-update steering message
   assert.equal(updatedMarkdown.includes("initial user prompt"), false, "old prompt must be replaced by new steering prompt");
 });
 
-test("formatProgressTailRich handles massive reasoning and 50 tools within 7500 chars limit", () => {
+test("formatProgressTailRich handles massive reasoning and 50 tools within the Telegram byte budget", () => {
   const massiveReasoning = [
     "Paragraph 1 describing initial investigation and findings in great detail.",
     "Paragraph 2 exploring multiple potential root causes in depth across files.",
@@ -559,7 +566,10 @@ test("formatProgressTailRich handles massive reasoning and 50 tools within 7500 
   };
 
   const md = formatProgressTailRich(state);
-  assert.ok(md.length <= 7500, "Markdown length must stay within 7500 safety budget, got " + md.length);
+  assert.ok(
+    Buffer.byteLength(md, "utf8") <= TELEGRAM_PROGRESS_TAIL_MAX_MESSAGE_BYTES,
+    "Markdown must stay within the Telegram byte budget, got " + Buffer.byteLength(md, "utf8"),
+  );
   assert.ok(md.includes("⏳ **Working...**"));
   assert.ok(md.includes("## 👤 Prompt"));
   assert.ok(md.includes("## 💭 Reasoning"));
@@ -1052,4 +1062,160 @@ test("Progress tail runtime: honors a publish interval changed after constructio
     "a live interval change must take effect without restarting the session",
   );
   await runtime.waitForIdle();
+});
+
+test("isCommandInvocationPrompt keeps slash commands out of the prompt line", () => {
+  assert.equal(isCommandInvocationPrompt("/reload-plugins"), true);
+  assert.equal(isCommandInvocationPrompt("  /model gpt-5.6  "), true);
+  assert.equal(isCommandInvocationPrompt("[telegram] /telegram-settings"), true);
+  assert.equal(isCommandInvocationPrompt("/ is a slash"), false);
+  assert.equal(isCommandInvocationPrompt("tolong cek /tmp/x.log"), false);
+  assert.equal(isCommandInvocationPrompt("cek path /usr/bin"), false);
+});
+
+test("Progress tail runtime: a slash command never replaces the visible prompt", async () => {
+  const sends: TelegramSendRichMessageBody[] = [];
+  const edits: TelegramEditMessageTextBody[] = [];
+  const now = 10_000;
+
+  const runtime = createTelegramProgressTailRuntime({
+    getActivityMode: () => "verbose",
+    getNowMs: () => now,
+    getIntervalMs: () => 0,
+    resolveTarget: (e) => e.target,
+    captureAuthority: () => 1,
+    isAuthorityActive: () => true,
+    async sendRichMessage(body) {
+      sends.push(body);
+      return { message_id: 970, date: 1, chat: { id: 42, type: "private" } };
+    },
+    async sendMessage() {
+      throw new Error("unexpected call");
+    },
+    async editMessageText(body) {
+      edits.push(body);
+      return "edited";
+    },
+  });
+
+  runtime.accept(event("agent-start", { promptText: "tolong rapikan dokumen rilis" }));
+  runtime.accept(event("tool-start", { toolCallId: "1", toolName: "read", args: { path: "a.ts" } }));
+  await runtime.waitForIdle();
+  assert.ok((sends[0]?.rich_message?.markdown ?? "").includes("tolong rapikan dokumen rilis"));
+
+  runtime.accept(event("prompt-update", { promptText: "/reload-plugins" }));
+  runtime.accept(event("tool-end", { toolCallId: "1", toolName: "read", isError: false, result: "ok" }));
+  await runtime.waitForIdle();
+
+  const latest = edits.at(-1)?.rich_message?.markdown ?? "";
+  assert.equal(latest.includes("/reload-plugins"), false, "a command invocation is not a prompt");
+  assert.ok(latest.includes("tolong rapikan dokumen rilis"), "the real prompt survives the command");
+});
+
+test("Progress tail runtime: settled todos drop out of the table after the retention window", async () => {
+  const sends: TelegramSendRichMessageBody[] = [];
+  const edits: TelegramEditMessageTextBody[] = [];
+  let now = 10_000;
+
+  const runtime = createTelegramProgressTailRuntime({
+    getActivityMode: () => "verbose",
+    getNowMs: () => now,
+    getIntervalMs: () => 0,
+    resolveTarget: (e) => e.target,
+    captureAuthority: () => 1,
+    isAuthorityActive: () => true,
+    async sendRichMessage(body) {
+      sends.push(body);
+      return { message_id: 980, date: 1, chat: { id: 42, type: "private" } };
+    },
+    async sendMessage() {
+      throw new Error("unexpected call");
+    },
+    async editMessageText(body) {
+      edits.push(body);
+      return "edited";
+    },
+  });
+
+  const todoResult = (statuses: Array<[string, string]>) =>
+    JSON.stringify({
+      details: {
+        items: statuses.map(([task, status]) => ({ task, status })),
+      },
+    });
+
+  runtime.accept(
+    event("tool-end", {
+      toolCallId: "todo-1",
+      toolName: "todo",
+      isError: false,
+      result: todoResult([
+        ["Diagnosa tabrakan intake", "completed"],
+        ["Sapu galat log", "in_progress"],
+      ]),
+    }),
+  );
+  await runtime.waitForIdle();
+  const first = sends.at(-1)?.rich_message?.markdown ?? "";
+  assert.ok(first.includes("| ✓ | Diagnosa tabrakan intake |"), "a freshly completed task stays visible");
+  assert.ok(first.includes("## 📋 Todo (1/2)"), "the header counts every task, hidden or not");
+
+  now += TELEGRAM_PROGRESS_TAIL_TODO_RETENTION_MS + 1;
+  runtime.accept(event("tool-start", { toolCallId: "t2", toolName: "read", args: { path: "b.ts" } }));
+  await runtime.waitForIdle();
+
+  const later = edits.at(-1)?.rich_message?.markdown ?? "";
+  assert.equal(
+    later.includes("| ✓ | Diagnosa tabrakan intake |"),
+    false,
+    "a task settled longer than the retention window disappears",
+  );
+  assert.ok(later.includes("| ⟳ | Sapu galat log |"), "unfinished work stays visible");
+  assert.ok(later.includes("## 📋 Todo (1/2)"), "the header still reports total progress");
+});
+
+test("Progress tail runtime: the todo section disappears once every task has aged out", async () => {
+  const sends: TelegramSendRichMessageBody[] = [];
+  const edits: TelegramEditMessageTextBody[] = [];
+  let now = 10_000;
+
+  const runtime = createTelegramProgressTailRuntime({
+    getActivityMode: () => "verbose",
+    getNowMs: () => now,
+    getIntervalMs: () => 0,
+    resolveTarget: (e) => e.target,
+    captureAuthority: () => 1,
+    isAuthorityActive: () => true,
+    async sendRichMessage(body) {
+      sends.push(body);
+      return { message_id: 990, date: 1, chat: { id: 42, type: "private" } };
+    },
+    async sendMessage() {
+      throw new Error("unexpected call");
+    },
+    async editMessageText(body) {
+      edits.push(body);
+      return "edited";
+    },
+  });
+
+  runtime.accept(
+    event("tool-end", {
+      toolCallId: "todo-1",
+      toolName: "todo",
+      isError: false,
+      result: JSON.stringify({
+        details: { items: [{ task: "Rilis versi baru", status: "completed" }] },
+      }),
+    }),
+  );
+  await runtime.waitForIdle();
+  assert.ok((sends.at(-1)?.rich_message?.markdown ?? "").includes("| ✓ | Rilis versi baru |"));
+
+  now += TELEGRAM_PROGRESS_TAIL_TODO_RETENTION_MS + 1;
+  runtime.accept(event("tool-start", { toolCallId: "t2", toolName: "read", args: { path: "b.ts" } }));
+  await runtime.waitForIdle();
+
+  const later = edits.at(-1)?.rich_message?.markdown ?? "";
+  assert.equal(later.includes("## 📋 Todo"), false, "an all-settled todo list stops occupying the bubble");
 });

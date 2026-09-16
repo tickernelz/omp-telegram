@@ -16,11 +16,14 @@ import type {
 } from "./telegram-api.ts";
 
 export const TELEGRAM_PROGRESS_TAIL_DEFAULT_INTERVAL_MS = 5_000;
-export const TELEGRAM_PROGRESS_TAIL_MAX_TOOLS = 4;
-export const TELEGRAM_PROGRESS_TAIL_MAX_REASONING_LINES = 8;
-export const TELEGRAM_PROGRESS_TAIL_MAX_TOOL_ARG_CHARS = 120;
-export const TELEGRAM_PROGRESS_TAIL_MAX_TOOL_RESULT_CHARS = 250;
-export const TELEGRAM_PROGRESS_TAIL_MAX_MESSAGE_CHARS = 7_500;
+export const TELEGRAM_PROGRESS_TAIL_MAX_TOOLS = 10;
+export const TELEGRAM_PROGRESS_TAIL_MAX_REASONING_LINES = 14;
+export const TELEGRAM_PROGRESS_TAIL_MAX_TOOL_ARG_CHARS = 200;
+export const TELEGRAM_PROGRESS_TAIL_MAX_TOOL_RESULT_CHARS = 600;
+export const TELEGRAM_PROGRESS_TAIL_MAX_MESSAGE_BYTES = 8_000;
+export const TELEGRAM_PROGRESS_TAIL_MAX_PROMPT_CHARS = 600;
+export const TELEGRAM_PROGRESS_TAIL_MAX_TODO_ROWS = 20;
+export const TELEGRAM_PROGRESS_TAIL_TODO_RETENTION_MS = 60_000;
 export const TELEGRAM_PROGRESS_TAIL_REASONING_BUFFER_MAX_CHARS = 6_000;
 export const TELEGRAM_PROGRESS_TAIL_MAX_PUBLISH_FAILURES = 3;
 
@@ -39,6 +42,7 @@ export interface ProgressTailToolItem {
 export interface ProgressTailTodoItem {
   task: string;
   status: "pending" | "in_progress" | "completed" | "cancelled";
+  settledAtMs?: number;
 }
 
 export type ProgressTailContextInfo = TelegramActivityContextInfo;
@@ -55,6 +59,7 @@ export interface ProgressTailState {
   tools: ProgressTailToolItem[];
   todoItems: ProgressTailTodoItem[];
   errorMessage?: string;
+  nowMs?: number;
 }
 
 export interface TelegramProgressTailRuntimeDeps<TAuthority> {
@@ -172,7 +177,16 @@ export function extractShortToolArgs(
   return "";
 }
 
-export function cleanUserPrompt(raw: string, maxChars = 140): string {
+export function isCommandInvocationPrompt(raw: string): boolean {
+  return /^\s*\/[A-Za-z0-9][\w-]*(\s|$)/.test(
+    raw.trim().replace(/^\[telegram(?:\|[^\]]+)?\]\s*/i, "").trim(),
+  );
+}
+
+export function cleanUserPrompt(
+  raw: string,
+  maxChars = TELEGRAM_PROGRESS_TAIL_MAX_PROMPT_CHARS,
+): string {
   if (!raw) return "";
   let text = raw.trim().replace(/^\[telegram(?:\|[^\]]+)?\]\s*/i, "").trim();
   text = text.replace(/\s+/g, " ").trim();
@@ -355,9 +369,15 @@ export function extractReasoningTail(
 }
 
 export function formatProgressTailRich(state: ProgressTailState): string {
-  const buildSections = (includeOlderToolResults: boolean, includeLatestToolResult: boolean, reasoningMaxChars: number) => {
+  const nowMs = state.nowMs ?? Date.now();
+  const buildSections = (
+    includeOlderToolResults: boolean,
+    includeLatestToolResult: boolean,
+    reasoningMaxChars: number,
+    promptMaxChars: number,
+  ) => {
     const sections: string[] = [];
-    const endMs = state.completedAtMs ?? Date.now();
+    const endMs = state.completedAtMs ?? nowMs;
     const elapsedSec = Math.max(0.1, (endMs - state.startedAtMs) / 1000).toFixed(1);
 
     let statusLine = "";
@@ -413,7 +433,11 @@ export function formatProgressTailRich(state: ProgressTailState): string {
     }
 
     if (state.userPrompt) {
-      sections.push(`## 👤 Prompt\n\n_${state.userPrompt}_`);
+      const promptText =
+        state.userPrompt.length > promptMaxChars
+          ? `${state.userPrompt.slice(0, promptMaxChars)}…`
+          : state.userPrompt;
+      sections.push(`## 👤 Prompt\n\n_${promptText}_`);
     }
 
     const rawReasoning = state.reasoningBuffer || state.reasoningLines.join("\n");
@@ -422,21 +446,32 @@ export function formatProgressTailRich(state: ProgressTailState): string {
       sections.push(reasoningSection);
     }
 
-    if (state.todoItems.length > 0) {
+    const visibleTodoItems = state.todoItems.filter(
+      (item) =>
+        item.settledAtMs === undefined ||
+        nowMs - item.settledAtMs < TELEGRAM_PROGRESS_TAIL_TODO_RETENTION_MS,
+    );
+    if (visibleTodoItems.length > 0) {
       const doneCount = state.todoItems.filter((t) => t.status === "completed").length;
       const header = `## 📋 Todo (${doneCount}/${state.todoItems.length})`;
       const tableLines: string[] = [
         "| St | Task |",
         "|:---|:-----|",
       ];
-      for (const item of state.todoItems.slice(0, 8)) {
+      const rows = visibleTodoItems.slice(-TELEGRAM_PROGRESS_TAIL_MAX_TODO_ROWS);
+      for (const item of rows) {
         const marker = item.status === "completed" ? "✓" : item.status === "in_progress" ? "⟳" : item.status === "cancelled" ? "-" : " ";
         const safeTask = item.task.replace(/\|/g, "\\|").replace(/\n/g, " ");
         tableLines.push(`| ${marker} | ${safeTask} |`);
       }
       let todoBlock = `${header}\n\n${tableLines.join("\n")}`;
-      if (state.todoItems.length > 8) {
-        todoBlock += `\n\n_… [${state.todoItems.length - 8} more tasks]_`;
+      const hidden = state.todoItems.length - rows.length;
+      if (hidden > 0) {
+        const overflowed = visibleTodoItems.length - rows.length;
+        todoBlock +=
+          overflowed > 0
+            ? `\n\n_… [${hidden} more tasks]_`
+            : `\n\n_… [${hidden} settled tasks hidden]_`;
       }
       sections.push(todoBlock);
     }
@@ -497,16 +532,18 @@ export function formatProgressTailRich(state: ProgressTailState): string {
     return sections.join("\n\n");
   };
 
-  const MAX_CHARS = TELEGRAM_PROGRESS_TAIL_MAX_MESSAGE_CHARS;
-  let body = buildSections(true, true, 4_000);
-  if (body.length > MAX_CHARS) {
-    body = buildSections(false, true, 2_500);
-  }
-  if (body.length > MAX_CHARS) {
-    body = buildSections(false, false, 1_500);
-  }
-  if (body.length > MAX_CHARS) {
-    body = buildSections(false, false, 800);
+  const fits = (candidate: string): boolean =>
+    Buffer.byteLength(candidate, "utf8") <= TELEGRAM_PROGRESS_TAIL_MAX_MESSAGE_BYTES;
+  const ladder: Array<[boolean, boolean, number, number]> = [
+    [true, true, 5_000, TELEGRAM_PROGRESS_TAIL_MAX_PROMPT_CHARS],
+    [true, true, 3_500, 400],
+    [false, true, 2_500, 280],
+    [false, false, 1_500, 200],
+    [false, false, 800, 140],
+  ];
+  let body = buildSections(...ladder[0]!);
+  for (let step = 1; step < ladder.length && !fits(body); step += 1) {
+    body = buildSections(...ladder[step]!);
   }
   return body;
 }
@@ -545,6 +582,7 @@ export function createTelegramProgressTailRuntime<TAuthority>(
   const activeContainers = new Map<string, { id: string; name: string; childToolCount: number }>();
 
   let timer: NodeJS.Timeout | undefined;
+  let todoExpiryTimer: NodeJS.Timeout | undefined;
   let lastPublishMs = 0;
   let dirty = false;
   let lastPublishedMarkdown: string | undefined;
@@ -564,8 +602,43 @@ export function createTelegramProgressTailRuntime<TAuthority>(
     }
   };
 
+  const clearTodoExpiryTimer = (): void => {
+    if (todoExpiryTimer !== undefined) {
+      clearTimeout(todoExpiryTimer);
+      todoExpiryTimer = undefined;
+    }
+  };
+
+  const scheduleTodoExpiryRefresh = (
+    acceptedGeneration: number,
+    admittedAuthority: TAuthority | undefined,
+  ): void => {
+    clearTodoExpiryTimer();
+    const now = getNowMs();
+    const pending = todoItems
+      .map((item) => item.settledAtMs)
+      .filter(
+        (settledAtMs): settledAtMs is number =>
+          typeof settledAtMs === "number" &&
+          now - settledAtMs < TELEGRAM_PROGRESS_TAIL_TODO_RETENTION_MS,
+      );
+    if (pending.length === 0) return;
+    const delay = Math.max(
+      1,
+      Math.min(...pending) + TELEGRAM_PROGRESS_TAIL_TODO_RETENTION_MS - now,
+    );
+    todoExpiryTimer = setTimeout(() => {
+      todoExpiryTimer = undefined;
+      if (!isCurrent(acceptedGeneration, admittedAuthority)) return;
+      void enqueuePublish(acceptedGeneration, admittedAuthority);
+      scheduleTodoExpiryRefresh(acceptedGeneration, admittedAuthority);
+    }, delay);
+    todoExpiryTimer?.unref?.();
+  };
+
   const clearSegment = (): void => {
     clearTimer();
+    clearTodoExpiryTimer();
     liveMessage = undefined;
     startedAtMs = getNowMs();
     completedAtMs = undefined;
@@ -658,6 +731,7 @@ export function createTelegramProgressTailRuntime<TAuthority>(
       reasoningLines,
       tools: allTools,
       todoItems,
+      nowMs: getNowMs(),
     };
   };
 
@@ -825,7 +899,7 @@ export function createTelegramProgressTailRuntime<TAuthority>(
         startedAtMs = getNowMs();
       }
       status = "working";
-      if (event.promptText) {
+      if (event.promptText && !isCommandInvocationPrompt(event.promptText)) {
         userPrompt = cleanUserPrompt(event.promptText);
       }
       if (event.contextInfo) {
@@ -835,7 +909,7 @@ export function createTelegramProgressTailRuntime<TAuthority>(
     }
 
     if (event.type === "prompt-update") {
-      if (event.promptText) {
+      if (event.promptText && !isCommandInvocationPrompt(event.promptText)) {
         userPrompt = cleanUserPrompt(event.promptText);
         await publishToTelegram(acceptedGeneration, false);
       }
@@ -958,8 +1032,20 @@ export function createTelegramProgressTailRuntime<TAuthority>(
           }
 
           if (parsed.length > 0) {
+            const settledBefore = new Map(
+              todoItems
+                .filter((item) => item.settledAtMs !== undefined)
+                .map((item) => [`${item.task}\u0000${item.status}`, item.settledAtMs!]),
+            );
+            const settledNow = getNowMs();
+            for (const item of parsed) {
+              if (item.status !== "completed" && item.status !== "cancelled") continue;
+              item.settledAtMs =
+                settledBefore.get(`${item.task}\u0000${item.status}`) ?? settledNow;
+            }
             todoItems.length = 0;
             todoItems.push(...parsed);
+            scheduleTodoExpiryRefresh(acceptedGeneration, admittedAuthority);
           }
         } catch {
           void 0;

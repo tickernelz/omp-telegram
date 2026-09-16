@@ -4,6 +4,13 @@
 
 ## Unreleased
 
+## 0.4.2: Todo Retention, Command-Free Prompt, And Wider Sections
+
+- `Settled Todos Age Out`: A task that reaches completed or cancelled stays in the Todo table for `TELEGRAM_PROGRESS_TAIL_TODO_RETENTION_MS` (60s) and then drops out, so the newest work is visible instead of a wall of checkmarks. The header keeps counting every task (`9/11`), hidden rows are reported as `[N settled tasks hidden]`, a dedicated expiry timer republishes the bubble when the window elapses, and an all-settled list removes the section entirely.
+- `Slash Commands Are Not Prompts`: `isCommandInvocationPrompt` keeps `/reload-plugins` and friends out of the Prompt section on both `agent-start` and `prompt-update`, preserving the last real prompt. Paths such as `tolong cek /tmp/x.log` are unaffected.
+- `Byte-Accurate Size Budget`: The render ladder now measures UTF-8 bytes against `TELEGRAM_PROGRESS_TAIL_MAX_MESSAGE_BYTES` (8,000) instead of characters, which is the real limit behind Telegram's Show more collapse.
+- `Wider Sections`: Tool rows 4 → 10, todo rows 8 → 20, tool results 250 → 600 chars, tool arguments 120 → 200 chars, reasoning lines 8 → 14, reasoning budget 4,000 → 5,000 chars, and the Prompt section 140 → 600 chars, each degrading through the ladder only when the byte budget demands it.
+
 ## 0.4.1: Progress Tail Survives A Mid-Turn Connect
 
 - `Live Bubble Re-Homes On Target Change`: Running `/telegram-connect` mid-turn binds the tail to the DM fallback before the Workspace Thread record exists. `ensureActivity` then accepted the new target but kept editing the message in the old chat, so the Thread stayed empty for the rest of the turn and no API error was raised. The stale bubble is now abandoned and a fresh one is created in the bound chat/thread.
