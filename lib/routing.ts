@@ -602,6 +602,12 @@ export interface TelegramInboundRouteRuntimeDeps<
     query: TCallbackQuery,
     ctx: TContext,
   ) => Promise<boolean>;
+  handlePlanMode?: (
+    message: TMessage,
+    commandCtx: TContext,
+    action: "enter" | "pause" | "exit",
+    args: string,
+  ) => Promise<void>;
   queueMenuCallbackHandler: (
     query: TCallbackQuery,
     ctx: TContext,
@@ -714,12 +720,14 @@ const TELEGRAM_OWNED_CALLBACK_PREFIXES = [
   "compact:",
   "menu:",
   "model:",
+  "plan:",
   "queue:",
   "section:",
   "settings:",
   "status:",
   "tgask:",
   "tgbtn:",
+  "tgplan:",
   "thinking:",
 ] as const;
 
@@ -2196,6 +2204,7 @@ export function createTelegramInboundRouteRuntime<
       return deps.openQueueMenu(chatId, message.message_id, ctx);
     },
     openSettingsMenu: deps.openSettingsMenu,
+    handlePlanMode: deps.handlePlanMode as any,
     getAllowedUserId: deps.configStore.getAllowedUserId,
     persistAllowedUserId: deps.configStore.persistAllowedUserId,
     setMyCommands: deps.setMyCommands,

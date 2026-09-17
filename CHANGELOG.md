@@ -4,6 +4,16 @@
 
 ## Unreleased
 
+## 0.5.0: Telegram Plan Review And Plan-Mode Control
+
+- `Plan Review Cards in Telegram`: Propose dispatches (`write xd://propose`) automatically generate a Telegram plan-review card with inline buttons (`Approve and execute`, `Approve and compact context`, `Approve and keep context`, `Refine plan`).
+- `Keystroke Driving for Terminal Overlays`: Tapping an approval button sends synthetic TUI keystrokes to control the interactive CLI plan review overlay without touching the keyboard.
+- `CLI-Won Race Handling`: If the plan is approved or refined directly from the terminal, the Telegram review card flips to show decided in CLI and strips buttons.
+- `Plan Mode Commands`: Added `/plan [goal]`, `/plan_pause`, and `/plan_exit` bot commands to enter, pause, and exit OMP plan mode directly from Telegram.
+- `Draft Preservation`: Plan mode command toggles use composer APIs and restore the operator's current CLI draft without character loss.
+- `Status Menu Integration`: Added live plan mode controls to the status menu (`📝 Plan on`, `⏸ Pause`, `⏹ Exit`).
+- `Plan Review Setting`: Controlled via `assistant.planReview` in config and toggleable via `/telegram-settings planreview on|off`.
+
 ## 0.4.3: Telegram 429 Resilience, Topic Reuse, And 10s Paced Progress
 
 - `Topic Reuse by Default`: `/telegram-connect` no longer forces `createForumTopic` on every run. Existing active workspace topics are preserved and reused cleanly; pass `--fresh` or `as=Name` to explicitly request a fresh topic.

@@ -4,6 +4,8 @@
  * Owns Telegram slash-command normalization, bot command metadata, and pi-side command registration behind runtime ports
  */
 
+import type { TelegramPlanModeAction } from "./plan-mode.ts";
+
 import {
   pairTelegramUserIfNeeded,
   type TelegramConfigStore,
@@ -173,6 +175,9 @@ export const TELEGRAM_COMMAND_EMOJI = {
   abort: "⏹️",
   stop: "🟥",
   name: "🏷️",
+  plan: "📝",
+  plan_pause: "⏸",
+  plan_exit: "⏹",
 } as const;
 
 export type TelegramCommandEmojiName = keyof typeof TELEGRAM_COMMAND_EMOJI;
@@ -271,6 +276,27 @@ export const TELEGRAM_BUILTIN_BOT_COMMANDS: readonly TelegramBotCommandDefinitio
       description: formatTelegramBotCommandDescription(
         "compact",
         "Compact current session",
+      ),
+    },
+    {
+      command: "plan",
+      description: formatTelegramBotCommandDescription(
+        "plan",
+        "Enter plan mode",
+      ),
+    },
+    {
+      command: "plan_pause",
+      description: formatTelegramBotCommandDescription(
+        "plan_pause",
+        "Pause plan mode",
+      ),
+    },
+    {
+      command: "plan_exit",
+      description: formatTelegramBotCommandDescription(
+        "plan_exit",
+        "Exit plan mode",
       ),
     },
     {
@@ -785,6 +811,9 @@ export const TELEGRAM_RESERVED_COMMAND_NAMES = [
   "settings",
   "help",
   "start",
+  "plan",
+  "plan_pause",
+  "plan_exit",
 ] as const;
 
 export type TelegramReservedCommandName =
@@ -817,6 +846,11 @@ export type TelegramCommandAction =
   | { kind: "thinking"; executionMode: "immediate" }
   | { kind: "settings"; executionMode: "immediate" }
   | {
+      kind: "plan";
+      action: TelegramPlanModeAction;
+      executionMode: "immediate";
+    }
+  | {
       kind: "help";
       commandName: "help" | "start";
       executionMode: "immediate";
@@ -836,6 +870,12 @@ export interface TelegramCommandActionDeps<TMessage, TContext> {
   handleModel: (message: TMessage, ctx: TContext) => Promise<void>;
   handleThinking: (message: TMessage, ctx: TContext) => Promise<void>;
   handleSettings?: (message: TMessage, ctx: TContext) => Promise<void>;
+  handlePlanMode?: (
+    message: TMessage,
+    ctx: TContext,
+    action: TelegramPlanModeAction,
+    args: string,
+  ) => Promise<void>;
   handleHelp: (
     message: TMessage,
     commandName: "help" | "start",
@@ -1293,6 +1333,12 @@ export interface TelegramCommandRuntimeDeps<
   openThinkingMenu: (message: TMessage, ctx: TContext) => Promise<void>;
   openQueueMenu: (message: TMessage, ctx: TContext) => Promise<void>;
   openSettingsMenu?: (message: TMessage, ctx: TContext) => Promise<void>;
+  handlePlanMode?: (
+    message: TMessage,
+    ctx: TContext,
+    action: TelegramPlanModeAction,
+    args: string,
+  ) => Promise<void>;
   validateThreadName?: (threadName: string) => string | undefined;
   renameCurrentThread?: TelegramThreadDisplayNameRenamePort;
   resetCurrentThreadName?: TelegramThreadDisplayNameResetPort;
@@ -1322,6 +1368,9 @@ export const TELEGRAM_APP_MENU_INTRO_HTML = [
   `${formatTelegramCommandEmojiPrefix("start")}/start — Open menu / Pair bridge`,
   `${formatTelegramCommandEmojiPrefix("name")}/name Name — Rename this thread`,
   `${formatTelegramCommandEmojiPrefix("compact")}/compact — Compact current session`,
+  `${formatTelegramCommandEmojiPrefix("plan")}/plan [goal] — Enter plan mode`,
+  `${formatTelegramCommandEmojiPrefix("plan_pause")}/plan_pause — Pause plan mode`,
+  `${formatTelegramCommandEmojiPrefix("plan_exit")}/plan_exit — Exit plan mode`,
   `${formatTelegramCommandEmojiPrefix("next")}/next — Force next turn`,
   `${formatTelegramCommandEmojiPrefix("continue")}/continue — Queue continue prompt`,
   `${formatTelegramCommandEmojiPrefix("abort")}/abort — Abort OMP`,
@@ -1363,6 +1412,9 @@ function buildTelegramAppMenuIntroHtml(): string {
     `${formatTelegramCommandEmojiPrefix("start")}/start — Open menu / Pair bridge`,
     `${formatTelegramCommandEmojiPrefix("name")}/name Name — Rename this thread`,
     `${formatTelegramCommandEmojiPrefix("compact")}/compact — Compact current session`,
+    `${formatTelegramCommandEmojiPrefix("plan")}/plan [goal] — Enter plan mode`,
+    `${formatTelegramCommandEmojiPrefix("plan_pause")}/plan_pause — Pause plan mode`,
+    `${formatTelegramCommandEmojiPrefix("plan_exit")}/plan_exit — Exit plan mode`,
     ...extensionLines,
     `${formatTelegramCommandEmojiPrefix("next")}/next — Force next turn`,
     `${formatTelegramCommandEmojiPrefix("continue")}/continue — Queue continue prompt`,
@@ -1442,6 +1494,9 @@ export const TELEGRAM_COMMAND_ACTIONS = {
   settings: { kind: "settings", executionMode: "immediate" },
   help: { kind: "help", commandName: "help", executionMode: "immediate" },
   start: { kind: "help", commandName: "start", executionMode: "immediate" },
+  plan: { kind: "plan", action: "enter", executionMode: "immediate" },
+  plan_pause: { kind: "plan", action: "pause", executionMode: "immediate" },
+  plan_exit: { kind: "plan", action: "exit", executionMode: "immediate" },
 } as const satisfies Record<TelegramReservedCommandName, TelegramCommandAction>;
 
 export function buildTelegramCommandAction(
@@ -1826,6 +1881,10 @@ export async function executeTelegramCommandAction<TMessage, TContext>(
     case "settings":
       if (!deps.handleSettings) return false;
       await deps.handleSettings(message, ctx);
+      return true;
+    case "plan":
+      if (!deps.handlePlanMode) return false;
+      await deps.handlePlanMode(message, ctx, action.action, commandArgs);
       return true;
     case "help":
       await deps.handleHelp(message, action.commandName, ctx);

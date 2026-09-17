@@ -965,6 +965,8 @@ export interface TelegramSettingsCommandDeps {
   setTimeInjectionMode: (mode: TelegramTimeMode) => Promise<void>;
   isAutomaticThreadCleanupEnabled: () => boolean;
   setAutomaticThreadCleanupEnabled: (enabled: boolean) => Promise<void>;
+  isPlanReviewEnabled?: () => boolean;
+  setPlanReviewEnabled?: (enabled: boolean) => Promise<void>;
   getProgressIntervalMs?: () => number;
   setProgressIntervalMs?: (intervalMs: number) => Promise<void>;
   getActiveProfileName?: () => string | undefined;
@@ -987,6 +989,7 @@ export function formatTelegramSettingsOverview(
   const voice = deps.getVoiceReplyMode();
   const time = deps.getTimeInjectionMode();
   const cleanup = deps.isAutomaticThreadCleanupEnabled() ? "on" : "off";
+  const planReview = deps.isPlanReviewEnabled ? (deps.isPlanReviewEnabled() ? "on" : "off") : "on";
 
   return [
     `Telegram Bridge Settings (profile: ${profile})`,
@@ -1012,6 +1015,9 @@ export function formatTelegramSettingsOverview(
     `• cleanup: ${cleanup} [on | off]`,
     "  Delete topic on clean session exit.",
     "",
+    `• planreview: ${planReview} [on | off]`,
+    "  Approve plans and toggle plan mode from Telegram.",
+    "",
     "To adjust a setting, run:",
     "/telegram-settings <key> <value>",
     "(e.g. /telegram-settings mode names)",
@@ -1031,6 +1037,7 @@ export function getTelegramSettingsArgumentCompletions(
     { value: "voice", label: "voice", description: "Voice reply mode (manual, mirror, always)" },
     { value: "time", label: "time", description: "Timestamp injection mode (system, prompt, off)" },
     { value: "cleanup", label: "cleanup", description: "Auto-cleanup topic on clean exit (on, off)" },
+    { value: "planreview", label: "planreview", description: "Plan review & plan mode control (on, off)" },
   ];
 
   if (tokens.length <= 1) {
@@ -1049,6 +1056,7 @@ export function getTelegramSettingsArgumentCompletions(
     voice: ["manual", "mirror", "always"],
     time: ["always", "interval", "hidden"],
     cleanup: ["on", "off"],
+    planreview: ["on", "off"],
   };
 
   const options = optionsByKey[key ?? ""] ?? [];
@@ -1128,6 +1136,13 @@ export async function openTelegramSettingsTui(
         currentValue: deps.isAutomaticThreadCleanupEnabled() ? "on" : "off",
         values: ["on", "off"],
       },
+      {
+        id: "planreview",
+        label: "Plan Review & Mode",
+        description: "Review plans and control plan mode from Telegram",
+        currentValue: deps.isPlanReviewEnabled ? (deps.isPlanReviewEnabled() ? "on" : "off") : "on",
+        values: ["on", "off"],
+      },
     ];
 
     const profile = deps.getActiveProfileName?.() ?? "default";
@@ -1155,6 +1170,8 @@ export async function openTelegramSettingsTui(
         await deps.setTimeInjectionMode(newValue as TelegramTimeMode);
       } else if (id === "cleanup") {
         await deps.setAutomaticThreadCleanupEnabled(newValue === "on");
+      } else if (id === "planreview" && deps.setPlanReviewEnabled) {
+        await deps.setPlanReviewEnabled(newValue === "on");
       }
       tui.requestRender();
     };
@@ -1307,5 +1324,20 @@ export async function handleTelegramSettingsCommand(
     return;
   }
 
-  ctx.ui?.notify?.(`Unknown setting "${key}". Available settings: mode, activity, interval, drafts, voice, time, cleanup`, "error");
+  if (key === "planreview") {
+    if (["on", "true", "yes", "1"].includes(value)) {
+      await deps.setPlanReviewEnabled?.(true);
+      ctx.ui?.notify?.('✔ Updated planreview to "on"', "info");
+      return;
+    }
+    if (["off", "false", "no", "0"].includes(value)) {
+      await deps.setPlanReviewEnabled?.(false);
+      ctx.ui?.notify?.('✔ Updated planreview to "off"', "info");
+      return;
+    }
+    ctx.ui?.notify?.(`Invalid planreview value "${value}". Options: on, off`, "error");
+    return;
+  }
+
+  ctx.ui?.notify?.(`Unknown setting "${key}". Available settings: mode, activity, interval, drafts, voice, time, cleanup, planreview`, "error");
 }

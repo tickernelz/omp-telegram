@@ -161,6 +161,18 @@ test("Command helpers expose Telegram bot command definitions", () => {
     },
     { command: "compact", description: "🗜 Compact current session" },
     {
+      command: "plan",
+      description: "📝 Enter plan mode",
+    },
+    {
+      command: "plan_pause",
+      description: "⏸ Pause plan mode",
+    },
+    {
+      command: "plan_exit",
+      description: "⏹ Exit plan mode",
+    },
+    {
       command: "next",
       description: "⏩ Force next turn",
     },
@@ -2776,3 +2788,42 @@ test("telegram-connect defaults forceFreshLeaderThread to false unless --fresh i
   assert.equal(capturedOptions[1]?.forceFreshLeaderThread, true, "--fresh connect must force fresh topic");
 });
 
+
+test("Command helpers dispatch plan commands to handlePlanMode", async () => {
+  const dispatched: Array<{ action: string; args: string }> = [];
+  const deps: any = {
+    handlePlanMode: async (_msg: any, _ctx: any, action: string, args: string) => {
+      dispatched.push({ action, args });
+    },
+  };
+
+  const ranPlan = await executeTelegramCommandAction(
+    TELEGRAM_COMMAND_ACTIONS.plan,
+    {} as any,
+    {} as any,
+    deps,
+    "build dashboard",
+  );
+  assert.equal(ranPlan, true);
+  assert.deepEqual(dispatched[0], { action: "enter", args: "build dashboard" });
+
+  const ranPause = await executeTelegramCommandAction(
+    TELEGRAM_COMMAND_ACTIONS.plan_pause,
+    {} as any,
+    {} as any,
+    deps,
+    "",
+  );
+  assert.equal(ranPause, true);
+  assert.deepEqual(dispatched[1], { action: "pause", args: "" });
+
+  const ranExit = await executeTelegramCommandAction(
+    TELEGRAM_COMMAND_ACTIONS.plan_exit,
+    {} as any,
+    {} as any,
+    deps,
+    "",
+  );
+  assert.equal(ranExit, true);
+  assert.deepEqual(dispatched[2], { action: "exit", args: "" });
+});

@@ -885,6 +885,10 @@ interface TelegramLifecycleBindingDeps {
   canSendAgentActivity: (ctx: Pi.ExtensionContext) => boolean;
   isSessionContextActive: (ctx: Pi.ExtensionContext) => boolean;
   isTurnTransportActive?: (turn: Queue.PendingTelegramTurn) => boolean;
+  planReviewRuntime?: {
+    onToolExecutionEnd: (event: any, ctx: any) => Promise<void>;
+    onAgentStart: () => Promise<void>;
+  };
   updateStatus: TelegramBridgeStatusUpdater;
   recordRuntimeEvent: TelegramRuntimeEventRecorder;
 }
@@ -929,6 +933,7 @@ export function registerTelegramLifecycleRuntimeHooks({
   recordMessageOwnership,
   canSendAgentActivity,
   isSessionContextActive = () => true,
+  planReviewRuntime,
   isTurnTransportActive,
   updateStatus,
   recordRuntimeEvent,
@@ -1286,6 +1291,7 @@ export function registerTelegramLifecycleRuntimeHooks({
       if (ctx.model) {
         await sessionLifecycleRuntime.onModelSelect?.({ model: ctx.model }, ctx);
       }
+      await planReviewRuntime?.onAgentStart();
       cancelPendingFinalPublication();
       await agentStartWithDedupReset(event, ctx);
       const turn = activeTurnRuntime.get();
@@ -1370,6 +1376,7 @@ export function registerTelegramLifecycleRuntimeHooks({
         isError: event.isError,
       });
       agentLifecycleHooks.onToolExecutionEnd(event, ctx);
+      await planReviewRuntime?.onToolExecutionEnd(event, ctx);
     },
     async onMessageStart(event, ctx) {
       if (!isSessionContextActive(ctx)) return;

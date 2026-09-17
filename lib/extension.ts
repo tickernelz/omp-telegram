@@ -6,6 +6,9 @@
 
 import * as AgentMessages from "./agent-messages.ts";
 import * as Ask from "./ask.ts";
+import * as TuiInput from "./tui-input.ts";
+import * as PlanReview from "./plan-review.ts";
+import * as PlanMode from "./plan-mode.ts";
 import * as Bindings from "./bindings.ts";
 import * as BusApi from "./bus-api.ts";
 import * as BusFollower from "./bus-follower.ts";
@@ -983,6 +986,14 @@ export default function (pi: Pi.ExtensionAPI) {
     queueMenuCallbackHandler: queueMenuRuntime.handleCallbackQuery,
     openSettingsMenu: settingsMenuRuntime.openSettingsMenu,
     settingsMenuCallbackHandler: settingsMenuRuntime.handleCallbackQuery,
+    async handlePlanMode(message, commandCtx, action, args) {
+      const res = await planModeRuntime.run(action, args, commandCtx);
+      await sendTextReply(
+        message.chat.id,
+        message.message_id,
+        res.message,
+      );
+    },
     sectionRegistry,
     buttonActionStore,
     invokeBoundButtonAction: invokeGenerativeAppBoundButtonAction,
@@ -1640,6 +1651,10 @@ export default function (pi: Pi.ExtensionAPI) {
       }
     },
   }.reset);
+  const tuiInputRuntime = TuiInput.createTelegramTuiInputRuntime({
+    recordRuntimeEvent,
+  });
+
   const askRuntime = Ask.createTelegramAskRuntime({
     api: telegramApiRuntime,
     recordOwnership: messageOwnershipRuntime.recordLocal,
@@ -1651,6 +1666,22 @@ export default function (pi: Pi.ExtensionAPI) {
   });
   askRuntime.register(pi);
   Updates.registerTelegramUpdateHandler(askRuntime.resolveFromUpdate);
+
+  const planReviewRuntime = PlanReview.createTelegramPlanReviewRuntime({
+    isEnabled: configControls.isPlanReviewEnabled,
+    getActiveTurn: activeTurnRuntime.get,
+    getDefaultTarget: proactivePushTargetGetter,
+    answerCallbackQuery,
+    tuiInput: tuiInputRuntime,
+    recordRuntimeEvent,
+  });
+  Updates.registerTelegramUpdateHandler(planReviewRuntime.resolveFromUpdate);
+
+  const planModeRuntime = PlanMode.createTelegramPlanModeRuntime({
+    isEnabled: configControls.isPlanReviewEnabled,
+    tuiInput: tuiInputRuntime,
+    recordRuntimeEvent,
+  });
   Bindings.registerTelegramCommandsAndTools({
     pi,
     agentDir: Paths.resolveAgentDir(),
@@ -1853,6 +1884,7 @@ export default function (pi: Pi.ExtensionAPI) {
         ctx: Parameters<typeof sessionLifecycleRuntime.onSessionShutdown>[1],
       ) {
         askRuntime.cancelAll("Telegram session shut down");
+        await planReviewRuntime.cancelAll("Telegram session shut down");
         await sessionLifecycleRuntime.onSessionShutdown(event, ctx);
       },
     },
@@ -1874,6 +1906,7 @@ export default function (pi: Pi.ExtensionAPI) {
     disconnectOnQuit: cleanupTelegramThreadForSessionRestart,
     resolveAutomaticThreadCleanupEnabled:
       configControls.resolveAutomaticThreadCleanupEnabled,
+    planReviewRuntime,
     buttonActionStore,
     callMultipart,
     sendChatAction,

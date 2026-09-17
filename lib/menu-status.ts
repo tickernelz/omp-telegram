@@ -26,6 +26,7 @@ export interface TelegramStatusMenuCallbackDeps {
   updateModelMenuMessage: () => Promise<void>;
   updateThinkingMenuMessage: () => Promise<void>;
   updateSettingsMenuMessage?: () => Promise<void>;
+  handlePlanModeAction?: (action: "enter" | "pause" | "exit") => Promise<{ ok: boolean; message: string }>;
   answerCallbackQuery: (
     callbackQueryId: string,
     text?: string,
@@ -134,6 +135,15 @@ export async function handleTelegramStatusMenuCallbackAction(
     await deps.answerCallbackQuery(callbackQueryId);
     return true;
   }
+  if (data === "plan:enter" || data === "plan:pause" || data === "plan:exit") {
+    const action = data.slice("plan:".length) as "enter" | "pause" | "exit";
+    if (deps.handlePlanModeAction) {
+      const res = await deps.handlePlanModeAction(action);
+      await deps.answerCallbackQuery(callbackQueryId, res.message);
+      return true;
+    }
+    return false;
+  }
   if (!isTelegramStatusMenuCallbackAction(data, "thinking")) return false;
   if (deps.isVoiceReplyActive?.()) {
     await deps.answerCallbackQuery(
@@ -160,6 +170,7 @@ export function buildStatusReplyMarkup(
   queueItemCount = 0,
   sectionRegistry?: TelegramSectionRegistry,
   isVoiceReplyActive?: boolean,
+  planModeOptions?: { isEnabled: boolean; isActive: boolean },
 ): TelegramReplyMarkup {
   const rows: Array<Array<{ text: string; callback_data: string }>> = [];
   rows.push([
@@ -188,6 +199,23 @@ export function buildStatusReplyMarkup(
       callback_data: "menu:queue",
     },
   ]);
+  if (planModeOptions?.isEnabled) {
+    const isPlanOn = planModeOptions.isActive;
+    rows.push([
+      {
+        text: `${isPlanOn ? "🟢 " : ""}📝 Plan on`,
+        callback_data: "plan:enter",
+      },
+      {
+        text: "⏸ Pause",
+        callback_data: "plan:pause",
+      },
+      {
+        text: `${!isPlanOn ? "🟢 " : ""}⏹ Exit`,
+        callback_data: "plan:exit",
+      },
+    ]);
+  }
   if (sectionRegistry) {
     const sectionRows = getTelegramSectionMainMenuRows(sectionRegistry);
     for (const row of sectionRows) {
@@ -210,6 +238,7 @@ export function buildTelegramStatusMenuRenderPayload(
   queueItemCount = 0,
   sectionRegistry?: TelegramSectionRegistry,
   isVoiceReplyActive?: boolean,
+  planModeOptions?: { isEnabled: boolean; isActive: boolean },
 ): TelegramMenuRenderPayload {
   return {
     nextMode: "status",
@@ -221,6 +250,7 @@ export function buildTelegramStatusMenuRenderPayload(
       queueItemCount,
       sectionRegistry,
       isVoiceReplyActive,
+      planModeOptions,
     ),
   };
 }

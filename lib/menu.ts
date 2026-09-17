@@ -188,6 +188,10 @@ export interface TelegramMenuCallbackRuntimeDeps<
     state: TelegramModelMenuState<TModel>,
     ctx: TContext,
   ) => Promise<void>;
+  handlePlanModeAction?: (
+    action: "enter" | "pause" | "exit",
+    ctx: TContext,
+  ) => Promise<{ ok: boolean; message: string }>;
   answerCallbackQuery: (
     callbackQueryId: string,
     text?: string,
@@ -299,9 +303,12 @@ export interface TelegramMenuActionRuntime<
   ) => Promise<void>;
 }
 
+import type { TelegramPlanModeAction } from "./plan-mode.ts";
+
 export type TelegramMenuCallbackAction =
   | { kind: "ignore" }
   | { kind: "status"; action: "model" | "thinking" | "queue" | "settings" }
+  | { kind: "plan"; action: TelegramPlanModeAction }
   | { kind: "thinking:set"; level: string }
   | {
       kind: "model";
@@ -333,6 +340,15 @@ export function parseTelegramMenuCallbackAction(
   }
   if (data === "menu:settings" || data === "status:settings") {
     return { kind: "status", action: "settings" };
+  }
+  if (data === "plan:enter") {
+    return { kind: "plan", action: "enter" };
+  }
+  if (data === "plan:pause") {
+    return { kind: "plan", action: "pause" };
+  }
+  if (data === "plan:exit") {
+    return { kind: "plan", action: "exit" };
   }
   if (data?.startsWith("thinking:set:")) {
     return {
@@ -441,6 +457,10 @@ export interface TelegramMenuCallbackRuntimeAdapterDeps<
     state: TelegramModelMenuState<TModel>,
     ctx: TContext,
   ) => Promise<void>;
+  handlePlanModeAction?: (
+    action: "enter" | "pause" | "exit",
+    ctx: TContext,
+  ) => Promise<{ ok: boolean; message: string }>;
   answerCallbackQuery: (
     callbackQueryId: string,
     text?: string,
@@ -514,6 +534,7 @@ export function createTelegramMenuCallbackHandlerForContext<
     updateThinkingMenuMessage: deps.updateThinkingMenuMessage,
     updateStatusMessage: deps.updateStatusMessage,
     updateSettingsMenuMessage: deps.updateSettingsMenuMessage,
+    handlePlanModeAction: deps.handlePlanModeAction,
     answerCallbackQuery: deps.answerCallbackQuery,
     isIdle: deps.isIdle,
     hasActiveTelegramTurn: deps.hasActiveTelegramTurn,
@@ -664,6 +685,9 @@ export async function handleTelegramMenuCallbackRuntime<
             deps.updateThinkingMenuMessage(state, ctx),
           updateSettingsMenuMessage: () =>
             deps.updateSettingsMenuMessage?.(state, ctx) ?? Promise.resolve(),
+          handlePlanModeAction: deps.handlePlanModeAction
+            ? (action) => deps.handlePlanModeAction!(action, ctx)
+            : undefined,
           answerCallbackQuery: deps.answerCallbackQuery,
           isVoiceReplyActive: deps.isVoiceReplyActive,
         },
