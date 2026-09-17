@@ -4,6 +4,10 @@
 
 ## Unreleased
 
+## 0.6.1: Cross-Platform Host Tests
+
+- `Cross-Platform Host Tests`: The host test suite asserted POSIX path shapes, so Windows CI failed on a feature it correctly refuses to install there. Path, binary, and socket assertions are now separator-agnostic and verified against simulated Windows paths.
+
 ## 0.6.0: Resident Telegram Host
 
 - `Resident Telegram Host`: `/telegram-host` installs one systemd user unit that keeps a normal OMP session alive in tmux, so Telegram keeps polling and answering turns with no terminal open. The host is a real interactive session, which is what keeps plan mode, provider approvals, the PTY bash overlay, and harness slash commands working; `attach` prints the tmux command to watch or take over it.

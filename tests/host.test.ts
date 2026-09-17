@@ -63,7 +63,10 @@ test("the unit keeps the wrapper alive and restarts it when the agent dies", () 
     assert.match(plan.unit, /^Type=simple$/m);
     assert.match(plan.unit, /^Restart=always$/m);
     assert.match(plan.unit, /^KillMode=control-group$/m);
-    assert.match(plan.unit, new RegExp(`^ExecStart=${plan.wrapperPath}$`, "m"));
+    assert.ok(
+      plan.unit.split("\n").includes(`ExecStart=${plan.wrapperPath}`),
+      "ExecStart must name the rendered wrapper exactly",
+    );
     assert.match(plan.unit, /^WorkingDirectory=\/tmp\/host-workspace$/m);
     assert.match(plan.unit, /PI_CODING_AGENT_DIR=/);
     assert.match(plan.unit, /^WantedBy=default.target$/m);
@@ -79,9 +82,9 @@ test("the wrapper runs a real omp session inside tmux and supervises it", () => 
     const plan = planTelegramHostAction(input);
     assert.match(plan.wrapper, /^#!\/bin\/bash$/m);
     assert.match(plan.wrapper, /new-session -d -s "\$SESSION" -x 200 -y 50 -c "\$CWD" \\$/m);
-    assert.match(plan.wrapper, /'\/home\/user\/\.bun\/bin\/omp' --cwd "\$CWD"/);
+    assert.ok(plan.wrapper.includes(`'${input.ompExecutable}' --cwd "$CWD"`));
     assert.match(plan.wrapper, /has-session -t "\$SESSION"/);
-    assert.match(plan.wrapper, new RegExp(`^SOCKET='${plan.socketPath.replaceAll("/", "\\/")}'$`, "m"));
+    assert.ok(plan.wrapper.includes(`SOCKET='${plan.socketPath}'`));
     assert.ok(!plan.wrapper.includes("--mode="));
     assert.ok(plan.wrapper.includes("PI_CODING_AGENT_DIR="));
   } finally {
