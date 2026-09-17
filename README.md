@@ -80,6 +80,21 @@ You can run several OMP sessions at once, in different directories or profiles.
 - Follower API calls are proxied through the leader.
 - Cross-instance callbacks, such as an `ask` button tapped in a session that did not raise it, are forwarded to the instance actually waiting on the answer.
 
+### Resident host
+
+Telegram usually stops answering when the OMP process behind it exits. A resident host removes that dependency: `/telegram-host install` writes one systemd user unit that keeps a normal OMP session alive inside tmux, so the bridge keeps polling and keeps running turns while every terminal is closed.
+
+The host is an ordinary OMP session with a real terminal, not a reduced headless mode. That is what preserves the features a stripped-down process would lose: plan mode, provider approvals, the interactive bash overlay, and every harness slash command. Because the terminal is a tmux session, you can attach to it from SSH, or through a web terminal, and watch or take over exactly what the agent is doing.
+
+- `/telegram-host install` — write the unit and wrapper, then enable and start them.
+- `/telegram-host uninstall` — stop and disable the unit, then remove its artifacts.
+- `/telegram-host restart` — re-render the unit and restart it.
+- `/telegram-host status` — report unit state and the pane serving the host.
+- `/telegram-host attach` — print the tmux command that opens the host terminal.
+- `--dry-run` — print the whole plan, every path and step, without changing anything.
+
+Installation needs Linux with `systemctl` and `tmux`. The unit uses `Restart=always`, so the host comes back if the agent dies or the machine reboots.
+
 ### Flood control
 
 Telegram rate limits are handled rather than propagated. Outbound calls to a chat back off when the API returns 429, automatic retry sleep is capped so a long administrative penalty fails fast instead of stalling the event loop, and topic provisioning falls back to an existing topic when topic creation is rate limited.
@@ -152,6 +167,7 @@ Commands you type in the OMP prompt:
 | `/telegram-status [--debug]` | Report bridge health, active tools, queued turns, and diagnostic paths. |
 | `/telegram-settings [key] [value]` | Open the settings TUI, or read and write one setting. |
 | `/telegram-rename [name\|--reset]` | Rename the current topic, by name, by generation, or back to automatic. |
+| `/telegram-host [action]` | Install, remove, restart, inspect, or attach to a resident host that serves Telegram with no terminal open. |
 
 Commands you type in Telegram:
 

@@ -4,6 +4,10 @@
 
 ## Unreleased
 
+- `Resident Telegram Host`: `/telegram-host` installs one systemd user unit that keeps a normal OMP session alive in tmux, so Telegram keeps polling and answering turns with no terminal open. The host is a real interactive session, which is what keeps plan mode, provider approvals, the PTY bash overlay, and harness slash commands working; `attach` prints the tmux command to watch or take over it.
+- `Host Cold-Start Auto-Connect`: A hosted agent directory runs `/telegram-connect` on session start, but only while it owns neither the transport lock nor a follower registration. A resident host starts with neither, so the ordinary auto-start path could not claim the bot before.
+- `Deterministic Unit Plan`: `install`, `uninstall`, `restart`, and `status` are rendered as an ordered step list before anything runs, so artifacts are written before a unit is enabled and uninstall disables before it deletes. Failures stop the sequence and report the exact command.
+
 ## 0.5.2: Plain Prose README
 
 - `README Rewritten`: Replaced the emoji-heavy README with plain prose a person would write. Removed every pictograph, added the plan review and plan mode control surface, documented the Telegram-side command set, corrected the progress interval default to 10 seconds, and listed the bundled Skills.

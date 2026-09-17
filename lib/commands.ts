@@ -4,6 +4,9 @@
  * Owns Telegram slash-command normalization, bot command metadata, and pi-side command registration behind runtime ports
  */
 
+import * as Host from "./host.ts";
+import * as Paths from "./paths.ts";
+import * as Pi from "./pi.ts";
 import type { TelegramPlanModeAction } from "./plan-mode.ts";
 
 import {
@@ -793,6 +796,55 @@ export function registerTelegramBridgeCommands(
       } finally {
         deps.updateStatus(ctx);
       }
+    },
+  });
+  pi.registerCommand("telegram-host", {
+    description:
+      "Manage the resident Telegram host. Use /telegram-host install|uninstall|restart|status|attach, or --dry-run to preview.",
+    handler: async (args, ctx) => {
+      const parsed = Host.parseTelegramHostCommand(args);
+      if (parsed.invalid) {
+        ctx.ui.notify(
+          `${parsed.invalid}\n\nUsage: /telegram-host install|uninstall|restart|status|attach [--dry-run]`,
+          "warning",
+        );
+        return;
+      }
+      const action = parsed.action ?? "status";
+      const platform = Host.evaluateTelegramHostPlatform({
+        hasSystemctl: Host.commandExists("systemctl"),
+        hasTmux: Host.commandExists("tmux"),
+      });
+      if (!platform.eligible && action !== "status" && action !== "attach") {
+        ctx.ui.notify(platform.reason, "warning");
+        return;
+      }
+      const agentDir = Paths.resolveAgentDir();
+      const anchor = Host.readTelegramHostAnchor(agentDir);
+      const cwd = Host.resolveTelegramHostCwd({
+        anchorCwd: anchor?.cwd,
+        ctxCwd: Pi.getExtensionContextCwd(ctx),
+      });
+      const plan = Host.planTelegramHostAction({
+        action,
+        agentDir,
+        cwd,
+        ompExecutable: Host.resolveOmpExecutable(process.argv),
+      });
+      if (parsed.dryRun || action === "status" || action === "attach") {
+        ctx.ui.notify(Host.describeTelegramHostPlan(plan), "info");
+        if (action === "attach") {
+          ctx.ui.notify(
+            `Attach from a terminal:\n${Host.formatTelegramHostAttachCommand(plan)}`,
+            "info",
+          );
+        }
+        return;
+      }
+      const result = await Host.applyTelegramHostPlan(plan, {
+        runCommand: (command) => Host.runTelegramHostCommand(command),
+      });
+      ctx.ui.notify(result.message, result.ok ? "info" : "error");
     },
   });
 }
