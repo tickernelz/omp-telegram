@@ -95,6 +95,7 @@ test("Extension entrypoint wires domain bindings into the pi API", () => {
       "telegram-rename",
       "telegram-settings",
       "telegram-disconnect",
+      "telegram-host",
     ],
   );
   assert.deepEqual(

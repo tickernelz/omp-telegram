@@ -23,6 +23,7 @@ import * as Config from "./config.ts";
 import * as Delivery from "./delivery.ts";
 import * as Inbound from "./inbound.ts";
 import * as Journal from "./journal.ts";
+import * as Host from "./host.ts";
 import * as Lifecycle from "./lifecycle.ts";
 import * as Locks from "./locks.ts";
 import * as Logging from "./logging.ts";
@@ -212,6 +213,7 @@ export default function (pi: Pi.ExtensionAPI) {
     telegramThreadCapabilityState.isBusRuntimeEnabled;
   Config.bindGlobalTelegramConfigRuntime(configStore);
   const configControls = Config.createTelegramConfigControls(configStore);
+  const telegramAgentDir = Paths.resolveAgentDir();
   const lockRuntime = Locks.createTelegramLockRuntime<Pi.ExtensionContext>({
     key: Locks.createTelegramLockKeyResolver(configStore),
     instanceId: telegramInstanceId,
@@ -1909,6 +1911,15 @@ export default function (pi: Pi.ExtensionAPI) {
     promptDispatchRuntime,
     deferredQueueDispatchRuntime,
     modelContextAvailabilityRuntime,
+    hostAutoConnect: {
+      isEnabled() {
+        return Host.readTelegramHostAnchor(telegramAgentDir) !== undefined;
+      },
+      ownsLock(ctx) {
+        return lockRuntime.owns(ctx);
+      },
+      isFollowerRegistered: telegramBusFollowerRegistrationState.isRegistered,
+    },
     disconnectOnQuit: cleanupTelegramThreadForSessionRestart,
     resolveAutomaticThreadCleanupEnabled:
       configControls.resolveAutomaticThreadCleanupEnabled,

@@ -10,6 +10,7 @@ import * as ChannelPosts from "./channel-posts.ts";
 import * as CommandTemplates from "./command-templates.ts";
 import * as Commands from "./commands.ts";
 import * as Config from "./config.ts";
+import * as Host from "./host.ts";
 import * as Keyboard from "./keyboard.ts";
 import * as Lifecycle from "./lifecycle.ts";
 import * as Locks from "./locks.ts";
@@ -889,6 +890,11 @@ interface TelegramLifecycleBindingDeps {
     onToolExecutionEnd: (event: any, ctx: any) => Promise<void>;
     onAgentStart: () => Promise<void>;
   };
+  hostAutoConnect?: {
+    isEnabled: () => boolean;
+    ownsLock: (ctx: Pi.ExtensionContext) => boolean;
+    isFollowerRegistered: () => boolean;
+  };
   updateStatus: TelegramBridgeStatusUpdater;
   recordRuntimeEvent: TelegramRuntimeEventRecorder;
 }
@@ -911,6 +917,7 @@ export function registerTelegramLifecycleRuntimeHooks({
   promptDispatchRuntime,
   deferredQueueDispatchRuntime,
   modelContextAvailabilityRuntime,
+  hostAutoConnect,
   disconnectOnQuit,
   resolveAutomaticThreadCleanupEnabled,
   buttonActionStore,
@@ -1218,6 +1225,26 @@ export function registerTelegramLifecycleRuntimeHooks({
       recordRuntimeEvent,
     });
   const messageActivityHooks = messageActivityTypingHooks;
+  const runHostAutoConnect = async (ctx: Pi.ExtensionContext): Promise<void> => {
+    if (!hostAutoConnect) return;
+    try {
+      await Host.runTelegramHostAutoConnect({
+        isEnabled: hostAutoConnect.isEnabled,
+        hasBotToken: configStore.hasBotToken,
+        ownsLock: () => hostAutoConnect.ownsLock(ctx),
+        isFollowerRegistered: hostAutoConnect.isFollowerRegistered,
+        stdin: {
+          send: (data: string) => {
+            process.stdin.emit("data", Buffer.from(data, "utf8"));
+            return true;
+          },
+        },
+        recordRuntimeEvent,
+      });
+    } catch (error) {
+      recordRuntimeEvent("host", error, { phase: "auto-connect-dispatch" });
+    }
+  };
   Lifecycle.registerTelegramLifecycleHooks(pi, {
     isSessionActive: isSessionContextActive,
     ...sessionLifecycleRuntime,
@@ -1233,6 +1260,7 @@ export function registerTelegramLifecycleRuntimeHooks({
       activityVerbosityRuntime?.reset();
       modelContextAvailabilityRuntime.reconcile();
       await sessionLifecycleRuntime.onSessionStart(event, ctx);
+      void runHostAutoConnect(ctx);
     },
     async onSessionShutdown(event, ctx) {
       if (!isSessionContextActive(ctx)) return;
