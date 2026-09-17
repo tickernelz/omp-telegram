@@ -4,6 +4,10 @@
 
 ## Unreleased
 
+## 0.5.2: Plain Prose README
+
+- `README Rewritten`: Replaced the emoji-heavy README with plain prose a person would write. Removed every pictograph, added the plan review and plan mode control surface, documented the Telegram-side command set, corrected the progress interval default to 10 seconds, and listed the bundled Skills.
+
 ## 0.5.1: Plan Commands Actually Reach The Runtime
 
 - `Plan Commands Reach The Runtime`: `/plan`, `/plan_pause`, and `/plan_exit` were registered as reserved names but the composed command runtime never forwarded `handlePlanMode`, so every invocation returned unhandled and fell through to the model as a literal prompt. The runtime now routes them through the plan-mode runtime.
