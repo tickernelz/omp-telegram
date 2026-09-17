@@ -2311,6 +2311,18 @@ async function handleTelegramCommandRuntime<
             );
           }
         : undefined,
+      handlePlanMode: deps.handlePlanMode
+        ? async (nextMessage, commandCtx, action, args) => {
+            scheduleTelegramCommandEffect(
+              commandCtx,
+              "plan",
+              "plan-mode",
+              deps,
+              () => deps.handlePlanMode!(nextMessage, commandCtx, action, args),
+              assertExecutionCurrentFor(nextMessage),
+            );
+          }
+        : undefined,
       handleHelp: async (nextMessage, nextCommandName, commandCtx) => {
         if (
           nextMessage.from?.id !== undefined &&

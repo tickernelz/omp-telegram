@@ -266,6 +266,7 @@ export interface TelegramMenuActionRuntimeDeps<
   ) => Promise<unknown>;
   sectionRegistry?: TelegramSectionRegistry;
   isVoiceReplyActive?: () => boolean;
+  getPlanModeOptions?: (ctx: TContext) => { isEnabled: boolean; isActive: boolean };
 }
 
 export interface TelegramMenuActionRuntime<
@@ -817,6 +818,7 @@ export function createTelegramMenuActionRuntime<
         deps.getQueueItemCount?.() ?? 0,
         deps.sectionRegistry,
         deps.isVoiceReplyActive?.(),
+        deps.getPlanModeOptions?.(ctx),
       ),
     sendStatusMessage: (chatId, replyToMessageId, ctx, threadId) =>
       openTelegramStatusMenu({
@@ -850,6 +852,7 @@ export function createTelegramMenuActionRuntime<
             queueItemCount,
             deps.sectionRegistry,
             deps.isVoiceReplyActive?.(),
+            deps.getPlanModeOptions?.(ctx),
           ),
         storeModelMenuState: deps.storeModelMenuState,
       }),

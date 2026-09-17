@@ -41,6 +41,31 @@ export interface TelegramPlanModeRuntime {
   isActive: (ctx: any) => boolean;
 }
 
+export interface TelegramPlanModeControlBinding {
+  getPlanModeOptions: (ctx: any) => { isEnabled: boolean; isActive: boolean };
+  handlePlanModeAction: (
+    action: TelegramPlanModeAction,
+    ctx: any,
+  ) => Promise<{ ok: boolean; message: string }>;
+}
+
+export function createTelegramPlanModeControlBinding(deps: {
+  runtime: TelegramPlanModeRuntime;
+  isEnabled: () => boolean;
+}): TelegramPlanModeControlBinding {
+  const { runtime, isEnabled } = deps;
+
+  function getPlanModeOptions(ctx: any) {
+    return { isEnabled: isEnabled(), isActive: runtime.isActive(ctx) };
+  }
+
+  async function handlePlanModeAction(action: TelegramPlanModeAction, ctx: any) {
+    return runtime.run(action, "", ctx);
+  }
+
+  return { getPlanModeOptions, handlePlanModeAction };
+}
+
 export function createTelegramPlanModeRuntime(
   deps: TelegramPlanModeRuntimeDeps,
 ): TelegramPlanModeRuntime {

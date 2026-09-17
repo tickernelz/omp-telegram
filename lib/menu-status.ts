@@ -200,10 +200,9 @@ export function buildStatusReplyMarkup(
     },
   ]);
   if (planModeOptions?.isEnabled) {
-    const isPlanOn = planModeOptions.isActive;
     rows.push([
       {
-        text: `${isPlanOn ? "🟢 " : ""}📝 Plan on`,
+        text: `${planModeOptions.isActive ? "🟢" : "⚪"} 📝 Plan on`,
         callback_data: "plan:enter",
       },
       {
@@ -211,7 +210,7 @@ export function buildStatusReplyMarkup(
         callback_data: "plan:pause",
       },
       {
-        text: `${!isPlanOn ? "🟢 " : ""}⏹ Exit`,
+        text: "⏹ Exit",
         callback_data: "plan:exit",
       },
     ]);
@@ -264,6 +263,7 @@ export async function updateTelegramStatusMessage(
   queueItemCount = 0,
   sectionRegistry?: TelegramSectionRegistry,
   isVoiceReplyActive?: boolean,
+  planModeOptions?: { isEnabled: boolean; isActive: boolean },
 ): Promise<void> {
   await editTelegramMenuMessage(
     state,
@@ -274,6 +274,7 @@ export async function updateTelegramStatusMessage(
       queueItemCount,
       sectionRegistry,
       isVoiceReplyActive,
+      planModeOptions,
     ),
     deps,
   );
@@ -288,6 +289,7 @@ export function sendTelegramStatusMessage(
   queueItemCount = 0,
   sectionRegistry?: TelegramSectionRegistry,
   isVoiceReplyActive?: boolean,
+  planModeOptions?: { isEnabled: boolean; isActive: boolean },
 ): Promise<number | undefined> {
   return sendTelegramMenuMessage(
     state,
@@ -298,6 +300,7 @@ export function sendTelegramStatusMessage(
       queueItemCount,
       sectionRegistry,
       isVoiceReplyActive,
+      planModeOptions,
     ),
     deps,
   );

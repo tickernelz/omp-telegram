@@ -608,6 +608,10 @@ export interface TelegramInboundRouteRuntimeDeps<
     action: "enter" | "pause" | "exit",
     args: string,
   ) => Promise<void>;
+  handlePlanModeAction?: (
+    action: "enter" | "pause" | "exit",
+    ctx: TContext,
+  ) => Promise<{ ok: boolean; message: string }>;
   queueMenuCallbackHandler: (
     query: TCallbackQuery,
     ctx: TContext,
@@ -1007,6 +1011,7 @@ export function createTelegramInboundRouteRuntime<
     updateThinkingMenuMessage: deps.menuActions.updateThinkingMenuMessage,
     updateStatusMessage: deps.menuActions.updateStatusMessage,
     updateSettingsMenuMessage: deps.updateSettingsMenuMessage,
+    handlePlanModeAction: deps.handlePlanModeAction,
     answerCallbackQuery: deps.answerCallbackQuery,
     isIdle: deps.isIdle,
     hasActiveTelegramTurn: deps.activeTurnRuntime.has,
@@ -2204,7 +2209,11 @@ export function createTelegramInboundRouteRuntime<
       return deps.openQueueMenu(chatId, message.message_id, ctx);
     },
     openSettingsMenu: deps.openSettingsMenu,
-    handlePlanMode: deps.handlePlanMode as any,
+    handlePlanMode: deps.handlePlanMode
+      ? async (message, commandCtx, action, args) => {
+          await deps.handlePlanMode!(message, commandCtx, action, args);
+        }
+      : undefined,
     getAllowedUserId: deps.configStore.getAllowedUserId,
     persistAllowedUserId: deps.configStore.persistAllowedUserId,
     setMyCommands: deps.setMyCommands,

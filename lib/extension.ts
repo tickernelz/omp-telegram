@@ -816,6 +816,19 @@ export default function (pi: Pi.ExtensionAPI) {
       getCommands,
       getReservedCommandNames: Commands.getTelegramReservedCommandNames,
     });
+  const tuiInputRuntime = TuiInput.createTelegramTuiInputRuntime({
+    recordRuntimeEvent,
+  });
+  const planModeRuntime = PlanMode.createTelegramPlanModeRuntime({
+    isEnabled: configControls.isPlanReviewEnabled,
+    tuiInput: tuiInputRuntime,
+    recordRuntimeEvent,
+  });
+  const planModeControl = PlanMode.createTelegramPlanModeControlBinding({
+    runtime: planModeRuntime,
+    isEnabled: configControls.isPlanReviewEnabled,
+  });
+
   const menuActions = Menu.createTelegramMenuActionRuntimeWithStateBuilder({
     runtime: modelMenuRuntime,
     createSettingsManager: Pi.createSettingsManager,
@@ -843,6 +856,7 @@ export default function (pi: Pi.ExtensionAPI) {
       const turn = activeTurnRuntime.get();
       return Voice.isVoiceTurn(turn);
     },
+    getPlanModeOptions: planModeControl.getPlanModeOptions,
   });
 
   // --- Queue And Settings Menus ---
@@ -986,6 +1000,7 @@ export default function (pi: Pi.ExtensionAPI) {
     queueMenuCallbackHandler: queueMenuRuntime.handleCallbackQuery,
     openSettingsMenu: settingsMenuRuntime.openSettingsMenu,
     settingsMenuCallbackHandler: settingsMenuRuntime.handleCallbackQuery,
+    handlePlanModeAction: planModeControl.handlePlanModeAction,
     async handlePlanMode(message, commandCtx, action, args) {
       const res = await planModeRuntime.run(action, args, commandCtx);
       await sendTextReply(
@@ -1651,10 +1666,6 @@ export default function (pi: Pi.ExtensionAPI) {
       }
     },
   }.reset);
-  const tuiInputRuntime = TuiInput.createTelegramTuiInputRuntime({
-    recordRuntimeEvent,
-  });
-
   const askRuntime = Ask.createTelegramAskRuntime({
     api: telegramApiRuntime,
     recordOwnership: messageOwnershipRuntime.recordLocal,
@@ -1677,11 +1688,6 @@ export default function (pi: Pi.ExtensionAPI) {
   });
   Updates.registerTelegramUpdateHandler(planReviewRuntime.resolveFromUpdate);
 
-  const planModeRuntime = PlanMode.createTelegramPlanModeRuntime({
-    isEnabled: configControls.isPlanReviewEnabled,
-    tuiInput: tuiInputRuntime,
-    recordRuntimeEvent,
-  });
   Bindings.registerTelegramCommandsAndTools({
     pi,
     agentDir: Paths.resolveAgentDir(),

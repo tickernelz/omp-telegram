@@ -2827,3 +2827,83 @@ test("Command helpers dispatch plan commands to handlePlanMode", async () => {
   assert.equal(ranExit, true);
   assert.deepEqual(dispatched[2], { action: "exit", args: "" });
 });
+
+test("Plan commands route through the command runtime instead of the model", async () => {
+  const reached: Array<{ action: string; args: string }> = [];
+  const enqueued: string[][] = [];
+  const deps = {
+    hasAbortHandler: () => false,
+    clearPendingModelSwitch: () => {},
+    hasQueuedTelegramItems: () => false,
+    clearQueuedTelegramItems: () => 0,
+    setFoldQueuedPromptsIntoHistory: () => {},
+    abortCurrentTurn: () => {},
+    isIdle: () => true,
+    hasPendingMessages: () => false,
+    hasActiveTelegramTurn: () => false,
+    hasDispatchPending: () => false,
+    isCompactionInProgress: () => false,
+    setCompactionInProgress: () => {},
+    updateStatus: () => {},
+    isContextActive: () => true,
+    dispatchNextQueuedTelegramTurn: () => {},
+    startTypingLoop: () => {},
+    stopTypingLoop: () => {},
+    enqueueContinueTurn: async () => {},
+    compact: () => {},
+    sendTextReply: async () => {},
+    sendMarkdownReply: async () => {},
+    showStatus: async () => {},
+    openModelMenu: async () => {},
+    openThinkingMenu: async () => {},
+    openQueueMenu: async () => {},
+    openSettingsMenu: async () => {},
+    getAllowedUserId: () => 1,
+    persistAllowedUserId: async () => {},
+    setMyCommands: async () => {},
+    recordRuntimeEvent: () => {},
+    handlePlanMode: async (
+      _message: unknown,
+      _ctx: unknown,
+      action: "enter" | "pause" | "exit",
+      args: string,
+    ) => {
+      reached.push({ action, args });
+    },
+  } as never;
+
+  const runtime = createTelegramCommandOrPromptRuntime({
+    extractRawText: (messages: Array<{ text?: string }>) =>
+      messages[0]?.text ?? "",
+    handleCommand: createTelegramCommandHandler(deps),
+    enqueueTurn: async (messages: Array<{ text?: string }>) => {
+      enqueued.push(messages.map((m) => m.text ?? ""));
+    },
+    replaceMessageText: (
+      message: { text?: string },
+      text: string,
+    ) => ({ ...message, text }),
+  } as never);
+
+  const message = {
+    chat: { id: 1 },
+    message_id: 2,
+    from: { id: 3 },
+    text: "/plan harden auth",
+  };
+  await (
+    runtime as unknown as {
+      dispatchMessages: (
+        messages: unknown[],
+        ctx: unknown,
+      ) => Promise<void>;
+    }
+  ).dispatchMessages([message], {});
+
+  assert.deepEqual(reached, [{ action: "enter", args: "harden auth" }]);
+  assert.deepEqual(
+    enqueued,
+    [],
+    "a reserved plan command must never fall through to the model",
+  );
+});

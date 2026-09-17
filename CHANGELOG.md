@@ -4,6 +4,13 @@
 
 ## Unreleased
 
+## 0.5.1: Plan Commands Actually Reach The Runtime
+
+- `Plan Commands Reach The Runtime`: `/plan`, `/plan_pause`, and `/plan_exit` were registered as reserved names but the composed command runtime never forwarded `handlePlanMode`, so every invocation returned unhandled and fell through to the model as a literal prompt. The runtime now routes them through the plan-mode runtime.
+- `Status Plan Row Is Reachable`: The status menu plan row was built conditionally on `planModeOptions`, which no caller ever supplied, so the row never rendered. The option is now threaded from the extension through the menu action runtime into both status render paths.
+- `Status Plan Callbacks Wired`: `handlePlanModeAction` was accepted by the status callback handler but never passed by the routing composition, making every `plan:` tap answer "Interactive message expired". It is now wired end to end.
+- `Truthful Plan State`: The row previously marked `Exit` with the live indicator whenever plan mode was off. It now carries one marker on `Plan on` that reflects the real prompt-derived state, and the `as any` cast in the command-runtime wiring was replaced with a typed adapter.
+
 ## 0.5.0: Telegram Plan Review And Plan-Mode Control
 
 - `Plan Review Cards in Telegram`: Propose dispatches (`write xd://propose`) automatically generate a Telegram plan-review card with inline buttons (`Approve and execute`, `Approve and compact context`, `Approve and keep context`, `Refine plan`).

@@ -220,3 +220,86 @@ test("Status menu open, send, and update helpers apply status mode", async () =>
   assert.equal(sentMessage[3], "html");
   assert.deepEqual(sentMessage[5], { target: { chatId: 1, threadId: 42 } });
 });
+
+test("Status menu plan row is absent unless plan review is enabled", () => {
+  const withoutPlan = buildStatusReplyMarkup(reasoningModel, "medium", 0);
+  assert.equal(
+    withoutPlan.inline_keyboard.some((row) =>
+      row.some((button) => button.callback_data?.startsWith("plan:") ?? false),
+    ),
+    false,
+  );
+
+  const withPlan = buildStatusReplyMarkup(
+    reasoningModel,
+    "medium",
+    0,
+    undefined,
+    undefined,
+    { isEnabled: true, isActive: false },
+  );
+  assert.deepEqual(
+    withPlan.inline_keyboard.at(-2)?.map((button) => button.callback_data),
+    ["plan:enter", "plan:pause", "plan:exit"],
+  );
+});
+
+test("Status menu plan row marks exactly one truthful state", () => {
+  const off = buildStatusReplyMarkup(
+    reasoningModel,
+    "medium",
+    0,
+    undefined,
+    undefined,
+    { isEnabled: true, isActive: false },
+  );
+  const on = buildStatusReplyMarkup(
+    reasoningModel,
+    "medium",
+    0,
+    undefined,
+    undefined,
+    { isEnabled: true, isActive: true },
+  );
+
+  const planButton = (markup: typeof off) =>
+    markup.inline_keyboard.flat().find((b) => b.callback_data === "plan:enter")
+      ?.text;
+  const exitButton = (markup: typeof off) =>
+    markup.inline_keyboard.flat().find((b) => b.callback_data === "plan:exit")
+      ?.text;
+
+  assert.equal(planButton(off)?.startsWith(""), true);
+  assert.equal(planButton(on)?.startsWith(""), true);
+  assert.equal(exitButton(off), "⏹ Exit", "exit must not claim live state");
+  assert.equal(exitButton(on), "⏹ Exit");
+});
+
+test("Status menu plan callbacks reach the plan mode action", async () => {
+  const actions: string[] = [];
+  const answers: Array<string | undefined> = [];
+  const deps = {
+    updateModelMenuMessage: async () => {},
+    updateThinkingMenuMessage: async () => {},
+    handlePlanModeAction: async (action: "enter" | "pause" | "exit") => {
+      actions.push(action);
+      return { ok: true, message: `plan-${action}` };
+    },
+    answerCallbackQuery: async (_id: string, text?: string) => {
+      answers.push(text);
+    },
+  };
+
+  for (const action of ["enter", "pause", "exit"] as const) {
+    const handled = await handleTelegramStatusMenuCallbackAction(
+      "cb",
+      `plan:${action}`,
+      reasoningModel,
+      deps,
+    );
+    assert.equal(handled, true);
+  }
+
+  assert.deepEqual(actions, ["enter", "pause", "exit"]);
+  assert.deepEqual(answers, ["plan-enter", "plan-pause", "plan-exit"]);
+});
