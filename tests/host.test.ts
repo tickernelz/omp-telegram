@@ -11,6 +11,7 @@ import test from "node:test";
 
 import {
   applyTelegramHostPlan,
+  resolveOmpExecutable,
   evaluateTelegramHostPlatform,
   parseTelegramHostCommand,
   planTelegramHostAction,
@@ -83,6 +84,11 @@ test("the wrapper runs a real omp session inside tmux and supervises it", () => 
     assert.match(plan.wrapper, /^#!\/bin\/bash$/m);
     assert.match(plan.wrapper, /new-session -d -s "\$SESSION" -x 200 -y 50 -c "\$CWD" \\$/m);
     assert.ok(plan.wrapper.includes(`'${input.ompExecutable}' --cwd "$CWD"`));
+    assert.ok(
+      !plan.wrapper.includes("command -v tmux"),
+      "the wrapper must not depend on the unit's PATH to find tmux",
+    );
+    assert.match(plan.wrapper, /^TMUX='[^']+'$/m);
     assert.match(plan.wrapper, /has-session -t "\$SESSION"/);
     assert.ok(plan.wrapper.includes(`SOCKET='${plan.socketPath}'`));
     assert.ok(!plan.wrapper.includes("--mode="));
@@ -215,6 +221,29 @@ test("anchor round-trips the fixed host working directory", () => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("a Bun standalone binary resolves to a real executable, not its virtual path", () => {
+  assert.equal(
+    resolveOmpExecutable({
+      argv: ["bun", "/$bunfs/root/omp-linux-x64"],
+      exists: () => false,
+      resolveOnPath: () => "/home/user/.bun/bin/omp",
+    }),
+    "/home/user/.bun/bin/omp",
+  );
+  assert.equal(
+    resolveOmpExecutable({
+      argv: ["bun", "/home/user/.bun/bin/omp"],
+      exists: (path) => path === "/home/user/.bun/bin/omp",
+      resolveOnPath: () => "UNREACHED",
+    }),
+    "/home/user/.bun/bin/omp",
+  );
+  assert.equal(
+    resolveOmpExecutable({ argv: ["bun"], exists: () => false, resolveOnPath: () => undefined }),
+    "omp",
+  );
 });
 
 test("the command parser rejects unknown actions and options", () => {

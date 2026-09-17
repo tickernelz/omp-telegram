@@ -829,7 +829,7 @@ export function registerTelegramBridgeCommands(
         action,
         agentDir,
         cwd,
-        ompExecutable: Host.resolveOmpExecutable(process.argv),
+        ompExecutable: Host.resolveOmpExecutable(),
       });
       if (parsed.dryRun || action === "status" || action === "attach") {
         ctx.ui.notify(Host.describeTelegramHostPlan(plan), "info");

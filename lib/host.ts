@@ -15,7 +15,7 @@ import {
 } from "node:fs";
 import { spawn } from "node:child_process";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 
 import { resolveAgentDir } from "./paths.ts";
 
@@ -116,18 +116,22 @@ export function evaluateTelegramHostPlatform(
   return { eligible: true, platform };
 }
 
-/** Render the wrapper that owns the tmux session and remains the unit's main process. */
+/**
+ * Render the wrapper that owns the tmux session and remains the unit's main process.
+ * Both binaries are absolute because a unit's PATH is not the operator's PATH.
+ */
 export function renderTelegramHostWrapper(input: {
   cwd: string;
   agentDir: string;
   ompExecutable: string;
+  tmuxExecutable: string;
   socketPath: string;
   sessionName?: string;
 }): string {
   const sessionName = input.sessionName ?? TELEGRAM_HOST_SESSION_NAME;
   return `#!/bin/bash
 set -u
-TMUX=$(command -v tmux || echo tmux)
+TMUX=${quoteShellWord(input.tmuxExecutable)}
 SOCKET=${quoteShellWord(input.socketPath)}
 SESSION=${quoteShellWord(sessionName)}
 CWD=${quoteShellWord(input.cwd)}
@@ -211,6 +215,7 @@ export interface TelegramHostPlanInput {
   readonly agentDir: string;
   readonly cwd: string;
   readonly ompExecutable: string;
+  readonly tmuxExecutable?: string;
   readonly systemdUserDir?: string;
   readonly unitName?: string;
 }
@@ -231,6 +236,7 @@ export function planTelegramHostAction(input: TelegramHostPlanInput): TelegramHo
     cwd: input.cwd,
     agentDir: input.agentDir,
     ompExecutable: input.ompExecutable,
+    tmuxExecutable: input.tmuxExecutable ?? resolveExecutableOnPath("tmux") ?? "tmux",
     socketPath,
   });
   const systemctl = ["systemctl", "--user"] as const;
@@ -438,11 +444,37 @@ export async function runTelegramHostAutoConnect(
   }
 }
 
-/** Absolute path of the running OMP executable, falling back to the bare command name. */
-export function resolveOmpExecutable(argv: readonly string[] = process.argv): string {
+/**
+ * Executable the wrapper should run. Bun standalone binaries expose a virtual
+ * `/$bunfs/...` argv[1] that does not exist on disk, so anything outside a real
+ * filesystem falls back to resolving the command name from PATH.
+ */
+export function resolveOmpExecutable(
+  input: {
+    argv?: readonly string[];
+    exists?: (path: string) => boolean;
+    resolveOnPath?: (name: string) => string | undefined;
+  } = {},
+): string {
+  const argv = input.argv ?? process.argv;
+  const exists = input.exists ?? telegramHostPathExists;
+  const resolveOnPath = input.resolveOnPath ?? resolveExecutableOnPath;
   const candidate = argv[1];
-  if (!candidate) return "omp";
-  return resolve(candidate);
+  if (candidate && candidate.startsWith("/") && exists(candidate)) return candidate;
+  return resolveOnPath("omp") ?? "omp";
+}
+
+/** Absolute path of a command name found on PATH, or undefined. */
+export function resolveExecutableOnPath(
+  name: string,
+  pathValue = process.env.PATH ?? "",
+): string | undefined {
+  for (const entry of pathValue.split(":")) {
+    if (!entry) continue;
+    const candidate = join(entry, name);
+    if (telegramHostPathExists(candidate)) return candidate;
+  }
+  return undefined;
 }
 
 /** True when the executable is resolvable on PATH. */

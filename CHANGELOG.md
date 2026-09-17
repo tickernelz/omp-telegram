@@ -4,7 +4,11 @@
 
 ## Unreleased
 
-## 0.6.1: Cross-Platform Host Tests
+## 0.6.2: Host Executables Are Absolute
+
+- `Host Executables Are Absolute`: The generated wrapper looked up `tmux` on `PATH`, which a systemd user unit does not inherit, so the installed host crash-looped with `tmux: command not found` while the same wrapper worked when run by hand. Both the tmux and OMP executables are now baked in as absolute paths at render time.
+- `Bun Standalone Executable Resolution`: A Bun-compiled OMP reports a virtual `/$bunfs/...` path in `process.argv[1]` that does not exist on disk, so the rendered wrapper pointed at a file nothing could execute. The resolver now verifies the candidate on the filesystem and otherwise resolves `omp` from `PATH`.
+
 
 - `Cross-Platform Host Tests`: The host test suite asserted POSIX path shapes, so Windows CI failed on a feature it correctly refuses to install there. Path, binary, and socket assertions are now separator-agnostic and verified against simulated Windows paths.
 
