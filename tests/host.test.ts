@@ -11,6 +11,7 @@ import test from "node:test";
 
 import {
   applyTelegramHostPlan,
+  renderTelegramHostWrapper,
   resolveOmpExecutable,
   evaluateTelegramHostPlatform,
   parseTelegramHostCommand,
@@ -227,22 +228,58 @@ test("a Bun standalone binary resolves to a real executable, not its virtual pat
   assert.equal(
     resolveOmpExecutable({
       argv: ["bun", "/$bunfs/root/omp-linux-x64"],
-      exists: () => false,
-      resolveOnPath: () => "/home/user/.bun/bin/omp",
-    }),
-    "/home/user/.bun/bin/omp",
-  );
-  assert.equal(
-    resolveOmpExecutable({
-      argv: ["bun", "/home/user/.bun/bin/omp"],
+      execPath: "/home/user/.bun/bin/omp",
       exists: (path) => path === "/home/user/.bun/bin/omp",
       resolveOnPath: () => "UNREACHED",
     }),
     "/home/user/.bun/bin/omp",
   );
   assert.equal(
-    resolveOmpExecutable({ argv: ["bun"], exists: () => false, resolveOnPath: () => undefined }),
+    resolveOmpExecutable({
+      argv: ["bun", "/home/user/lib/omp.js"],
+      execPath: "/usr/bin/bun",
+      exists: () => true,
+      resolveOnPath: () => "UNREACHED",
+    }),
+    "/home/user/lib/omp.js",
+  );
+  assert.equal(
+    resolveOmpExecutable({
+      argv: ["bun", "/$bunfs/root/omp"],
+      execPath: "/usr/bin/bun",
+      exists: (path) => path !== "/$bunfs/root/omp",
+      resolveOnPath: () => "/usr/local/bin/omp",
+    }),
+    "/usr/local/bin/omp",
+  );
+  assert.equal(
+    resolveOmpExecutable({
+      argv: ["bun"],
+      execPath: "/usr/bin/node",
+      exists: () => false,
+      resolveOnPath: () => undefined,
+    }),
     "omp",
+  );
+});
+
+test("the wrapper fails loudly when the session dies during startup", () => {
+  const wrapper = renderTelegramHostWrapper({
+    cwd: "/home/user/Projects",
+    agentDir: "/home/user/.omp/agent",
+    ompExecutable: "/home/user/.bun/bin/omp",
+    tmuxExecutable: "/usr/bin/tmux",
+    socketPath: "/home/user/.omp/agent/telegram-host/tmux.sock",
+  });
+  assert.match(wrapper, /has-session[^\n]*\n\s*then|if ! "\$TMUX"/);
+  assert.ok(
+    wrapper.includes("exited immediately"),
+    "a session that dies at startup must name the executable instead of exiting 0",
+  );
+  const startupGuard = wrapper.slice(0, wrapper.indexOf("while \"$TMUX\""));
+  assert.ok(
+    startupGuard.includes("exit 1"),
+    "the startup probe must exit non-zero so systemd records a reason",
   );
 });
 

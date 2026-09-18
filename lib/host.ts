@@ -8,6 +8,7 @@ import {
   accessSync,
   constants,
   mkdirSync,
+  realpathSync,
   readFileSync,
   rmSync,
   unlinkSync,
@@ -15,13 +16,14 @@ import {
 } from "node:fs";
 import { spawn } from "node:child_process";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 import { resolveAgentDir } from "./paths.ts";
 
 export const TELEGRAM_HOST_UNIT_NAME = "omp-telegram-host";
 export const TELEGRAM_HOST_SESSION_NAME = "host";
 export const TELEGRAM_HOST_WATCHDOG_INTERVAL_SECONDS = 5;
+export const TELEGRAM_HOST_STARTUP_PROBE_SECONDS = 3;
 export const TELEGRAM_HOST_STATE_DIR_NAME = "telegram-host";
 export const TELEGRAM_HOST_ANCHOR_FILE = "host.json";
 export const TELEGRAM_HOST_ACTIONS = [
@@ -142,7 +144,13 @@ export PI_CODING_AGENT_DIR=${quoteShellWord(input.agentDir)}
 "$TMUX" -S "$SOCKET" new-session -d -s "$SESSION" -x 200 -y 50 -c "$CWD" \\
   ${quoteShellWord(input.ompExecutable)} --cwd "$CWD"
 if [ $? -ne 0 ]; then
-  echo "telegram-host: could not start the tmux session" >&2
+  echo "telegram-host: tmux could not create session '$SESSION'" >&2
+  exit 1
+fi
+
+sleep ${TELEGRAM_HOST_STARTUP_PROBE_SECONDS}
+if ! "$TMUX" -S "$SOCKET" has-session -t "$SESSION" 2>/dev/null; then
+  echo "telegram-host: ${quoteShellWord(input.ompExecutable)} exited immediately; the session did not survive startup" >&2
   exit 1
 fi
 
@@ -452,16 +460,40 @@ export async function runTelegramHostAutoConnect(
 export function resolveOmpExecutable(
   input: {
     argv?: readonly string[];
+    execPath?: string;
     exists?: (path: string) => boolean;
     resolveOnPath?: (name: string) => string | undefined;
   } = {},
 ): string {
   const argv = input.argv ?? process.argv;
-  const exists = input.exists ?? telegramHostPathExists;
+  const isRealExecutable = input.exists ?? telegramHostRealExecutable;
   const resolveOnPath = input.resolveOnPath ?? resolveExecutableOnPath;
-  const candidate = argv[1];
-  if (candidate && candidate.startsWith("/") && exists(candidate)) return candidate;
+  const entry = argv[1];
+  if (entry?.startsWith("/") && isRealExecutable(entry)) return entry;
+  const execPath = input.execPath ?? process.execPath;
+  if (execPath && !isGenericRuntimeExecutable(execPath) && isRealExecutable(execPath)) {
+    return execPath;
+  }
   return resolveOnPath("omp") ?? "omp";
+}
+
+/** Runtimes that only execute an entry file, so they cannot stand in for the OMP command. */
+const GENERIC_RUNTIME_EXECUTABLES = new Set(["node", "bun", "deno", "node.exe", "bun.exe", "deno.exe"]);
+
+/** True when the executable is a bare language runtime rather than OMP itself. */
+export function isGenericRuntimeExecutable(path: string): boolean {
+  return GENERIC_RUNTIME_EXECUTABLES.has(basename(path));
+}
+
+/** True when the path is a real executable file that any process can run. */
+export function telegramHostRealExecutable(path: string): boolean {
+  try {
+    realpathSync(path);
+    accessSync(path, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Absolute path of a command name found on PATH, or undefined. */
@@ -472,7 +504,7 @@ export function resolveExecutableOnPath(
   for (const entry of pathValue.split(":")) {
     if (!entry) continue;
     const candidate = join(entry, name);
-    if (telegramHostPathExists(candidate)) return candidate;
+    if (telegramHostRealExecutable(candidate)) return candidate;
   }
   return undefined;
 }

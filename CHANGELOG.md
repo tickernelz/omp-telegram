@@ -4,6 +4,11 @@
 
 ## Unreleased
 
+## 0.6.3: Host Startup Failures Are Visible
+
+- `Bun Virtual Path Rejection`: Inside a Bun standalone binary `existsSync("/$bunfs/...")` answers true, so the 0.6.2 existence check still emitted a virtual executable path that no other process could run, and the installed host restarted forever. Candidate executables are now confirmed with `realpathSync` plus an executable-bit check, and a bare `node`/`bun`/`deno` runtime no longer stands in for the OMP command.
+- `Silent Restart Loop`: A tmux session whose command died at startup returned success, so the wrapper exited 0 and the unit restarted endlessly with no journal reason. The wrapper now probes the session after startup and exits non-zero naming the executable it tried to run.
+
 ## 0.6.2: Host Executables Are Absolute
 
 - `Host Executables Are Absolute`: The generated wrapper looked up `tmux` on `PATH`, which a systemd user unit does not inherit, so the installed host crash-looped with `tmux: command not found` while the same wrapper worked when run by hand. Both the tmux and OMP executables are now baked in as absolute paths at render time.
