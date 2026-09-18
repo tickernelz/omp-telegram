@@ -26,6 +26,8 @@ export const TELEGRAM_HOST_WATCHDOG_INTERVAL_SECONDS = 5;
 export const TELEGRAM_HOST_STARTUP_PROBE_SECONDS = 3;
 export const TELEGRAM_HOST_STATE_DIR_NAME = "telegram-host";
 export const TELEGRAM_HOST_ANCHOR_FILE = "host.json";
+export const TELEGRAM_HOST_SOCKET_FILE = "tmux.sock";
+export const TELEGRAM_HOST_SESSION_ENV = "OMP_TELEGRAM_HOST";
 export const TELEGRAM_HOST_ACTIONS = [
   "install",
   "uninstall",
@@ -69,6 +71,11 @@ export function resolveTelegramHostStateDir(agentDir = resolveAgentDir()): strin
 /** Anchor file marking an agent directory as a resident host. */
 export function resolveTelegramHostAnchorPath(agentDir = resolveAgentDir()): string {
   return join(agentDir, TELEGRAM_HOST_ANCHOR_FILE);
+}
+
+/** Private tmux socket owned by this agent directory's resident host. */
+export function resolveTelegramHostSocketPath(agentDir = resolveAgentDir()): string {
+  return join(resolveTelegramHostStateDir(agentDir), TELEGRAM_HOST_SOCKET_FILE);
 }
 
 export function resolveTelegramHostUnitPath(
@@ -129,6 +136,7 @@ export function renderTelegramHostWrapper(input: {
   tmuxExecutable: string;
   socketPath: string;
   sessionName?: string;
+  unitName?: string;
 }): string {
   const sessionName = input.sessionName ?? TELEGRAM_HOST_SESSION_NAME;
   return `#!/bin/bash
@@ -138,6 +146,7 @@ SOCKET=${quoteShellWord(input.socketPath)}
 SESSION=${quoteShellWord(sessionName)}
 CWD=${quoteShellWord(input.cwd)}
 export PI_CODING_AGENT_DIR=${quoteShellWord(input.agentDir)}
+export ${TELEGRAM_HOST_SESSION_ENV}=${quoteShellWord(input.unitName ?? TELEGRAM_HOST_UNIT_NAME)}
 
 "$TMUX" -S "$SOCKET" kill-session -t "$SESSION" 2>/dev/null
 
@@ -218,6 +227,22 @@ export function readTelegramHostAnchor(
   }
 }
 
+/**
+ * Whether this process is the resident host session itself.
+ * The agent-wide anchor proves a host is installed, never that this session is it.
+ */
+export function isTelegramHostSession(input: {
+  socketPath: string;
+  unitName?: string;
+  env?: NodeJS.ProcessEnv;
+}): boolean {
+  const env = input.env ?? process.env;
+  const unitName = input.unitName ?? TELEGRAM_HOST_UNIT_NAME;
+  if (env[TELEGRAM_HOST_SESSION_ENV] === unitName) return true;
+  const tmux = env.TMUX;
+  return typeof tmux === "string" && tmux.split(",")[0] === input.socketPath;
+}
+
 export interface TelegramHostPlanInput {
   readonly action: TelegramHostAction;
   readonly agentDir: string;
@@ -234,7 +259,7 @@ export function planTelegramHostAction(input: TelegramHostPlanInput): TelegramHo
   const unitPath = resolveTelegramHostUnitPath(unitName, input.systemdUserDir);
   const stateDir = resolveTelegramHostStateDir(input.agentDir);
   const wrapperPath = join(stateDir, "host.sh");
-  const socketPath = join(stateDir, "tmux.sock");
+  const socketPath = resolveTelegramHostSocketPath(input.agentDir);
   const unit = renderTelegramHostUnit({
     wrapperPath,
     agentDir: input.agentDir,
@@ -246,6 +271,7 @@ export function planTelegramHostAction(input: TelegramHostPlanInput): TelegramHo
     ompExecutable: input.ompExecutable,
     tmuxExecutable: input.tmuxExecutable ?? resolveExecutableOnPath("tmux") ?? "tmux",
     socketPath,
+    unitName,
   });
   const systemctl = ["systemctl", "--user"] as const;
   const anchorPath = resolveTelegramHostAnchorPath(input.agentDir);

@@ -1913,7 +1913,12 @@ export default function (pi: Pi.ExtensionAPI) {
     modelContextAvailabilityRuntime,
     hostAutoConnect: {
       isEnabled() {
-        return Host.readTelegramHostAnchor(telegramAgentDir) !== undefined;
+        const anchor = Host.readTelegramHostAnchor(telegramAgentDir);
+        if (!anchor) return false;
+        return Host.isTelegramHostSession({
+          unitName: anchor.unitName,
+          socketPath: Host.resolveTelegramHostSocketPath(telegramAgentDir),
+        });
       },
       ownsLock(ctx) {
         return lockRuntime.owns(ctx);

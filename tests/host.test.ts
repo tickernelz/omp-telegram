@@ -11,6 +11,7 @@ import test from "node:test";
 
 import {
   applyTelegramHostPlan,
+  isTelegramHostSession,
   renderTelegramHostWrapper,
   resolveOmpExecutable,
   evaluateTelegramHostPlatform,
@@ -19,6 +20,7 @@ import {
   readTelegramHostAnchor,
   renderTelegramHostAnchor,
   resolveTelegramHostAnchorPath,
+  resolveTelegramHostSocketPath,
   resolveTelegramHostUnitPath,
   runTelegramHostAutoConnect,
   type TelegramHostApplyDeps,
@@ -94,6 +96,7 @@ test("the wrapper runs a real omp session inside tmux and supervises it", () => 
     assert.ok(plan.wrapper.includes(`SOCKET='${plan.socketPath}'`));
     assert.ok(!plan.wrapper.includes("--mode="));
     assert.ok(plan.wrapper.includes("PI_CODING_AGENT_DIR="));
+    assert.ok(plan.wrapper.includes(`export OMP_TELEGRAM_HOST='${plan.unitName}'`));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -290,6 +293,50 @@ test("the command parser rejects unknown actions and options", () => {
   assert.match(parseTelegramHostCommand("explode").invalid ?? "", /Unknown action: explode/);
   assert.match(parseTelegramHostCommand("install --loud").invalid ?? "", /Unknown option: --loud/);
   assert.match(parseTelegramHostCommand("install extra").invalid ?? "", /Unknown arguments: extra/);
+});
+
+test("only the resident host session itself is a host session", () => {
+  const dir = mkdtempSync(join(tmpdir(), "pi-telegram-host-session-"));
+  try {
+    const socketPath = resolveTelegramHostSocketPath(dir);
+    const unitName = "omp-telegram-host";
+
+    assert.equal(
+      isTelegramHostSession({ socketPath, unitName, env: {} }),
+      false,
+      "an ordinary terminal sharing the hosted agent directory must never claim host identity",
+    );
+    assert.equal(
+      isTelegramHostSession({
+        socketPath,
+        unitName,
+        env: { TMUX: `${join(tmpdir(), "other.sock")},4242,0` },
+      }),
+      false,
+      "an unrelated tmux session is not the host",
+    );
+    assert.equal(
+      isTelegramHostSession({
+        socketPath,
+        unitName,
+        env: { OMP_TELEGRAM_HOST: "omp-telegram-host-other" },
+      }),
+      false,
+      "a stamp from a different unit is not this host",
+    );
+
+    assert.equal(
+      isTelegramHostSession({ socketPath, unitName, env: { OMP_TELEGRAM_HOST: unitName } }),
+      true,
+    );
+    assert.equal(
+      isTelegramHostSession({ socketPath, unitName, env: { TMUX: `${socketPath},4242,0` } }),
+      true,
+      "a host installed before the stamp existed is still identified by its private socket",
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("auto-connect types the connect command only in an unclaimed host", async () => {

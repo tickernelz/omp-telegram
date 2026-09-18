@@ -4,6 +4,10 @@
 
 ## Unreleased
 
+## 0.6.4: Auto-Connect Belongs To The Host
+
+- `Host Auto-Connect Scope`: The cold-start gate only read the agent-wide `host.json` anchor, so every ordinary OMP session sharing that agent directory typed `/telegram-connect` into its own terminal seconds after session start and took the bot from the resident host. Auto-connect now requires the host session itself, identified by the wrapper's `OMP_TELEGRAM_HOST` stamp or the host's private tmux socket.
+
 ## 0.6.3: Host Startup Failures Are Visible
 
 - `Bun Virtual Path Rejection`: Inside a Bun standalone binary `existsSync("/$bunfs/...")` answers true, so the 0.6.2 existence check still emitted a virtual executable path that no other process could run, and the installed host restarted forever. Candidate executables are now confirmed with `realpathSync` plus an executable-bit check, and a bare `node`/`bun`/`deno` runtime no longer stands in for the OMP command.
