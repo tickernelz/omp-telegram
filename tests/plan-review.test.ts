@@ -278,3 +278,253 @@ test("createTelegramPlanReviewRuntime respects suppression gates", async () => {
   );
   assert.equal(sent, false, "Should not send when mode is rpc");
 });
+
+const planCtx = {
+  mode: "tui",
+  hasUI: true,
+  getContextUsage: () => ({ percent: 50 }),
+  cwd: process.cwd(),
+};
+
+function planProposalEvent(title: string) {
+  return {
+    toolName: "write",
+    result: {
+      details: {
+        xdev: {
+          tool: "propose",
+          mode: "execute",
+          inner: {
+            planFilePath: "package.json",
+            title,
+            planExists: true,
+          },
+        },
+      },
+    },
+  };
+}
+
+test("Plan review reaches the CLI overlay before it reports the decision", async () => {
+  const order: string[] = [];
+  let sentView: any = undefined;
+  let editedView: any = undefined;
+  const handle: TelegramDeliveryHandle = {
+    target: { chatId: 5 },
+    messageIds: [50],
+    generation: "gen1",
+  };
+  const runtime = createTelegramPlanReviewRuntime({
+    isEnabled: () => true,
+    getActiveTurn: () => ({ id: "turn1" }),
+    answerCallbackQuery: async () => {
+      order.push("answer");
+    },
+    tuiInput: {
+      send: (data: string) => {
+        order.push(`send:${data}`);
+        return true;
+      },
+    },
+    sendView: async (view) => {
+      sentView = view;
+      return { ok: true, value: handle } as TelegramDeliveryResult<TelegramDeliveryHandle>;
+    },
+    editView: async (_handle, view) => {
+      order.push("edit");
+      editedView = view;
+      return { ok: true, value: handle } as TelegramDeliveryResult<TelegramDeliveryHandle>;
+    },
+  });
+
+  await runtime.onToolExecutionEnd(planProposalEvent("Ordered plan"), planCtx);
+  const callbackData = sentView.replyMarkup.inline_keyboard[0][0].callback_data;
+  await runtime.resolveFromUpdate({
+    callback_query: { id: "cb_order", data: callbackData },
+  });
+
+  assert.deepEqual(order, ["send:\r", "answer", "edit"]);
+  assert.ok(editedView.text.includes("✅ Approve and execute (from Telegram)"));
+});
+
+test("Plan review reports an overlay that refused the keystrokes", async () => {
+  const events: Array<Record<string, unknown>> = [];
+  const answers: Array<string | undefined> = [];
+  let sentView: any = undefined;
+  let editedView: any = undefined;
+  const handle: TelegramDeliveryHandle = {
+    target: { chatId: 5 },
+    messageIds: [51],
+    generation: "gen1",
+  };
+  const runtime = createTelegramPlanReviewRuntime({
+    isEnabled: () => true,
+    getActiveTurn: () => ({ id: "turn1" }),
+    answerCallbackQuery: async (_id, text) => {
+      answers.push(text);
+    },
+    tuiInput: { send: () => false },
+    recordRuntimeEvent: (_category, _error, details) => {
+      events.push(details ?? {});
+    },
+    sendView: async (view) => {
+      sentView = view;
+      return { ok: true, value: handle } as TelegramDeliveryResult<TelegramDeliveryHandle>;
+    },
+    editView: async (_handle, view) => {
+      editedView = view;
+      return { ok: true, value: handle } as TelegramDeliveryResult<TelegramDeliveryHandle>;
+    },
+  });
+
+  await runtime.onToolExecutionEnd(planProposalEvent("Refused plan"), planCtx);
+  const callbackData = sentView.replyMarkup.inline_keyboard[0][0].callback_data;
+  await runtime.resolveFromUpdate({
+    callback_query: { id: "cb_refused", data: callbackData },
+  });
+
+  assert.deepEqual(answers, ["Could not reach the CLI overlay."]);
+  assert.ok(editedView.text.includes("⚠️ Could not reach the CLI overlay"));
+  assert.ok(
+    events.some((detail) => detail.phase === "tui-input" && detail.choice === "approve-execute"),
+    "a refused overlay must be recorded as a runtime event",
+  );
+});
+
+test("Plan review rejects a choice the current card never offered", async () => {
+  const answers: Array<string | undefined> = [];
+  const keystrokes: string[] = [];
+  let sentView: any = undefined;
+  const handle: TelegramDeliveryHandle = {
+    target: { chatId: 5 },
+    messageIds: [52],
+    generation: "gen1",
+  };
+  const runtime = createTelegramPlanReviewRuntime({
+    isEnabled: () => true,
+    getActiveTurn: () => ({ id: "turn1" }),
+    answerCallbackQuery: async (_id, text) => {
+      answers.push(text);
+    },
+    tuiInput: {
+      send: (data: string) => {
+        keystrokes.push(data);
+        return true;
+      },
+    },
+    sendView: async (view) => {
+      sentView = view;
+      return { ok: true, value: handle } as TelegramDeliveryResult<TelegramDeliveryHandle>;
+    },
+    editView: async (_handle, _view) =>
+      ({ ok: true, value: handle }) as TelegramDeliveryResult<TelegramDeliveryHandle>,
+  });
+
+  await runtime.onToolExecutionEnd(
+    {
+      ...planProposalEvent("Tight context plan"),
+    },
+    { ...planCtx, getContextUsage: () => ({ percent: 95 }) },
+  );
+  const offered = sentView.replyMarkup.inline_keyboard.map(
+    (row: any) => row[0].callback_data.split(":")[2],
+  );
+  assert.ok(!offered.includes("approve-keep"), "the card must not offer keeping context");
+
+  const requestId = sentView.replyMarkup.inline_keyboard[0][0].callback_data.split(":")[1];
+  const verdict = await runtime.resolveFromUpdate({
+    callback_query: {
+      id: "cb_unavailable",
+      data: `${TELEGRAM_PLAN_REVIEW_CALLBACK_PREFIX}:${requestId}:approve-keep`,
+    },
+  });
+
+  assert.equal(verdict, "consume");
+  assert.deepEqual(answers, ["That option is no longer available."]);
+  assert.deepEqual(keystrokes, []);
+
+  const accepted = await runtime.resolveFromUpdate({
+    callback_query: {
+      id: "cb_valid",
+      data: sentView.replyMarkup.inline_keyboard[0][0].callback_data,
+    },
+  });
+  assert.equal(accepted, "consume");
+  assert.deepEqual(keystrokes, ["\r"], "the card must survive an unavailable choice");
+});
+
+test("Plan review supersedes an undecided card when a newer plan arrives", async () => {
+  const edits: any[] = [];
+  const handles: TelegramDeliveryHandle[] = [
+    { target: { chatId: 5 }, messageIds: [60], generation: "gen1" },
+    { target: { chatId: 5 }, messageIds: [61], generation: "gen1" },
+  ];
+  let sendCount = 0;
+  const runtime = createTelegramPlanReviewRuntime({
+    isEnabled: () => true,
+    getActiveTurn: () => ({ id: "turn1" }),
+    tuiInput: { send: () => true },
+    sendView: async () => {
+      const value = handles[sendCount]!;
+      sendCount += 1;
+      return { ok: true, value } as TelegramDeliveryResult<TelegramDeliveryHandle>;
+    },
+    editView: async (handle, view) => {
+      edits.push({ handle, view });
+      return { ok: true, value: handle } as TelegramDeliveryResult<TelegramDeliveryHandle>;
+    },
+  });
+
+  await runtime.onToolExecutionEnd(planProposalEvent("First plan"), planCtx);
+  await runtime.onToolExecutionEnd(planProposalEvent("Second plan"), planCtx);
+
+  assert.equal(edits.length, 1, "the stale card must be closed exactly once");
+  assert.equal(edits[0].handle, handles[0]);
+  assert.ok(edits[0].view.text.includes("⏹ Superseded by a newer plan"));
+  assert.deepEqual(edits[0].view.replyMarkup, { inline_keyboard: [] });
+
+  await runtime.cancelAll("Turn ended");
+  assert.equal(edits.length, 2);
+  assert.equal(edits[1].handle, handles[1], "only the newest card stays pending");
+});
+
+test("Plan review records a card edit the delivery layer refused", async () => {
+  const events: Array<Record<string, unknown>> = [];
+  let sentView: any = undefined;
+  const runtime = createTelegramPlanReviewRuntime({
+    isEnabled: () => true,
+    getActiveTurn: () => ({ id: "turn1" }),
+    tuiInput: { send: () => true },
+    recordRuntimeEvent: (_category, _error, details) => {
+      events.push(details ?? {});
+    },
+    sendView: async (view) => {
+      sentView = view;
+      return {
+        ok: true,
+        value: { target: { chatId: 5 }, messageIds: [70], generation: "gen1" },
+      } as TelegramDeliveryResult<TelegramDeliveryHandle>;
+    },
+    editView: async () =>
+      ({
+        ok: false,
+        reason: "stale-handle",
+        message: "handle belongs to an older generation",
+      }) as TelegramDeliveryResult<TelegramDeliveryHandle>,
+  });
+
+  await runtime.onToolExecutionEnd(planProposalEvent("Refused edit plan"), planCtx);
+  await runtime.resolveFromUpdate({
+    callback_query: {
+      id: "cb_refused_edit",
+      data: sentView.replyMarkup.inline_keyboard[0][0].callback_data,
+    },
+  });
+
+  assert.ok(
+    events.some(
+      (detail) => detail.phase === "edit-view" && detail.reason === "stale-handle",
+    ),
+    "a refused edit must be recorded as a runtime event",
+  );
+});

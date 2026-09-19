@@ -750,3 +750,71 @@ test("Concrete delivery runtime serializes operations per target", async () => {
   await Promise.all([sending, action]);
   assert.deepEqual(order, ["first-start", "first-end", "action"]);
 });
+
+function createNotModifiedBridgeHarness(editError: Error) {
+  const editedMessageIds: number[] = [];
+  let nextMessageId = 300;
+  const runtime = createTelegramBridgeDeliveryRuntime({
+    generation: "generation-one",
+    getTargetPolicyView: () => ({
+      canDeliver: true,
+      ownsDirect: true,
+      allowedChatId: 42,
+      leaderTarget: target,
+    }),
+    getActiveTurnTarget: () => target,
+    api: {
+      async sendMessage() {
+        nextMessageId += 1;
+        return { message_id: nextMessageId };
+      },
+      async editMessageText(body) {
+        editedMessageIds.push(body.message_id);
+        if (editedMessageIds.length === 1) throw editError;
+        return "edited";
+      },
+      async deleteMessage() {},
+      async sendChatAction() {
+        return true;
+      },
+    },
+    recordOwnership() {},
+  });
+  return { runtime, editedMessageIds };
+}
+
+const twoChunkText = `${"a".repeat(3500)}\n\n${"b".repeat(3500)}`;
+
+test("Bridge delivery runtime keeps an unchanged chunk from failing the whole edit", async () => {
+  const { runtime, editedMessageIds } = createNotModifiedBridgeHarness(
+    new Error("Bad Request: message is not modified"),
+  );
+  const sent = await runtime.sendView(
+    { text: twoChunkText },
+    { scope: { kind: "instance" } },
+  );
+  assert.equal(sent.ok, true);
+  if (!sent.ok) return;
+  assert.equal(sent.value.messageIds.length, 2);
+
+  const edited = await runtime.editView(sent.value, { text: twoChunkText });
+  assert.equal(edited.ok, true);
+  assert.deepEqual(editedMessageIds, sent.value.messageIds);
+});
+
+test("Bridge delivery runtime still fails an edit rejected for a real reason", async () => {
+  const { runtime, editedMessageIds } = createNotModifiedBridgeHarness(
+    new Error("Bad Request: chat not found"),
+  );
+  const sent = await runtime.sendView(
+    { text: twoChunkText },
+    { scope: { kind: "instance" } },
+  );
+  assert.equal(sent.ok, true);
+  if (!sent.ok) return;
+
+  const edited = await runtime.editView(sent.value, { text: twoChunkText });
+  assert.equal(edited.ok, false);
+  if (!edited.ok) assert.equal(edited.reason, "transport-failed");
+  assert.equal(editedMessageIds.length, 1);
+});

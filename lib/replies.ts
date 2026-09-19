@@ -1010,6 +1010,7 @@ export interface TelegramGuestPlaceholderRuntime {
   stop: (inlineMessageId: string) => Promise<void>;
   /** Cancels every loop without waiting for in-flight edits (session shutdown). */
   stopAll: () => void;
+  activeCount: () => number;
 }
 
 interface TelegramGuestPlaceholderSession {
@@ -1050,11 +1051,15 @@ export function createTelegramGuestPlaceholderRuntime(
   const sessions = new Map<string, TelegramGuestPlaceholderSession>();
 
   const finishRotation = (
+    inlineMessageId: string,
     session: TelegramGuestPlaceholderSession,
     elapsedMs: number,
   ): void => {
     if (session.finished) return;
     session.finished = true;
+    if (sessions.get(inlineMessageId) === session) {
+      sessions.delete(inlineMessageId);
+    }
     deps.recordRuntimeEvent?.(
       "guest",
       "Guest placeholder rotation reached its bound",
@@ -1079,11 +1084,11 @@ export function createTelegramGuestPlaceholderRuntime(
     const cycleComplete =
       session.step > 0 && session.step % frameCount === frameCount - 1;
     if (cycleComplete && elapsedMs >= minMs) {
-      finishRotation(session, elapsedMs);
+      finishRotation(inlineMessageId, session, elapsedMs);
       return;
     }
     if (elapsedMs + delayMs > maxMs) {
-      finishRotation(session, elapsedMs);
+      finishRotation(inlineMessageId, session, elapsedMs);
       return;
     }
     const timer = setTimer(() => {
@@ -1159,6 +1164,9 @@ export function createTelegramGuestPlaceholderRuntime(
         if (session.timer !== undefined) clearTimer(session.timer);
       }
       sessions.clear();
+    },
+    activeCount() {
+      return sessions.size;
     },
   };
 }

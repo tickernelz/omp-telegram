@@ -4,7 +4,11 @@
 
 ## Unreleased
 
-## 0.6.5: Full Plan Details in Telegram Approval
+## 0.6.6: Delivery Reconcile, Plan Review Hardening, and Stream Optimizations
+
+- `Multi-Chunk Edit Reconciliation`: Bridge delivery reconciles unchanged chunks during `editView` without failing when Telegram returns 400 'message is not modified', allowing multi-chunk plan review cards to reliably update and clear inline keyboards.
+- `Plan Review Hardening`: `resolveFromUpdate` validates choices against active card options, sends keystrokes immediately to the CLI overlay, records failures accurately, and gracefully supersedes stale pending cards when newer plans arrive.
+- `Progress Tail & Memory Leaks`: Removed per-delta reasoning line derivation on streaming thinking deltas, bounded summary retention for completed tools, deleted expired guest placeholder rotation sessions, and resolved retired ask callbacks cleanly.
 
 - `Full Plan Details Presentation`: Approval cards for plan review no longer truncate plan content to a single message ceiling. Telegram rich message delivery automatically chunks long plans across messages while anchoring inline action buttons to the terminal chunk.
 - `English Localization`: Converted remaining Indonesian status messages and callback warnings in plan review and plan mode runtimes to standard English.

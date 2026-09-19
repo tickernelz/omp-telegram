@@ -333,3 +333,127 @@ await test("ask delivers questions directly through Telegram API runtime", async
   controller.abort();
 });
 
+await test("a settled ask callback is answered here instead of being left unanswered", async () => {
+  const answers: Array<string | undefined> = [];
+  let sentMarkup: { inline_keyboard?: Array<Array<{ callback_data?: string }>> } | undefined;
+  const runtime = createTelegramAskRuntime({
+    getActiveTurn: () => ({ chatId: 77 }),
+    answerCallbackQuery: async (_id: string, text?: string) => {
+      answers.push(text);
+    },
+    sendView: async (view) => {
+      sentMarkup = view.replyMarkup as typeof sentMarkup;
+      return {
+        ok: true,
+        value: { target: { chatId: 77 }, messageIds: [11], generation: "g1" },
+      };
+    },
+    editView: async (handle) => ({ ok: true, value: handle }),
+  });
+  const tools = new Map<string, { execute: Function }>();
+  runtime.register({
+    registerTool: (definition: { name: string; execute: Function }) => {
+      tools.set(definition.name, definition);
+    },
+  } as never);
+
+  const controller = new AbortController();
+  const pending = tools.get("ask")!.execute("call-expired", question, controller.signal, undefined, { hasUI: false });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const data = sentMarkup?.inline_keyboard?.[0]?.[0]?.callback_data;
+  assert.ok(data?.startsWith("tgask:"));
+
+  const update = {
+    callback_query: {
+      id: "cb-settle",
+      data,
+      message: { message_id: 11, chat: { id: 77 } },
+      from: { id: 7 },
+    },
+  };
+  assert.equal(await runtime.resolveFromUpdate(update), "consume");
+  await pending;
+
+  answers.length = 0;
+  const replay = await runtime.resolveFromUpdate({
+    callback_query: { ...update.callback_query, id: "cb-replay" },
+  });
+  assert.equal(replay, "consume", "a question this process already settled must not fall through");
+  assert.deepEqual(answers, ["This question has expired."]);
+  controller.abort();
+});
+
+await test("an ask card follows the handle the delivery layer hands back", async () => {
+  const editedHandles: Array<{ messageIds: number[] }> = [];
+  let sentMarkup: { inline_keyboard?: Array<Array<{ callback_data?: string }>> } | undefined;
+  let nextMessageId = 20;
+  const runtime = createTelegramAskRuntime({
+    getActiveTurn: () => ({ chatId: 77 }),
+    answerCallbackQuery: async () => {},
+    sendView: async (view) => {
+      sentMarkup = view.replyMarkup as typeof sentMarkup;
+      return {
+        ok: true,
+        value: { target: { chatId: 77 }, messageIds: [nextMessageId], generation: "g1" },
+      };
+    },
+    editView: async (handle) => {
+      editedHandles.push({ messageIds: [...handle.messageIds] });
+      nextMessageId += 1;
+      return {
+        ok: true,
+        value: { target: { chatId: 77 }, messageIds: [nextMessageId], generation: "g1" },
+      };
+    },
+  });
+  const tools = new Map<string, { execute: Function }>();
+  runtime.register({
+    registerTool: (definition: { name: string; execute: Function }) => {
+      tools.set(definition.name, definition);
+    },
+  } as never);
+
+  const controller = new AbortController();
+  const pending = tools.get("ask")!.execute(
+    "call-handle",
+    { questions: [{ id: "q", question: "Which surfaces?", multi: true, options: [{ label: "A" }, { label: "B" }] }] },
+    controller.signal,
+    undefined,
+    { hasUI: false },
+  );
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  const rows = sentMarkup?.inline_keyboard ?? [];
+  const optionData = rows[0]?.[0]?.callback_data;
+  const doneData = rows.flat().find((button) => button.callback_data?.endsWith(":d"))?.callback_data;
+  assert.ok(optionData?.startsWith("tgask:"));
+  assert.ok(doneData, "a multi-select card must offer a done button");
+
+  await runtime.resolveFromUpdate({
+    callback_query: {
+      id: "cb-toggle",
+      data: optionData,
+      message: { message_id: 20, chat: { id: 77 } },
+      from: { id: 7 },
+    },
+  });
+  await runtime.resolveFromUpdate({
+    callback_query: {
+      id: "cb-done",
+      data: doneData,
+      message: { message_id: 20, chat: { id: 77 } },
+      from: { id: 7 },
+    },
+  });
+  await pending;
+
+  assert.ok(editedHandles.length >= 2, "the card is edited for the toggle and the answer");
+  assert.deepEqual(editedHandles[0], { messageIds: [20] });
+  assert.deepEqual(
+    editedHandles[1],
+    { messageIds: [21] },
+    "later edits must target the handle the previous edit returned",
+  );
+  controller.abort();
+});
+

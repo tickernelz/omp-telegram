@@ -19,6 +19,7 @@ import {
 } from "./target.ts";
 import {
   isTelegramApiCommitUnknownError,
+  isTelegramMessageNotModifiedError,
   type TelegramBridgeApiRuntime,
 } from "./telegram-api.ts";
 
@@ -751,16 +752,21 @@ export function createTelegramBridgeDeliveryRuntime(
     },
     async editChunk(target, messageId, chunk, options) {
       assertTransportActive();
-      await deps.api.editMessageText({
-        chat_id: target.chatId,
-        message_id: messageId,
-        text: chunk.text,
-        ...(chunk.parseMode === "html" ? { parse_mode: "HTML" as const } : {}),
-        reply_markup:
-          options.replyMarkup === null
-            ? { inline_keyboard: [] }
-            : options.replyMarkup,
-      });
+      try {
+        await deps.api.editMessageText({
+          chat_id: target.chatId,
+          message_id: messageId,
+          text: chunk.text,
+          ...(chunk.parseMode === "html" ? { parse_mode: "HTML" as const } : {}),
+          reply_markup:
+            options.replyMarkup === null
+              ? { inline_keyboard: [] }
+              : options.replyMarkup,
+        });
+      } catch (error) {
+        if (isTelegramMessageNotModifiedError(error)) return;
+        throw error;
+      }
     },
     deleteMessage(target, messageId) {
       assertTransportActive();

@@ -53,6 +53,7 @@ import {
 } from "./updates.ts";
 
 const TELEGRAM_ASK_TOOL_NAME = "ask";
+const TELEGRAM_ASK_RETIRED_REQUEST_MEMORY = 64;
 const TELEGRAM_ASK_TOOL_LABEL = "Ask";
 const TELEGRAM_ASK_TOOL_DESCRIPTION = [
   "Ask user for clarification/input during task execution.",
@@ -452,6 +453,16 @@ export function createTelegramAskRuntime(
   deps: TelegramAskRuntimeDeps,
 ): TelegramAskRuntime {
   const pendingRequests = new Map<string, TelegramAskPendingRequest>();
+  const retiredRequestIds = new Set<string>();
+
+  const retireRequest = (id: string): void => {
+    pendingRequests.delete(id);
+    retiredRequestIds.add(id);
+    if (retiredRequestIds.size > TELEGRAM_ASK_RETIRED_REQUEST_MEMORY) {
+      const oldest = retiredRequestIds.values().next().value;
+      if (oldest !== undefined) retiredRequestIds.delete(oldest);
+    }
+  };
   const defaultSendView: TelegramAskSendView = deps.api
     ? async function (view, options) {
         const target =
@@ -579,7 +590,11 @@ export function createTelegramAskRuntime(
         parseMode: "plain",
         replyMarkup: pending.markup,
       });
-      if (!edited.ok) record(edited.message, { phase: "edit", id: pending.id });
+      if (edited.ok) {
+        pending.handle = edited.value;
+      } else {
+        record(edited.message, { phase: "edit", id: pending.id });
+      }
     } catch (error) {
       record(error, { phase: "edit", id: pending.id });
     }
@@ -599,7 +614,7 @@ export function createTelegramAskRuntime(
   ): void => {
     if (pending.settled) return;
     pending.settled = true;
-    pendingRequests.delete(pending.id);
+    retireRequest(pending.id);
     pending.resolve(answer);
   };
 
@@ -680,7 +695,7 @@ export function createTelegramAskRuntime(
         if (request.settled) return;
         request.settled = true;
         cancelledBySignal = true;
-        pendingRequests.delete(id);
+        retireRequest(id);
         reject(new TelegramAskCancelledError("Ask input was cancelled"));
       };
       signal.addEventListener("abort", onAbort, { once: true });
@@ -696,7 +711,7 @@ export function createTelegramAskRuntime(
       throw error;
     } finally {
       detachAbort();
-      pendingRequests.delete(id);
+      retireRequest(id);
     }
   };
 
@@ -787,8 +802,13 @@ export function createTelegramAskRuntime(
     const pending = selection
       ? pendingRequests.get(selection.requestId)
       : undefined;
-    if (!selection || !pending) {
+    if (!selection) {
       return "pass";
+    }
+    if (!pending) {
+      if (!retiredRequestIds.has(selection.requestId)) return "pass";
+      await answerCallback(callback.id, "This question has expired.");
+      return "consume";
     }
     const assertCurrent = createTelegramUpdateExecutionFenceGuard(update);
     const { token } = selection;
@@ -949,7 +969,9 @@ export function createTelegramAskRuntime(
     hasPending: () => pendingRequests.size > 0,
     cancelAll: (reason: string) => {
       const pendings = [...pendingRequests.values()];
-      pendingRequests.clear();
+      for (const pending of pendings) {
+        retireRequest(pending.id);
+      }
       for (const pending of pendings) {
         if (pending.settled) continue;
         pending.settled = true;

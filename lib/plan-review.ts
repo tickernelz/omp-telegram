@@ -293,6 +293,26 @@ export function createTelegramPlanReviewRuntime(
           replyMarkup: card.markup,
         };
 
+        if (pending) {
+          const superseded = pending;
+          pending = undefined;
+          try {
+            const edited = await editView(superseded.handle, {
+              text: `${superseded.cardText}\n\n⏹ Superseded by a newer plan`,
+              parseMode: "plain",
+              replyMarkup: { inline_keyboard: [] },
+            });
+            if (!edited.ok) {
+              record(new Error(edited.message), {
+                phase: "supersede-view",
+                reason: edited.reason,
+              });
+            }
+          } catch (err) {
+            record(err, { phase: "supersede-view" });
+          }
+        }
+
         const result = await sendView(view, { scope });
         if (result.ok) {
           pending = {
@@ -316,11 +336,17 @@ export function createTelegramPlanReviewRuntime(
       const current = pending;
       pending = undefined;
       try {
-        await editView(current.handle, {
+        const edited = await editView(current.handle, {
           text: current.cardText + "\n\n↩️ Decided in CLI",
           parseMode: "plain",
           replyMarkup: { inline_keyboard: [] },
         });
+        if (!edited.ok) {
+          record(new Error(edited.message), {
+            phase: "onAgentStart",
+            reason: edited.reason,
+          });
+        }
       } catch (error) {
         record(error, { phase: "onAgentStart" });
       }
@@ -353,8 +379,23 @@ export function createTelegramPlanReviewRuntime(
         return "consume";
       }
 
-      const choice = rawChoice as TelegramPlanReviewChoice;
       const current = pending;
+
+      if (!rawChoice || !current.choices.includes(rawChoice)) {
+        if (typedCb.id && deps.answerCallbackQuery) {
+          try {
+            await deps.answerCallbackQuery(
+              typedCb.id,
+              "That option is no longer available.",
+            );
+          } catch (err) {
+            record(err, { phase: "answer-unavailable-choice" });
+          }
+        }
+        return "consume";
+      }
+
+      const choice = rawChoice as TelegramPlanReviewChoice;
       pending = undefined;
 
       const choiceLabels: Record<TelegramPlanReviewChoice, string> = {
@@ -365,26 +406,47 @@ export function createTelegramPlanReviewRuntime(
       };
       const label = choiceLabels[choice] ?? choice;
 
+      const keystrokes = planTelegramPlanReviewKeystrokes(choice);
+      const delivered = deps.tuiInput.send(keystrokes);
+      if (!delivered) {
+        record(new Error("Telegram plan review keystrokes were not delivered."), {
+          phase: "tui-input",
+          choice,
+        });
+      }
+
       if (typedCb.id && deps.answerCallbackQuery) {
         try {
-          await deps.answerCallbackQuery(typedCb.id, `${label} — applying in CLI`);
+          await deps.answerCallbackQuery(
+            typedCb.id,
+            delivered
+              ? `${label} — applying in CLI`
+              : "Could not reach the CLI overlay.",
+          );
         } catch (err) {
           record(err, { phase: "answer-callback" });
         }
       }
 
+      const marker = delivered
+        ? `✅ ${label} (from Telegram)`
+        : `⚠️ Could not reach the CLI overlay (${label})`;
+
       try {
-        await editView(current.handle, {
-          text: `${current.cardText}\n\n✅ ${label} (from Telegram)`,
+        const edited = await editView(current.handle, {
+          text: `${current.cardText}\n\n${marker}`,
           parseMode: "plain",
           replyMarkup: { inline_keyboard: [] },
         });
+        if (!edited.ok) {
+          record(new Error(edited.message), {
+            phase: "edit-view",
+            reason: edited.reason,
+          });
+        }
       } catch (err) {
         record(err, { phase: "edit-view" });
       }
-
-      const keystrokes = planTelegramPlanReviewKeystrokes(choice);
-      deps.tuiInput.send(keystrokes);
 
       return "consume";
     },
@@ -394,11 +456,17 @@ export function createTelegramPlanReviewRuntime(
       const current = pending;
       pending = undefined;
       try {
-        await editView(current.handle, {
+        const edited = await editView(current.handle, {
           text: `${current.cardText}\n\n⏹ ${reason}`,
           parseMode: "plain",
           replyMarkup: { inline_keyboard: [] },
         });
+        if (!edited.ok) {
+          record(new Error(edited.message), {
+            phase: "cancelAll",
+            reason: edited.reason,
+          });
+        }
       } catch (error) {
         record(error, { phase: "cancelAll" });
       }

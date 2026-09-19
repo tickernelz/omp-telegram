@@ -1401,5 +1401,32 @@ test("Guest placeholder stopAll cancels every pending loop", async () => {
   assert.equal(timers.pendingCount(), 2);
   runtime.stopAll();
   assert.equal(timers.pendingCount(), 0);
+  assert.equal(runtime.activeCount(), 0);
   await runtime.stop("inline-1");
+});
+
+test("Guest placeholder rotations stop being tracked once they reach their bound", async () => {
+  const timers = createGuestPlaceholderTimers();
+  const runtime = createTelegramGuestPlaceholderRuntime({
+    editGuestInlineMessage: async () => {},
+    setTimer: timers.setTimer,
+    clearTimer: timers.clearTimer,
+    now: timers.now,
+  });
+
+  for (let index = 1; index <= 3; index += 1) {
+    const inlineMessageId = `inline-${index}`;
+    runtime.start(inlineMessageId);
+    assert.equal(runtime.activeCount(), 1, "one rotation runs at a time");
+    for (let fired = 0; fired < 40 && timers.pendingCount() > 0; fired += 1) {
+      await timers.fire();
+    }
+    assert.equal(
+      runtime.activeCount(),
+      0,
+      "a capped rotation must not stay tracked after it finishes",
+    );
+    await runtime.stop(inlineMessageId);
+    assert.equal(runtime.activeCount(), 0);
+  }
 });

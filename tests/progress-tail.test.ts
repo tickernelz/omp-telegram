@@ -1287,3 +1287,90 @@ test("Progress tail runtime: 429 rate limits do not discard liveMessage and back
   );
 });
 
+test("Progress tail runtime: releasing old tool results keeps every visible result intact", async () => {
+  const edits: TelegramEditMessageTextBody[] = [];
+  const extra = 3;
+  const total = TELEGRAM_PROGRESS_TAIL_MAX_TOOLS + extra;
+
+  const runtime = createTelegramProgressTailRuntime({
+    getActivityMode: () => "verbose",
+    getIntervalMs: () => 0,
+    resolveTarget: (e) => e.target,
+    captureAuthority: () => 1,
+    isAuthorityActive: () => true,
+    async sendRichMessage() {
+      return { message_id: 900, date: 1, chat: { id: 42, type: "private" } };
+    },
+    async sendMessage() {
+      throw new Error("unexpected call");
+    },
+    async editMessageText(body) {
+      edits.push(body);
+      return "edited";
+    },
+  });
+
+  for (let index = 1; index <= total; index += 1) {
+    runtime.accept(
+      event("tool-start", { toolCallId: String(index), toolName: `tool${index}`, args: {} }),
+    );
+    runtime.accept(
+      event("tool-end", {
+        toolCallId: String(index),
+        toolName: `tool${index}`,
+        isError: false,
+        result: `payload-${index}`,
+      }),
+    );
+    await runtime.waitForIdle();
+  }
+
+  const markdown = edits.at(-1)?.rich_message?.markdown ?? "";
+  assert.ok(markdown.includes(`… [${extra} earlier tools omitted]`));
+  const oldestVisible = extra + 1;
+  assert.ok(
+    markdown.includes(`Result: tool${oldestVisible} · tap to expand`),
+    "the oldest visible tool must keep its result",
+  );
+  assert.ok(markdown.includes(`payload-${oldestVisible}`));
+  assert.ok(markdown.includes(`payload-${total}`));
+  assert.equal(
+    markdown.includes(`Result: tool${extra} · tap to expand`),
+    false,
+    "released results stay out of the rendered card",
+  );
+});
+
+test("Progress tail runtime: streamed reasoning deltas still render as lines", async () => {
+  const edits: TelegramEditMessageTextBody[] = [];
+
+  const runtime = createTelegramProgressTailRuntime({
+    getActivityMode: () => "verbose",
+    getIntervalMs: () => 0,
+    resolveTarget: (e) => e.target,
+    captureAuthority: () => 1,
+    isAuthorityActive: () => true,
+    async sendRichMessage() {
+      return { message_id: 901, date: 1, chat: { id: 42, type: "private" } };
+    },
+    async sendMessage() {
+      throw new Error("unexpected call");
+    },
+    async editMessageText(body) {
+      edits.push(body);
+      return "edited";
+    },
+  });
+
+  runtime.accept(event("tool-start", { toolCallId: "1", toolName: "read", args: { path: "a.ts" } }));
+  await runtime.waitForIdle();
+  for (const delta of ["Checking ", "the parser.", "\n\n", "Then the ", "renderer."]) {
+    runtime.accept(event("reasoning-delta", { contentIndex: 0, delta }));
+    await runtime.waitForIdle();
+  }
+
+  const markdown = edits.at(-1)?.rich_message?.markdown ?? "";
+  assert.ok(markdown.includes("Checking the parser."));
+  assert.ok(markdown.includes("Then the renderer."));
+});
+

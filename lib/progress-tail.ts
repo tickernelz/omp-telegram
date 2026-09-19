@@ -576,7 +576,6 @@ export function createTelegramProgressTailRuntime<TAuthority>(
   let activeContextInfo: ProgressTailContextInfo | undefined;
   let status: ProgressTailStatus = "working";
   let reasoningBuffer = "";
-  let reasoningLines: string[] = [];
   const runningTools = new Map<string, ProgressTailToolItem>();
   const completedTools: ProgressTailToolItem[] = [];
   const todoItems: ProgressTailTodoItem[] = [];
@@ -645,7 +644,6 @@ export function createTelegramProgressTailRuntime<TAuthority>(
     completedAtMs = undefined;
     status = "working";
     reasoningBuffer = "";
-    reasoningLines = [];
     runningTools.clear();
     completedTools.length = 0;
     activeContainers.clear();
@@ -709,6 +707,11 @@ export function createTelegramProgressTailRuntime<TAuthority>(
     return hasAuthority();
   };
 
+  const deriveReasoningLines = (): string[] =>
+    reasoningBuffer.length === 0
+      ? []
+      : reasoningBuffer.split("\n").filter((line) => line.trim().length > 0);
+
   const buildCurrentState = (): ProgressTailState => {
     const visibleRunning: ProgressTailToolItem[] = [];
     for (const tool of runningTools.values()) {
@@ -729,7 +732,7 @@ export function createTelegramProgressTailRuntime<TAuthority>(
       userPrompt,
       contextInfo: effectiveContextInfo,
       reasoningBuffer,
-      reasoningLines,
+      reasoningLines: deriveReasoningLines(),
       tools: allTools,
       todoItems,
       nowMs: getNowMs(),
@@ -737,7 +740,10 @@ export function createTelegramProgressTailRuntime<TAuthority>(
   };
 
   const hasRealActivity = (): boolean =>
-    runningTools.size > 0 || completedTools.length > 0 || reasoningLines.length > 0 || todoItems.length > 0;
+    runningTools.size > 0 ||
+    completedTools.length > 0 ||
+    reasoningBuffer.trim().length > 0 ||
+    todoItems.length > 0;
 
   const canPublish = (
     acceptedGeneration: number,
@@ -935,7 +941,6 @@ export function createTelegramProgressTailRuntime<TAuthority>(
     if (event.type === "reasoning-delta") {
       if (!showThinking) return;
       reasoningBuffer = `${reasoningBuffer}${event.delta}`.slice(-TELEGRAM_PROGRESS_TAIL_REASONING_BUFFER_MAX_CHARS);
-      reasoningLines = reasoningBuffer.split("\n").filter((l) => l.trim().length > 0);
       await publishToTelegram(acceptedGeneration, false);
       return;
     }
@@ -944,7 +949,6 @@ export function createTelegramProgressTailRuntime<TAuthority>(
       if (!showThinking) return;
       if (event.text && reasoningBuffer.length === 0) {
         reasoningBuffer = event.text.slice(-TELEGRAM_PROGRESS_TAIL_REASONING_BUFFER_MAX_CHARS);
-        reasoningLines = reasoningBuffer.split("\n").filter((l) => l.trim().length > 0);
       }
       await publishToTelegram(acceptedGeneration, false);
       return;
@@ -1077,6 +1081,9 @@ export function createTelegramProgressTailRuntime<TAuthority>(
         askStatus,
         isError: event.isError,
       });
+      const evictedTool =
+        completedTools[completedTools.length - 1 - TELEGRAM_PROGRESS_TAIL_MAX_TOOLS];
+      if (evictedTool) evictedTool.resultSummary = undefined;
       if (event.toolName === "ask") {
         status = "completed";
         completedAtMs = getNowMs();
