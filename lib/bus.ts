@@ -578,6 +578,14 @@ export function isTelegramFollowerApiCallAllowed(input: {
     if (apiMethod === "getMe") return true;
     if (apiMethod === "setMyCommands")
       return isBotCommandRegistration(input.args[1]);
+    if (
+      apiMethod === "deleteMyCommands" ||
+      apiMethod === "getMyCommands" ||
+      apiMethod === "setChatMenuButton" ||
+      apiMethod === "getChatMenuButton"
+    ) {
+      return true;
+    }
     if (apiMethod === "sendChatAction")
       return isTargetChatScoped(input.args[1]);
     if (

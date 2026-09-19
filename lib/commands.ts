@@ -8,6 +8,10 @@ import * as Host from "./host.ts";
 import * as Paths from "./paths.ts";
 import * as Pi from "./pi.ts";
 import type { TelegramPlanModeAction } from "./plan-mode.ts";
+import type {
+  TelegramBotCommandScope,
+  TelegramChatMenuButton,
+} from "./telegram-api.ts";
 
 import {
   pairTelegramUserIfNeeded,
@@ -350,6 +354,22 @@ export function getTelegramReservedCommandNames(): string[] {
 export interface TelegramBotCommandRegistrationDeps {
   setMyCommands: (
     commands: readonly TelegramBotCommandDefinition[],
+    options?: {
+      scope?: TelegramBotCommandScope;
+      language_code?: string;
+    },
+  ) => Promise<unknown>;
+  deleteMyCommands?: (
+    options?: {
+      scope?: TelegramBotCommandScope;
+      language_code?: string;
+    },
+  ) => Promise<unknown>;
+  setChatMenuButton?: (
+    options?: {
+      chat_id?: number;
+      menu_button?: TelegramChatMenuButton;
+    },
   ) => Promise<unknown>;
 }
 
@@ -357,22 +377,53 @@ export async function registerTelegramBotCommands(
   deps: TelegramBotCommandRegistrationDeps,
 ): Promise<void> {
   const extensionCommands = getVisibleTelegramExtensionBotCommands();
+  let commands: readonly TelegramBotCommandDefinition[];
   if (extensionCommands.length === 0) {
-    await deps.setMyCommands(TELEGRAM_BOT_COMMANDS);
-    return;
+    commands = TELEGRAM_BOT_COMMANDS;
+  } else {
+    const compactCommandIndex = TELEGRAM_BOT_COMMANDS.findIndex(
+      (command) => command.command === "compact",
+    );
+    if (compactCommandIndex === -1) {
+      commands = [...TELEGRAM_BOT_COMMANDS, ...extensionCommands];
+    } else {
+      commands = [
+        ...TELEGRAM_BOT_COMMANDS.slice(0, compactCommandIndex + 1),
+        ...extensionCommands,
+        ...TELEGRAM_BOT_COMMANDS.slice(compactCommandIndex + 1),
+      ];
+    }
   }
-  const compactCommandIndex = TELEGRAM_BOT_COMMANDS.findIndex(
-    (command) => command.command === "compact",
-  );
-  if (compactCommandIndex === -1) {
-    await deps.setMyCommands([...TELEGRAM_BOT_COMMANDS, ...extensionCommands]);
-    return;
+  await deps.setMyCommands(commands, { scope: { type: "default" } });
+  await deps.setMyCommands(commands, { scope: { type: "all_private_chats" } });
+  if (deps.setChatMenuButton) {
+    try {
+      await deps.setChatMenuButton({ menu_button: { type: "commands" } });
+    } catch {
+      }
   }
-  await deps.setMyCommands([
-    ...TELEGRAM_BOT_COMMANDS.slice(0, compactCommandIndex + 1),
-    ...extensionCommands,
-    ...TELEGRAM_BOT_COMMANDS.slice(compactCommandIndex + 1),
-  ]);
+}
+
+export async function resetTelegramBotCommands(
+  deps: TelegramBotCommandRegistrationDeps,
+): Promise<void> {
+  if (deps.deleteMyCommands) {
+    try {
+      await deps.deleteMyCommands({ scope: { type: "all_private_chats" } });
+    } catch {
+      }
+    try {
+      await deps.deleteMyCommands({ scope: { type: "default" } });
+    } catch {
+      }
+  }
+  if (deps.setChatMenuButton) {
+    try {
+      await deps.setChatMenuButton({ menu_button: { type: "commands" } });
+    } catch {
+      }
+  }
+  await registerTelegramBotCommands(deps);
 }
 
 export function createTelegramBotCommandRegistrar(
@@ -387,6 +438,29 @@ export function createTelegramBotCommandRegistrar(
     });
     pending = request;
     return request;
+  };
+}
+
+export function createTelegramBotCommandSyncBinding(
+  deps: TelegramBotCommandRegistrationDeps,
+): {
+  syncBotCommands: () => Promise<void>;
+  resetBotCommands: () => Promise<void>;
+} {
+  const syncBotCommands = createTelegramBotCommandRegistrar(deps);
+  let pendingReset: Promise<void> | undefined;
+  const resetBotCommands = () => {
+    if (pendingReset) return pendingReset;
+    let request: Promise<void>;
+    request = resetTelegramBotCommands(deps).finally(() => {
+      if (pendingReset === request) pendingReset = undefined;
+    });
+    pendingReset = request;
+    return request;
+  };
+  return {
+    syncBotCommands,
+    resetBotCommands,
   };
 }
 
@@ -445,6 +519,8 @@ export interface TelegramBridgeCommandRegistrationDeps {
     ctx: ExtensionCommandContext,
   ) => Promise<string | undefined>;
   settings?: MenuSettings.TelegramSettingsCommandDeps;
+  syncBotCommands?: () => Promise<void>;
+  resetBotCommands?: () => Promise<void>;
 }
 
 export type TelegramThreadRenameRequest =
@@ -684,10 +760,59 @@ export function registerTelegramBridgeCommands(
       }
       if (!result || result.ok) {
         deps.queueAgentConnectionContext?.(true);
+        if (deps.syncBotCommands) {
+          void deps.syncBotCommands().catch(() => {});
+        }
       }
       deps.updateStatus(ctx);
     },
   });
+  if (deps.syncBotCommands) {
+    const syncBotCommands = deps.syncBotCommands;
+    const resetBotCommands = deps.resetBotCommands;
+    pi.registerCommand("telegram-commands", {
+      description:
+        "Sync or reset Telegram bot slash commands and menu button. Use /telegram-commands [sync|reset].",
+      getArgumentCompletions: (prefix) => {
+        const options = ["sync", "reset"];
+        return options
+          .filter((opt) => opt.startsWith(prefix.toLowerCase()))
+          .map((opt) => ({
+            value: opt,
+            label: opt,
+            description:
+              opt === "reset"
+                ? "Reset old scopes and re-register bot commands"
+                : "Synchronize bot commands and menu button",
+          }));
+      },
+      handler: async (args, ctx) => {
+        const action = args.trim().toLowerCase();
+        try {
+          if (action === "reset" && resetBotCommands) {
+            await resetBotCommands();
+            ctx.ui.notify(
+              "Telegram bot commands and menu button reset and synchronized.",
+              "info",
+            );
+          } else {
+            await syncBotCommands();
+            ctx.ui.notify(
+              "Telegram bot commands synchronized (default & all_private_chats scopes, menu button reset to commands).",
+              "info",
+            );
+          }
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : String(error);
+          ctx.ui.notify(
+            `Failed to sync Telegram bot commands: ${message}`,
+            "error",
+          );
+        }
+      },
+    });
+  }
   const renameCurrentThread = deps.renameCurrentThread;
   const resetCurrentThreadName = deps.resetCurrentThreadName;
   const getCurrentThreadTarget = deps.getCurrentThreadTarget;
@@ -2026,6 +2151,8 @@ export function createTelegramCommandHandlerTargetRuntime<
     persistAllowedUserId: deps.persistAllowedUserId,
     registerBotCommands: createTelegramBotCommandRegistrar({
       setMyCommands: deps.setMyCommands,
+      deleteMyCommands: deps.deleteMyCommands,
+      setChatMenuButton: deps.setChatMenuButton,
     }),
     validateThreadName: deps.validateThreadName,
     renameCurrentThread: deps.renameCurrentThread,

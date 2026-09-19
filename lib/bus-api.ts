@@ -15,7 +15,10 @@ import {
 import type {
   TelegramAnswerGuestQueryOptions,
   TelegramApiCallOptions,
+  TelegramBotCommand,
+  TelegramBotCommandScope,
   TelegramBridgeApiRuntime,
+  TelegramChatMenuButton,
   TelegramEditGuestInlineMessageContent,
   TelegramEditMessageTextBody,
   TelegramSendMessageBody,
@@ -153,12 +156,65 @@ export function createTelegramBusAwareApiRuntime(
         ? deps.directRuntime.getUpdates(body, signal)
         : rejectTelegramDirectOwnership("getUpdates");
     },
-    setMyCommands(commands): Promise<boolean> {
+    setMyCommands(
+      commands: readonly { command: string; description: string }[],
+      options?: {
+        scope?: TelegramBotCommandScope;
+        language_code?: string;
+      },
+    ): Promise<boolean> {
       return deps.ownsDirect()
-        ? deps.directRuntime.setMyCommands(commands)
+        ? deps.directRuntime.setMyCommands(commands, options)
         : deps
-            .callFollowerApi("call", ["setMyCommands", { commands }])
+            .callFollowerApi("call", [
+              "setMyCommands",
+              { commands, ...(options ?? {}) },
+            ])
             .then(asBoolean);
+    },
+    deleteMyCommands(options?: {
+      scope?: TelegramBotCommandScope;
+      language_code?: string;
+    }): Promise<boolean> {
+      return deps.ownsDirect()
+        ? deps.directRuntime.deleteMyCommands(options)
+        : deps
+            .callFollowerApi("call", ["deleteMyCommands", options ?? {}])
+            .then(asBoolean);
+    },
+    getMyCommands(options?: {
+      scope?: TelegramBotCommandScope;
+      language_code?: string;
+    }): Promise<TelegramBotCommand[]> {
+      return deps.ownsDirect()
+        ? deps.directRuntime.getMyCommands(options)
+        : deps
+            .callFollowerApi("call", ["getMyCommands", options ?? {}])
+            .then((result) =>
+              Array.isArray(result) ? (result as TelegramBotCommand[]) : [],
+            );
+    },
+    setChatMenuButton(options?: {
+      chat_id?: number;
+      menu_button?: TelegramChatMenuButton;
+    }): Promise<boolean> {
+      return deps.ownsDirect()
+        ? deps.directRuntime.setChatMenuButton(options)
+        : deps
+            .callFollowerApi("call", ["setChatMenuButton", options ?? {}])
+            .then(asBoolean);
+    },
+    getChatMenuButton(options?: {
+      chat_id?: number;
+    }): Promise<TelegramChatMenuButton> {
+      return deps.ownsDirect()
+        ? deps.directRuntime.getChatMenuButton(options)
+        : deps
+            .callFollowerApi("call", ["getChatMenuButton", options ?? {}])
+            .then(
+              (result) =>
+                (result ?? { type: "default" }) as TelegramChatMenuButton,
+            );
     },
     sendChatAction(
       chatId: number,

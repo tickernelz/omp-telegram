@@ -2025,6 +2025,21 @@ test("Telegram bridge API runtime exposes typed Bot API helpers", async () => {
     await runtime.setMyCommands([{ command: "start", description: "Start" }]),
     true,
   );
+  assert.equal(
+    await runtime.setMyCommands(
+      [{ command: "start", description: "Start" }],
+      { scope: { type: "all_private_chats" }, language_code: "en" },
+    ),
+    true,
+  );
+  assert.equal(
+    await runtime.deleteMyCommands({ scope: { type: "all_private_chats" } }),
+    true,
+  );
+  assert.equal(
+    await runtime.setChatMenuButton({ menu_button: { type: "commands" } }),
+    true,
+  );
   assert.equal(await runtime.sendChatAction(1, "typing"), true);
   assert.equal(await runtime.sendTypingAction(2), true);
   await runtime.answerGuestQuery("guest-1", "hello");
@@ -2111,6 +2126,22 @@ test("Telegram bridge API runtime exposes typed Bot API helpers", async () => {
     {
       method: "setMyCommands",
       body: { commands: [{ command: "start", description: "Start" }] },
+    },
+    {
+      method: "setMyCommands",
+      body: {
+        commands: [{ command: "start", description: "Start" }],
+        scope: { type: "all_private_chats" },
+        language_code: "en",
+      },
+    },
+    {
+      method: "deleteMyCommands",
+      body: { scope: { type: "all_private_chats" } },
+    },
+    {
+      method: "setChatMenuButton",
+      body: { menu_button: { type: "commands" } },
     },
     { method: "sendChatAction", body: { chat_id: 1, action: "typing" } },
     { method: "sendChatAction", body: { chat_id: 2, action: "typing" } },

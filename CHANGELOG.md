@@ -4,6 +4,15 @@
 
 ## Unreleased
 
+## 0.6.10: Dual-Scope Telegram Bot Commands and Menu Reset
+
+- `Bot Command Dual-Scope Sync`: Commands are now published to both `default` and `all_private_chats` scopes via `setMyCommands`. In Telegram's command resolution hierarchy, `all_private_chats` takes precedence over `default`, so bots previously configured by other agent runtimes (which register under `all_private_chats`) immediately display OMP commands instead of stale commands.
+- `Command Reset & Deletion`: Implemented `deleteMyCommands` in the Telegram Bot API client and bus forwarding runtime. A new reset flow clears lingering scoped commands across `all_private_chats` and `default` before re-registering clean commands.
+- `Chat Menu Button Restoration`: Added `setChatMenuButton` and `getChatMenuButton` to the API runtime and bus proxy. Command registration automatically restores the private chat menu button to `{ type: "commands" }`, clearing lingering Web App / Mini App buttons left by previous bot configurations.
+- `Automatic Polling Boot Sync`: Polling startup in leader and standalone runtimes now automatically synchronizes bot commands and resets the menu button directly after webhook clearing, keeping commands fresh without requiring the user to issue `/start`.
+- `Commands CLI Management`: Registered `/telegram-commands [sync|reset]` with argument autocompletions for manual operator synchronization and complete scope reset on demand.
+- `Resilient Dependency Audit`: Wrapped `npm run audit` via `scripts/audit.mjs` to tolerate upstream npm registry maintenance (503 Service Unavailable) without masking real vulnerability failures.
+
 ## 0.6.9: The Resident Host Restarts Again
 
 - `Unit Working Directory`: 0.6.7 quoted `WorkingDirectory=`, but systemd parses path settings verbatim, so the quotes became part of the path and every reload answered `path is not absolute` and `bad unit file setting`. `/telegram-host restart` rewrites that unit before restarting, so it broke the installed host it was asked to repair. Path settings now render literally, `%` is escaped as `%%` in every expanded value, and `systemd-analyze verify` accepts the rendered unit.

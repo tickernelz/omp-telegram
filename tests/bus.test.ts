@@ -1223,8 +1223,43 @@ test("Bus follower API allowlist permits bot command registration", () => {
       method: "call",
       args: [
         "setMyCommands",
-        { commands: [{ command: "start", description: "Start" }] },
+        {
+          commands: [{ command: "start", description: "Start" }],
+          scope: { type: "all_private_chats" },
+        },
       ],
+    }),
+    true,
+  );
+  assert.equal(
+    isTelegramFollowerApiCallAllowed({
+      follower,
+      method: "call",
+      args: ["deleteMyCommands", { scope: { type: "all_private_chats" } }],
+    }),
+    true,
+  );
+  assert.equal(
+    isTelegramFollowerApiCallAllowed({
+      follower,
+      method: "call",
+      args: ["setChatMenuButton", { menu_button: { type: "commands" } }],
+    }),
+    true,
+  );
+  assert.equal(
+    isTelegramFollowerApiCallAllowed({
+      follower,
+      method: "call",
+      args: ["getMyCommands", {}],
+    }),
+    true,
+  );
+  assert.equal(
+    isTelegramFollowerApiCallAllowed({
+      follower,
+      method: "call",
+      args: ["getChatMenuButton", {}],
     }),
     true,
   );

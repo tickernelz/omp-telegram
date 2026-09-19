@@ -567,6 +567,8 @@ export default function (pi: Pi.ExtensionAPI) {
     deleteWebhook,
     getUpdates,
     setMyCommands,
+    deleteMyCommands,
+    setChatMenuButton,
     sendTypingAction,
     sendChatAction,
     sendRecordVoiceAction,
@@ -582,6 +584,11 @@ export default function (pi: Pi.ExtensionAPI) {
     deleteMessage: deleteTelegramMessage,
     prepareTempDir,
   } = telegramApiRuntime;
+  const botCommandSyncBinding = Commands.createTelegramBotCommandSyncBinding({
+    setMyCommands,
+    deleteMyCommands,
+    setChatMenuButton,
+  });
 
   // --- Message Delivery ---
 
@@ -1035,6 +1042,8 @@ export default function (pi: Pi.ExtensionAPI) {
     startGuestPlaceholder: guestPlaceholderRuntime.start,
     sendTextReply,
     setMyCommands,
+    deleteMyCommands,
+    setChatMenuButton,
     validateThreadName(threadName) {
       return Threads.getTelegramManualThreadDisplayNameValidationError(
         threadName,
@@ -1268,6 +1277,7 @@ export default function (pi: Pi.ExtensionAPI) {
       getConfig: configStore.get,
       hasBotToken: configStore.hasBotToken,
       deleteWebhook,
+      syncBotCommands: botCommandSyncBinding.syncBotCommands,
       getUpdates,
       persistConfig: persistTelegramConfigWithSync,
       prepareUpdateBatch: textGroupRuntime.prepareUpdateBatch,
@@ -1699,6 +1709,8 @@ export default function (pi: Pi.ExtensionAPI) {
     setup,
     activeTurnRuntime,
     lockedPollingRuntime,
+    syncBotCommands: botCommandSyncBinding.syncBotCommands,
+    resetBotCommands: botCommandSyncBinding.resetBotCommands,
     stopPolling: disconnectTelegramAndDeleteCurrentThread,
     recoverPollingStart: Recovery.createTelegramPollingStartRecoveryHandler({
       getOwnersPath: Paths.resolveTelegramOwnersPath,

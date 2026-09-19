@@ -1,6 +1,6 @@
 {
 	"name": "@tickernelz/omp-telegram",
-	"version": "0.6.9",
+	"version": "0.6.10",
 	"private": false,
 	"publishConfig": {
 		"access": "public"
@@ -31,8 +31,8 @@
 		"test": "node --experimental-strip-types --test --test-concurrency=4 --test-reporter=dot tests/*.test.ts",
 		"test:verbose": "node --experimental-strip-types --test --test-reporter=spec tests/*.test.ts",
 		"typecheck": "tsc --noEmit",
-		"audit": "npm audit --omit=peer",
-		"audit:host": "npm audit",
+		"audit": "node scripts/audit.mjs --omit=peer",
+		"audit:host": "node scripts/audit.mjs",
 		"pack:check": "npm pack --dry-run",
 		"validate": "npm run typecheck && npm test && npm run audit && npm run pack:check"
 	},

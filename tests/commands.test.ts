@@ -49,6 +49,8 @@ import {
   parseTelegramThreadRenameRequest,
   type TelegramBridgeCommandRegistrationDeps,
   registerTelegramBotCommands,
+  resetTelegramBotCommands,
+  createTelegramBotCommandSyncBinding,
   registerTelegramCommand,
   registerTelegramBridgeCommands,
   TELEGRAM_APP_MENU_INTRO_HTML,
@@ -194,17 +196,94 @@ test("Command helpers expose Telegram bot command definitions", () => {
 
 test("Command helpers register Telegram bot commands through deps", async () => {
   const calls: unknown[] = [];
+  const menuCalls: unknown[] = [];
   await registerTelegramBotCommands({
-    setMyCommands: async (commands) => {
-      calls.push(commands);
+    setMyCommands: async (commands, options) => {
+      calls.push({ commands, options });
+    },
+    setChatMenuButton: async (options) => {
+      menuCalls.push(options);
     },
   });
-  await createTelegramBotCommandRegistrar({
-    setMyCommands: async (commands) => {
-      calls.push(commands);
+  assert.deepEqual(calls, [
+    {
+      commands: TELEGRAM_BOT_COMMANDS,
+      options: { scope: { type: "default" } },
     },
-  })();
-  assert.deepEqual(calls, [TELEGRAM_BOT_COMMANDS, TELEGRAM_BOT_COMMANDS]);
+    {
+      commands: TELEGRAM_BOT_COMMANDS,
+      options: { scope: { type: "all_private_chats" } },
+    },
+  ]);
+  assert.deepEqual(menuCalls, [
+    { menu_button: { type: "commands" } },
+  ]);
+});
+
+test("Command helpers reset Telegram bot commands through deps", async () => {
+  const deleteCalls: unknown[] = [];
+  const setCalls: unknown[] = [];
+  const menuCalls: unknown[] = [];
+  await resetTelegramBotCommands({
+    deleteMyCommands: async (options) => {
+      deleteCalls.push(options);
+    },
+    setMyCommands: async (commands, options) => {
+      setCalls.push({ commands, options });
+    },
+    setChatMenuButton: async (options) => {
+      menuCalls.push(options);
+    },
+  });
+  assert.deepEqual(deleteCalls, [
+    { scope: { type: "all_private_chats" } },
+    { scope: { type: "default" } },
+  ]);
+  assert.deepEqual(setCalls, [
+    {
+      commands: TELEGRAM_BOT_COMMANDS,
+      options: { scope: { type: "default" } },
+    },
+    {
+      commands: TELEGRAM_BOT_COMMANDS,
+      options: { scope: { type: "all_private_chats" } },
+    },
+  ]);
+  assert.deepEqual(menuCalls, [
+    { menu_button: { type: "commands" } },
+    { menu_button: { type: "commands" } },
+  ]);
+});
+
+test("Command helpers create telegram bot command sync binding", async () => {
+  const calls: string[] = [];
+  const binding = createTelegramBotCommandSyncBinding({
+    setMyCommands: async (_commands, options) => {
+      calls.push(`set:${options?.scope?.type}`);
+    },
+    deleteMyCommands: async (options) => {
+      calls.push(`delete:${options?.scope?.type}`);
+    },
+    setChatMenuButton: async (options) => {
+      calls.push(`menu:${options?.menu_button?.type}`);
+    },
+  });
+  await binding.syncBotCommands();
+  assert.deepEqual(calls, [
+    "set:default",
+    "set:all_private_chats",
+    "menu:commands",
+  ]);
+  calls.length = 0;
+  await binding.resetBotCommands();
+  assert.deepEqual(calls, [
+    "delete:all_private_chats",
+    "delete:default",
+    "menu:commands",
+    "set:default",
+    "set:all_private_chats",
+    "menu:commands",
+  ]);
 });
 
 test("Command helpers coalesce concurrent bot command sync", async () => {
@@ -226,8 +305,9 @@ test("Command helpers coalesce concurrent bot command sync", async () => {
   assert.equal(calls, 1);
   finish?.();
   await Promise.all([first, joined]);
-  await registrar();
   assert.equal(calls, 2);
+  await registrar();
+  assert.equal(calls, 4);
 });
 
 test("Command helpers keep extension Telegram bot commands hidden by default", async () => {
@@ -243,7 +323,7 @@ test("Command helpers keep extension Telegram bot commands hidden by default", a
       calls.push(commands);
     },
   });
-  assert.deepEqual(calls, [TELEGRAM_BOT_COMMANDS]);
+  assert.deepEqual(calls, [TELEGRAM_BOT_COMMANDS, TELEGRAM_BOT_COMMANDS]);
   dispose();
   clearTelegramExtensionCommands();
 });
@@ -263,13 +343,12 @@ test("Command helpers register extension Telegram bot commands when visible", as
       calls.push(commands);
     },
   });
-  assert.deepEqual(calls, [
-    [
-      ...TELEGRAM_BOT_COMMANDS.slice(0, 3),
-      { command: "new", description: "🆕 Start fresh" },
-      ...TELEGRAM_BOT_COMMANDS.slice(3),
-    ],
-  ]);
+  const expected = [
+    ...TELEGRAM_BOT_COMMANDS.slice(0, 3),
+    { command: "new", description: "🆕 Start fresh" },
+    ...TELEGRAM_BOT_COMMANDS.slice(3),
+  ];
+  assert.deepEqual(calls, [expected, expected]);
   dispose();
   clearTelegramExtensionCommands();
 });
@@ -368,6 +447,52 @@ test("Resident host command exposes action completions", () => {
   assert.deepEqual(
     host.getArgumentCompletions("install ").map((item: { value: string }) => item.value),
     ["install --dry-run"],
+  );
+});
+
+test("Telegram commands CLI synchronizes and resets bot commands", async () => {
+  const harness = createCommandRegistrationApiHarness();
+  const notifications: string[] = [];
+  const events: string[] = [];
+  registerTelegramBridgeCommands(harness.api, {
+    promptForConfig: async () => {},
+    getStatusLines: () => [],
+    reloadConfig: async () => {},
+    hasBotToken: () => true,
+    startPolling: async () => {},
+    stopPolling: async () => {},
+    updateStatus: () => {},
+    syncBotCommands: async () => {
+      events.push("sync");
+    },
+    resetBotCommands: async () => {
+      events.push("reset");
+    },
+  });
+
+  const cmd = getRequiredCommand(harness.commands, "telegram-commands");
+  assert.ok(cmd.getArgumentCompletions, "telegram-commands must offer completions");
+  assert.deepEqual(
+    cmd.getArgumentCompletions("").map((item: { value: string }) => item.value),
+    ["sync", "reset"],
+  );
+
+  const ctx = createBridgeCommandContext((message) => notifications.push(message));
+
+  await cmd.handler("", ctx);
+  assert.deepEqual(events, ["sync"]);
+  assert.deepEqual(notifications, [
+    "Telegram bot commands synchronized (default & all_private_chats scopes, menu button reset to commands).",
+  ]);
+
+  await cmd.handler("sync", ctx);
+  assert.deepEqual(events, ["sync", "sync"]);
+
+  await cmd.handler("reset", ctx);
+  assert.deepEqual(events, ["sync", "sync", "reset"]);
+  assert.equal(
+    notifications[2],
+    "Telegram bot commands and menu button reset and synchronized.",
   );
 });
 

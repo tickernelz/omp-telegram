@@ -112,9 +112,25 @@ function createDirectRuntime(calls: unknown[]): TelegramBridgeApiRuntime {
       calls.push({ kind: "get-updates", body });
       return [];
     },
-    setMyCommands: async (commands) => {
-      calls.push({ kind: "commands", commands });
+    setMyCommands: async (commands, options) => {
+      calls.push({ kind: "commands", commands, options });
       return true;
+    },
+    deleteMyCommands: async (options) => {
+      calls.push({ kind: "delete-commands", options });
+      return true;
+    },
+    getMyCommands: async (options) => {
+      calls.push({ kind: "get-commands", options });
+      return [];
+    },
+    setChatMenuButton: async (options) => {
+      calls.push({ kind: "set-menu-button", options });
+      return true;
+    },
+    getChatMenuButton: async (options) => {
+      calls.push({ kind: "get-menu-button", options });
+      return { type: "default" };
     },
     sendChatAction: async (chatId, action, options) => {
       calls.push({ kind: "chat-action", chatId, action, options });
@@ -590,4 +606,44 @@ test("follower editMessageText rethrows non-unmodified failures", async () => {
     }),
     /message text is empty/,
   );
+});
+
+test("Bus-aware API runtime forwards setMyCommands, deleteMyCommands, and setChatMenuButton to follower API", async () => {
+  const busCalls: unknown[] = [];
+  const follower = createTelegramBusAwareApiRuntime({
+    directRuntime: createDirectRuntime([]),
+    ownsDirect: () => false,
+    callFollowerApi: async (method, args) => {
+      busCalls.push({ method, args });
+      return true;
+    },
+  });
+
+  await follower.setMyCommands(
+    [{ command: "start", description: "Start" }],
+    { scope: { type: "all_private_chats" } },
+  );
+  await follower.deleteMyCommands({ scope: { type: "all_private_chats" } });
+  await follower.setChatMenuButton({ menu_button: { type: "commands" } });
+
+  assert.deepEqual(busCalls, [
+    {
+      method: "call",
+      args: [
+        "setMyCommands",
+        {
+          commands: [{ command: "start", description: "Start" }],
+          scope: { type: "all_private_chats" },
+        },
+      ],
+    },
+    {
+      method: "call",
+      args: ["deleteMyCommands", { scope: { type: "all_private_chats" } }],
+    },
+    {
+      method: "call",
+      args: ["setChatMenuButton", { menu_button: { type: "commands" } }],
+    },
+  ]);
 });

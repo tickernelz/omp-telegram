@@ -761,6 +761,25 @@ export interface TelegramBridgeApiRuntimeDeps {
   chatOutboundMaxGates?: number;
 }
 
+export type TelegramBotCommandScope =
+  | { type: "default" }
+  | { type: "all_private_chats" }
+  | { type: "all_group_chats" }
+  | { type: "all_chat_administrators" }
+  | { type: "chat"; chat_id: number | string }
+  | { type: "chat_administrators"; chat_id: number | string }
+  | { type: "chat_member"; chat_id: number | string; user_id: number };
+
+export type TelegramChatMenuButton =
+  | { type: "default" }
+  | { type: "commands" }
+  | { type: "web_app"; text: string; web_app: { url: string } };
+
+export interface TelegramBotCommand {
+  command: string;
+  description: string;
+}
+
 export interface TelegramBridgeApiRuntime {
   call: <TResponse>(
     method: string,
@@ -783,7 +802,34 @@ export interface TelegramBridgeApiRuntime {
   ) => Promise<TelegramUpdate[]>;
   setMyCommands: (
     commands: readonly { command: string; description: string }[],
+    options?: {
+      scope?: TelegramBotCommandScope;
+      language_code?: string;
+    },
   ) => Promise<boolean>;
+  deleteMyCommands: (
+    options?: {
+      scope?: TelegramBotCommandScope;
+      language_code?: string;
+    },
+  ) => Promise<boolean>;
+  getMyCommands: (
+    options?: {
+      scope?: TelegramBotCommandScope;
+      language_code?: string;
+    },
+  ) => Promise<TelegramBotCommand[]>;
+  setChatMenuButton: (
+    options?: {
+      chat_id?: number;
+      menu_button?: TelegramChatMenuButton;
+    },
+  ) => Promise<boolean>;
+  getChatMenuButton: (
+    options?: {
+      chat_id?: number;
+    },
+  ) => Promise<TelegramChatMenuButton>;
   sendChatAction: (
     chatId: number,
     action: string,
@@ -947,18 +993,22 @@ const TELEGRAM_RETRY_SAFE_METHODS = new Set([
   "closeForumTopic",
   "deleteForumTopic",
   "deleteMessage",
+  "deleteMyCommands",
   "deleteWebhook",
   "editForumTopic",
   "editMessageCaption",
   "editMessageReplyMarkup",
   "editMessageText",
   "getChat",
+  "getChatMenuButton",
   "getFile",
   "getMe",
+  "getMyCommands",
   "getUpdates",
   "sendChatAction",
   "sendMessageDraft",
   "sendRichMessageDraft",
+  "setChatMenuButton",
   "setMyCommands",
 ]);
 
@@ -2147,8 +2197,31 @@ export function createTelegramBridgeApiRuntime(
       ),
     getUpdates: (body, signal) =>
       callRecorded<TelegramUpdate[]>("getUpdates", body, { signal }),
-    setMyCommands: (commands) =>
-      callRecorded<boolean>("setMyCommands", { commands }),
+    setMyCommands: (commands, options) =>
+      callRecorded<boolean>("setMyCommands", {
+        commands,
+        ...(options?.scope ? { scope: options.scope } : {}),
+        ...(options?.language_code ? { language_code: options.language_code } : {}),
+      }),
+    deleteMyCommands: (options) =>
+      callRecorded<boolean>("deleteMyCommands", {
+        ...(options?.scope ? { scope: options.scope } : {}),
+        ...(options?.language_code ? { language_code: options.language_code } : {}),
+      }),
+    getMyCommands: (options) =>
+      callRecorded<TelegramBotCommand[]>("getMyCommands", {
+        ...(options?.scope ? { scope: options.scope } : {}),
+        ...(options?.language_code ? { language_code: options.language_code } : {}),
+      }),
+    setChatMenuButton: (options) =>
+      callRecorded<boolean>("setChatMenuButton", {
+        ...(options?.chat_id !== undefined ? { chat_id: options.chat_id } : {}),
+        ...(options?.menu_button ? { menu_button: options.menu_button } : {}),
+      }),
+    getChatMenuButton: (options) =>
+      callRecorded<TelegramChatMenuButton>("getChatMenuButton", {
+        ...(options?.chat_id !== undefined ? { chat_id: options.chat_id } : {}),
+      }),
     sendChatAction: (chatId, action, options) =>
       callRecorded<boolean>("sendChatAction", {
         chat_id: chatId,

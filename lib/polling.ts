@@ -1475,6 +1475,7 @@ export interface TelegramPollLoopDeps<
   signal: AbortSignal;
   config: TelegramPollingConfig;
   deleteWebhook: (signal: AbortSignal) => Promise<unknown>;
+  syncBotCommands?: (signal?: AbortSignal) => Promise<unknown>;
   getUpdates: (
     body: Record<string, unknown>,
     signal: AbortSignal,
@@ -1504,6 +1505,7 @@ export interface TelegramPollLoopRunnerDeps<
 > extends TelegramRuntimeEventRecorderPort {
   getConfig: () => TelegramPollingConfig;
   deleteWebhook: (signal: AbortSignal) => Promise<unknown>;
+  syncBotCommands?: (signal?: AbortSignal) => Promise<unknown>;
   getUpdates: (
     body: Record<string, unknown>,
     signal: AbortSignal,
@@ -1564,6 +1566,7 @@ export function createTelegramPollLoopRunner<
       signal,
       config: deps.getConfig(),
       deleteWebhook: deps.deleteWebhook,
+      syncBotCommands: deps.syncBotCommands,
       getUpdates: deps.getUpdates,
       getUpdatesRequestBudgetMs: deps.getUpdatesRequestBudgetMs,
       persistConfig: deps.persistConfig,
@@ -1717,6 +1720,12 @@ export async function runTelegramPollLoop<
     await deps.deleteWebhook(deps.signal);
   } catch {
     // ignore
+  }
+  if (deps.syncBotCommands) {
+    try {
+      await deps.syncBotCommands(deps.signal);
+    } catch {
+      }
   }
   if (
     deps.getAcceptedThroughUpdateId?.() === undefined &&

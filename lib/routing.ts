@@ -685,6 +685,8 @@ export interface TelegramInboundRouteRuntimeDeps<
     options?: { parseMode?: "HTML"; target?: Queue.TelegramQueueTarget },
   ) => Promise<number | undefined>;
   setMyCommands: Commands.TelegramBotCommandRegistrationDeps["setMyCommands"];
+  deleteMyCommands?: Commands.TelegramBotCommandRegistrationDeps["deleteMyCommands"];
+  setChatMenuButton?: Commands.TelegramBotCommandRegistrationDeps["setChatMenuButton"];
   validateThreadName?: (threadName: string) => string | undefined;
   renameCurrentThread?: Commands.TelegramThreadDisplayNameRenamePort;
   resetCurrentThreadName?: Commands.TelegramThreadDisplayNameResetPort;
@@ -2217,6 +2219,8 @@ export function createTelegramInboundRouteRuntime<
     getAllowedUserId: deps.configStore.getAllowedUserId,
     persistAllowedUserId: deps.configStore.persistAllowedUserId,
     setMyCommands: deps.setMyCommands,
+    deleteMyCommands: deps.deleteMyCommands,
+    setChatMenuButton: deps.setChatMenuButton,
     validateThreadName: deps.validateThreadName,
     renameCurrentThread: deps.renameCurrentThread,
     resetCurrentThreadName: deps.resetCurrentThreadName,

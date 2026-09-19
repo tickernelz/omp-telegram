@@ -525,6 +525,8 @@ interface TelegramCommandsAndToolsBindingDeps {
   renameCurrentThread?: Commands.TelegramBridgeCommandRegistrationDeps["renameCurrentThread"];
   resetCurrentThreadName?: Commands.TelegramBridgeCommandRegistrationDeps["resetCurrentThreadName"];
   generateThreadName?: Commands.TelegramBridgeCommandRegistrationDeps["generateThreadName"];
+  syncBotCommands?: Commands.TelegramBridgeCommandRegistrationDeps["syncBotCommands"];
+  resetBotCommands?: Commands.TelegramBridgeCommandRegistrationDeps["resetBotCommands"];
   onTransportChanged?: () => Promise<void> | void;
   getStatusLines: (
     options?: Status.TelegramBridgeStatusLineOptions,
@@ -576,6 +578,8 @@ export function registerTelegramCommandsAndTools({
   renameCurrentThread,
   resetCurrentThreadName,
   generateThreadName,
+  syncBotCommands,
+  resetBotCommands,
   onTransportChanged,
   getStatusLines,
   buttonActionStore,
@@ -783,6 +787,8 @@ export function registerTelegramCommandsAndTools({
       },
       getActiveProfileName: () => configStore.getActiveProfileName() ?? "default",
     },
+    syncBotCommands,
+    resetBotCommands,
   });
 }
 

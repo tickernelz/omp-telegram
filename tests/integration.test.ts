@@ -997,7 +997,7 @@ test("v0.27.12 artifacts and graceful tab cleanup preserve same-directory auto-c
     const method = getRuntimeTelegramApiMethod(input);
     const body = parseJsonRequestBody(init);
     methods.push({ method, ...(body ? { body } : {}) });
-    if (method === "deleteWebhook" || method === "setMyCommands") {
+    if (method === "deleteWebhook" || method === "setMyCommands" || method === "deleteMyCommands" || method === "setChatMenuButton") {
       return createRuntimeTelegramApiResponse(true);
     }
     if (method === "getMe") {
@@ -1252,7 +1252,7 @@ test("Public activity delivery reaches the classic instance without blocking age
   const restoreFetch = setRuntimeTestFetch(async (input, init) => {
     const method = getRuntimeTelegramApiMethod(input);
     const body = parseJsonRequestBody(init);
-    if (method === "deleteWebhook" || method === "setMyCommands") {
+    if (method === "deleteWebhook" || method === "setMyCommands" || method === "deleteMyCommands" || method === "setChatMenuButton") {
       return createRuntimeTelegramApiResponse(true);
     }
     if (method === "getUpdates") {
@@ -1341,7 +1341,7 @@ test("Verbose activity reaches classic transport before the final assistant answ
   const restoreFetch = setRuntimeTestFetch(async (input, init) => {
     const method = getRuntimeTelegramApiMethod(input);
     const body = parseJsonRequestBody(init) ?? {};
-    if (method === "deleteWebhook" || method === "setMyCommands") {
+    if (method === "deleteWebhook" || method === "setMyCommands" || method === "deleteMyCommands" || method === "setChatMenuButton") {
       return createRuntimeTelegramApiResponse(true);
     }
     if (method === "getUpdates") {
@@ -3035,7 +3035,7 @@ test("Extension startup preserves queued authority owned by another process", as
   });
   const restoreFetch = setRuntimeTestFetch(async (input) => {
     const method = getRuntimeTelegramApiMethod(input);
-    if (method === "deleteWebhook" || method === "setMyCommands") {
+    if (method === "deleteWebhook" || method === "setMyCommands" || method === "deleteMyCommands" || method === "setChatMenuButton") {
       return createRuntimeTelegramApiResponse(true);
     }
     if (method === "getUpdates") {
@@ -4309,7 +4309,7 @@ test(`Extension runtime delivers anchored Telegram commentary once before final 
   const restoreFetch = setRuntimeTestFetch(async (input, init) => {
     const method = getRuntimeTelegramApiMethod(input);
     const body = parseJsonRequestBody(init) ?? {};
-    if (method === "deleteWebhook" || method === "setMyCommands") {
+    if (method === "deleteWebhook" || method === "setMyCommands" || method === "deleteMyCommands" || method === "setChatMenuButton") {
       return createRuntimeTelegramApiResponse(true);
     }
     if (method === "getUpdates") {
@@ -6520,7 +6520,7 @@ test("Extension runtime projects live progress after a mid-turn telegram-connect
   const restoreFetch = setRuntimeTestFetch(async (input, init) => {
     const method = getRuntimeTelegramApiMethod(input);
     const body = parseJsonRequestBody(init) ?? {};
-    if (method === "deleteWebhook" || method === "setMyCommands") {
+    if (method === "deleteWebhook" || method === "setMyCommands" || method === "deleteMyCommands" || method === "setChatMenuButton") {
       return createRuntimeTelegramApiResponse(true);
     }
     if (method === "getUpdates") {
