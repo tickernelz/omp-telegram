@@ -3,7 +3,9 @@
  * Zones: telegram threads, workspace lifecycle
  */
 
+import fs from "node:fs";
 import { mkdtemp, mkdir, readdir, rm, symlink } from "node:fs/promises";
+import { syncBuiltinESMExports } from "node:module";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { tmpdir } from "node:os";
@@ -440,6 +442,46 @@ test("Cleanup execution revalidates and consumes one permit inside admission", a
     assert.equal(store.list().find(workSet => workSet.operationId === "already-issued")
       ?.entries[0]?.state, "prepared");
   } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test("Cleanup store read survives an atomic replacement between inspection and open", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "pi-telegram-thread-cleanup-replace-"));
+  const original = fs.lstatSync;
+  try {
+    const path = join(dir, "work.json");
+    const candidate = planTelegramInactiveThreadCleanup({
+      profileName: "work", bindings: [binding], protection: [clear],
+    })[0]!;
+    const store = createTelegramThreadCleanupWorkStore({ path,
+      profileName: "work", tokenSha256: "a".repeat(64), getNowMs: () => 100 });
+    store.prepare("thread-cleanup:replace", [candidate]);
+
+    let replacements = 0;
+    let budget = 1;
+    fs.lstatSync = ((...args: Parameters<typeof fs.lstatSync>) => {
+      const observed = Reflect.apply(original, fs, args);
+      if (String(args[0]) === path && replacements < budget) {
+        replacements += 1;
+        const staged = `${path}.replacement`;
+        fs.writeFileSync(staged, fs.readFileSync(path), { mode: 0o600 });
+        fs.renameSync(staged, path);
+      }
+      return observed;
+    }) as typeof fs.lstatSync;
+    syncBuiltinESMExports();
+
+    assert.equal(store.list()[0]?.operationId, "thread-cleanup:replace");
+    assert.equal(replacements, 1, "the reader must retry the replaced store");
+
+    replacements = 0;
+    budget = Number.MAX_SAFE_INTEGER;
+    assert.throws(() => store.list(), /changed during inspection/);
+    assert.equal(replacements, 3, "the retry must stay bounded");
+  } finally {
+    fs.lstatSync = original;
+    syncBuiltinESMExports();
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("Cleanup planner refuses competing work and identity ambiguity", () => {

@@ -4,6 +4,14 @@
 
 ## Unreleased
 
+## 0.6.7: Full Security Hardening, Host Reliability, and Plan Authorization
+
+- `Plan Review Callback Authorization`: `resolveFromUpdate` now verifies update senders against the allowed user id via `getAuthorizedTelegramCallbackQuery`, preventing unauthorized participants in group/forum threads from approving plans.
+- `Local Path Traversal Prevention`: `readTelegramPlanFile` resolves and enforces artifact root containment on `local://` paths, refusing paths that escape the local directory.
+- `Host Reliability & Quoting`: Unit paths and working directories are properly systemd-quoted; tmux executables are consistently resolved; non-zero `disable --now` exits no longer abort uninstall artifact cleanup; and `commandExists` accurately checks execution permissions (`X_OK`).
+- `CLI Overlay Fail-Fast`: `plan-mode` checks key injection results immediately and reports overlay unreachable errors without burning polling timeouts.
+- `Concurrent File Inspection Retry`: `thread-cleanup-manager` retries work-store inspection across concurrent atomic replacements, eliminating false-positive store change errors under parallel workloads.
+
 ## 0.6.6: Delivery Reconcile, Plan Review Hardening, and Stream Optimizations
 
 - `Multi-Chunk Edit Reconciliation`: Bridge delivery reconciles unchanged chunks during `editView` without failing when Telegram returns 400 'message is not modified', allowing multi-chunk plan review cards to reliably update and clear inline keyboards.

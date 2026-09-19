@@ -5,7 +5,7 @@
  */
 
 import { readFile } from "node:fs/promises";
-import { isAbsolute, join } from "node:path";
+import { isAbsolute, join, resolve, sep } from "node:path";
 import {
   editTelegramView,
   sendTelegramView,
@@ -25,7 +25,11 @@ import {
   TELEGRAM_TUI_KEY_DOWN,
   type TelegramTuiInputRuntime,
 } from "./tui-input.ts";
-import type { TelegramUpdateHandlerVerdict } from "./updates.ts";
+import {
+  getAuthorizedTelegramCallbackQuery,
+  type TelegramUpdateHandlerVerdict,
+  type TelegramUpdateRouting,
+} from "./updates.ts";
 
 export const TELEGRAM_PLAN_REVIEW_CALLBACK_PREFIX = "tgplan";
 export const TELEGRAM_PLAN_REVIEW_MESSAGE_MAX_CHARS = 3800;
@@ -189,7 +193,12 @@ export async function readTelegramPlanFile(
     if (!localRoot) {
       localRoot = join(process.cwd(), "local");
     }
-    resolvedPath = join(localRoot, rest);
+    const containedRoot = resolve(localRoot);
+    const candidate = resolve(containedRoot, rest);
+    if (candidate !== containedRoot && !candidate.startsWith(containedRoot + sep)) {
+      throw new Error("Plan file path escapes the local artifact root.");
+    }
+    resolvedPath = candidate;
   } else if (!isAbsolute(planFilePath)) {
     const cwd = ctx?.cwd ?? process.cwd();
     resolvedPath = join(cwd, planFilePath);
@@ -202,6 +211,7 @@ export interface TelegramPlanReviewRuntimeDeps {
   isEnabled: () => boolean;
   getActiveTurn: () => unknown;
   getDefaultTarget?: () => TelegramTarget | undefined;
+  getAllowedUserId?: () => number | undefined;
   answerCallbackQuery?: (id: string, text?: string) => Promise<void>;
   tuiInput: TelegramTuiInputRuntime;
   recordRuntimeEvent?: (
@@ -354,24 +364,34 @@ export function createTelegramPlanReviewRuntime(
 
     resolveFromUpdate: async (update: unknown): Promise<TelegramUpdateHandlerVerdict> => {
       if (!update || typeof update !== "object") return "pass";
-      const cb = (update as { callback_query?: unknown }).callback_query;
-      if (!cb || typeof cb !== "object") return "pass";
-      const typedCb = cb as { id?: string; data?: string };
-      const data = typedCb.data;
-      if (!data || typeof data !== "string") return "pass";
+      const routing = update as TelegramUpdateRouting & {
+        callback_query?: { data?: unknown };
+      };
+      const cb = routing.callback_query;
+      if (!cb || typeof cb !== "object" || !cb.from || typeof cb.from !== "object") {
+        return "pass";
+      }
+      const data = cb.data;
+      if (typeof data !== "string" || !data) return "pass";
 
       if (!data.startsWith(`${TELEGRAM_PLAN_REVIEW_CALLBACK_PREFIX}:`)) {
         return "pass";
       }
+
+      const query = getAuthorizedTelegramCallbackQuery(
+        routing,
+        deps.getAllowedUserId?.(),
+      );
+      if (!query) return "pass";
 
       const parts = data.split(":");
       if (parts.length < 3) return "pass";
       const [, requestId, rawChoice] = parts;
 
       if (!pending || pending.requestId !== requestId) {
-        if (typedCb.id && deps.answerCallbackQuery) {
+        if (query.id && deps.answerCallbackQuery) {
           try {
-            await deps.answerCallbackQuery(typedCb.id, "This plan review has expired.");
+            await deps.answerCallbackQuery(query.id, "This plan review has expired.");
           } catch (err) {
             record(err, { phase: "answer-stale-callback" });
           }
@@ -382,10 +402,10 @@ export function createTelegramPlanReviewRuntime(
       const current = pending;
 
       if (!rawChoice || !current.choices.includes(rawChoice)) {
-        if (typedCb.id && deps.answerCallbackQuery) {
+        if (query.id && deps.answerCallbackQuery) {
           try {
             await deps.answerCallbackQuery(
-              typedCb.id,
+              query.id,
               "That option is no longer available.",
             );
           } catch (err) {
@@ -415,10 +435,10 @@ export function createTelegramPlanReviewRuntime(
         });
       }
 
-      if (typedCb.id && deps.answerCallbackQuery) {
+      if (query.id && deps.answerCallbackQuery) {
         try {
           await deps.answerCallbackQuery(
-            typedCb.id,
+            query.id,
             delivered
               ? `${label} — applying in CLI`
               : "Could not reach the CLI overlay.",

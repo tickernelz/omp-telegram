@@ -148,14 +148,21 @@ export function createTelegramPlanModeRuntime(
           sequences = ["/plan", "/plan"];
         }
 
+        let unreachable = false;
         try {
           for (const cmd of sequences) {
             ctx?.ui?.setEditorText?.(cmd);
-            deps.tuiInput.send(TELEGRAM_TUI_KEY_CONFIRM);
+            if (!deps.tuiInput.send(TELEGRAM_TUI_KEY_CONFIRM)) {
+              unreachable = true;
+              break;
+            }
             await sleep(200);
 
             if (action === "pause" || action === "exit") {
-              deps.tuiInput.send(TELEGRAM_TUI_KEY_CONFIRM);
+              if (!deps.tuiInput.send(TELEGRAM_TUI_KEY_CONFIRM)) {
+                unreachable = true;
+                break;
+              }
               await sleep(200);
             }
           }
@@ -165,6 +172,17 @@ export function createTelegramPlanModeRuntime(
           } catch (err) {
             record(err, { phase: "restoreEditorText" });
           }
+        }
+
+        if (unreachable) {
+          record(new Error("Telegram plan mode keystrokes were not delivered."), {
+            phase: "tui-input",
+            action,
+          });
+          return {
+            ok: false,
+            message: "Could not reach the CLI input surface.",
+          };
         }
 
         const targetActive = action === "enter";

@@ -4,15 +4,36 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   readTelegramPlanProposalDetails,
   planTelegramPlanReviewKeystrokes,
   buildTelegramPlanReviewCard,
   createTelegramPlanReviewRuntime,
+  readTelegramPlanFile,
   TELEGRAM_PLAN_REVIEW_CALLBACK_PREFIX,
 } from "../lib/plan-review.ts";
 import { createTelegramTuiInputRuntime } from "../lib/tui-input.ts";
 import type { TelegramDeliveryHandle, TelegramDeliveryResult } from "../lib/delivery.ts";
+
+const PLAN_REVIEW_OWNER_ID = 4242;
+
+function planCallbackUpdate(
+  id: string,
+  data: string,
+  sender: { id?: number; is_bot?: boolean; chatType?: string } = {},
+) {
+  return {
+    callback_query: {
+      id,
+      data,
+      from: { id: sender.id ?? PLAN_REVIEW_OWNER_ID, is_bot: sender.is_bot ?? false },
+      message: { chat: { id: -1001, type: sender.chatType ?? "private" } },
+    },
+  };
+}
 
 test("readTelegramPlanProposalDetails parses propose dispatch and rejects invalid formats", () => {
   const valid = readTelegramPlanProposalDetails("write", {
@@ -175,24 +196,18 @@ test("createTelegramPlanReviewRuntime drives card send, callback execution, and 
   const approveCompactCb = keyboard[1][0].callback_data;
   assert.ok(approveCompactCb.startsWith(`${TELEGRAM_PLAN_REVIEW_CALLBACK_PREFIX}:`));
 
-  const verdict = await runtime.resolveFromUpdate({
-    callback_query: {
-      id: "cb_1",
-      data: approveCompactCb,
-    },
-  });
+  const verdict = await runtime.resolveFromUpdate(
+    planCallbackUpdate("cb_1", approveCompactCb),
+  );
   assert.equal(verdict, "consume");
   assert.deepEqual(sentKeystrokes, ["j\r"]);
   assert.ok(editedView.text.includes("✅ Approve and compact context (from Telegram)"));
   assert.equal(editedView.replyMarkup.inline_keyboard.length, 0);
 
   sentKeystrokes.length = 0;
-  const verdict2 = await runtime.resolveFromUpdate({
-    callback_query: {
-      id: "cb_2",
-      data: approveCompactCb,
-    },
-  });
+  const verdict2 = await runtime.resolveFromUpdate(
+    planCallbackUpdate("cb_2", approveCompactCb),
+  );
   assert.equal(verdict2, "consume");
   assert.equal(sentKeystrokes.length, 0);
   assert.equal(answeredCallbacks[answeredCallbacks.length - 1]?.text, "This plan review has expired.");
@@ -339,9 +354,7 @@ test("Plan review reaches the CLI overlay before it reports the decision", async
 
   await runtime.onToolExecutionEnd(planProposalEvent("Ordered plan"), planCtx);
   const callbackData = sentView.replyMarkup.inline_keyboard[0][0].callback_data;
-  await runtime.resolveFromUpdate({
-    callback_query: { id: "cb_order", data: callbackData },
-  });
+  await runtime.resolveFromUpdate(planCallbackUpdate("cb_order", callbackData));
 
   assert.deepEqual(order, ["send:\r", "answer", "edit"]);
   assert.ok(editedView.text.includes("✅ Approve and execute (from Telegram)"));
@@ -379,9 +392,7 @@ test("Plan review reports an overlay that refused the keystrokes", async () => {
 
   await runtime.onToolExecutionEnd(planProposalEvent("Refused plan"), planCtx);
   const callbackData = sentView.replyMarkup.inline_keyboard[0][0].callback_data;
-  await runtime.resolveFromUpdate({
-    callback_query: { id: "cb_refused", data: callbackData },
-  });
+  await runtime.resolveFromUpdate(planCallbackUpdate("cb_refused", callbackData));
 
   assert.deepEqual(answers, ["Could not reach the CLI overlay."]);
   assert.ok(editedView.text.includes("⚠️ Could not reach the CLI overlay"));
@@ -432,23 +443,20 @@ test("Plan review rejects a choice the current card never offered", async () => 
   assert.ok(!offered.includes("approve-keep"), "the card must not offer keeping context");
 
   const requestId = sentView.replyMarkup.inline_keyboard[0][0].callback_data.split(":")[1];
-  const verdict = await runtime.resolveFromUpdate({
-    callback_query: {
-      id: "cb_unavailable",
-      data: `${TELEGRAM_PLAN_REVIEW_CALLBACK_PREFIX}:${requestId}:approve-keep`,
-    },
-  });
+  const verdict = await runtime.resolveFromUpdate(
+    planCallbackUpdate(
+      "cb_unavailable",
+      `${TELEGRAM_PLAN_REVIEW_CALLBACK_PREFIX}:${requestId}:approve-keep`,
+    ),
+  );
 
   assert.equal(verdict, "consume");
   assert.deepEqual(answers, ["That option is no longer available."]);
   assert.deepEqual(keystrokes, []);
 
-  const accepted = await runtime.resolveFromUpdate({
-    callback_query: {
-      id: "cb_valid",
-      data: sentView.replyMarkup.inline_keyboard[0][0].callback_data,
-    },
-  });
+  const accepted = await runtime.resolveFromUpdate(
+    planCallbackUpdate("cb_valid", sentView.replyMarkup.inline_keyboard[0][0].callback_data),
+  );
   assert.equal(accepted, "consume");
   assert.deepEqual(keystrokes, ["\r"], "the card must survive an unavailable choice");
 });
@@ -514,12 +522,9 @@ test("Plan review records a card edit the delivery layer refused", async () => {
   });
 
   await runtime.onToolExecutionEnd(planProposalEvent("Refused edit plan"), planCtx);
-  await runtime.resolveFromUpdate({
-    callback_query: {
-      id: "cb_refused_edit",
-      data: sentView.replyMarkup.inline_keyboard[0][0].callback_data,
-    },
-  });
+  await runtime.resolveFromUpdate(
+    planCallbackUpdate("cb_refused_edit", sentView.replyMarkup.inline_keyboard[0][0].callback_data),
+  );
 
   assert.ok(
     events.some(
@@ -527,4 +532,89 @@ test("Plan review records a card edit the delivery layer refused", async () => {
     ),
     "a refused edit must be recorded as a runtime event",
   );
+});
+
+test("Plan review refuses a plan callback from a foreign Thread sender", async () => {
+  const keystrokes: string[] = [];
+  const answers: Array<string | undefined> = [];
+  let sentView: any = undefined;
+  const handle: TelegramDeliveryHandle = {
+    target: { chatId: -1001, threadId: 7 },
+    messageIds: [80],
+    generation: "gen1",
+  };
+  const runtime = createTelegramPlanReviewRuntime({
+    isEnabled: () => true,
+    getActiveTurn: () => ({ id: "turn1" }),
+    getAllowedUserId: () => PLAN_REVIEW_OWNER_ID,
+    answerCallbackQuery: async (_id, text) => {
+      answers.push(text);
+    },
+    tuiInput: {
+      send: (data: string) => {
+        keystrokes.push(data);
+        return true;
+      },
+    },
+    sendView: async (view) => {
+      sentView = view;
+      return { ok: true, value: handle } as TelegramDeliveryResult<TelegramDeliveryHandle>;
+    },
+    editView: async (_handle, _view) =>
+      ({ ok: true, value: handle }) as TelegramDeliveryResult<TelegramDeliveryHandle>,
+  });
+
+  await runtime.onToolExecutionEnd(planProposalEvent("Owned plan"), planCtx);
+  const callbackData = sentView.replyMarkup.inline_keyboard[0][0].callback_data;
+
+  assert.equal(
+    await runtime.resolveFromUpdate(
+      planCallbackUpdate("cb_foreign", callbackData, { id: 9999, chatType: "supergroup" }),
+    ),
+    "pass",
+  );
+  assert.equal(
+    await runtime.resolveFromUpdate(
+      planCallbackUpdate("cb_bot", callbackData, { is_bot: true, chatType: "supergroup" }),
+    ),
+    "pass",
+  );
+  assert.deepEqual(keystrokes, [], "a foreign sender must never drive the CLI overlay");
+  assert.deepEqual(answers, []);
+
+  assert.equal(
+    await runtime.resolveFromUpdate(
+      planCallbackUpdate("cb_owner", callbackData, { chatType: "supergroup" }),
+    ),
+    "consume",
+  );
+  assert.deepEqual(keystrokes, ["\r"], "the owner still decides the surviving card");
+});
+
+test("readTelegramPlanFile keeps a local plan path inside the artifact root", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-telegram-plan-local-"));
+  const scheme = "local:";
+  try {
+    const localRoot = join(root, "local");
+    await mkdir(localRoot, { recursive: true });
+    await writeFile(join(localRoot, "plan.md"), "contained plan", "utf8");
+    await writeFile(join(root, "outside.md"), "secret", "utf8");
+    const ctx = { localProtocolOptions: { getArtifactsDir: () => root } };
+
+    assert.equal(await readTelegramPlanFile(`${scheme}//plan.md`, ctx), "contained plan");
+    await assert.rejects(
+      readTelegramPlanFile(`${scheme}//../outside.md`, ctx),
+      /escapes the local artifact root/,
+    );
+    await assert.rejects(
+      readTelegramPlanFile(`${scheme}/etc/passwd`, ctx),
+      /escapes the local artifact root/,
+    );
+    await assert.rejects(
+      readTelegramPlanFile(`${scheme}//nested/../../outside.md`, ctx),
+      /escapes the local artifact root/,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

@@ -1684,6 +1684,7 @@ export default function (pi: Pi.ExtensionAPI) {
     isEnabled: configControls.isPlanReviewEnabled,
     getActiveTurn: activeTurnRuntime.get,
     getDefaultTarget: proactivePushTargetGetter,
+    getAllowedUserId: configStore.getAllowedUserId,
     answerCallbackQuery,
     tuiInput: tuiInputRuntime,
     recordRuntimeEvent,

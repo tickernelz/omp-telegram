@@ -73,6 +73,50 @@ test("createTelegramPlanModeRuntime drives enter, pause, exit with draft preserv
   assert.deepEqual(sentKeystrokes, ["\r", "\r", "\r", "\r"]);
 });
 
+test("createTelegramPlanModeRuntime fails fast when the CLI input surface refuses", async () => {
+  const events: Array<Record<string, unknown>> = [];
+  const sleeps: number[] = [];
+  let nowCalls = 0;
+  let currentEditorText = "unsent draft";
+  const ctx = {
+    mode: "tui",
+    hasUI: true,
+    isIdle: () => true,
+    getSystemPrompt: () => ["Standard mode"],
+    ui: {
+      getEditorText: () => currentEditorText,
+      setEditorText: (text: string) => {
+        currentEditorText = text;
+      },
+    },
+  };
+  const runtime = createTelegramPlanModeRuntime({
+    isEnabled: () => true,
+    tuiInput: { send: () => false },
+    recordRuntimeEvent: (_category, _error, details) => {
+      events.push(details ?? {});
+    },
+    now: () => {
+      nowCalls += 1;
+      return 0;
+    },
+    sleep: async (ms: number) => {
+      sleeps.push(ms);
+    },
+  });
+
+  const result = await runtime.run("enter", "fix auth", ctx);
+  assert.equal(result.ok, false);
+  assert.equal(result.message, "Could not reach the CLI input surface.");
+  assert.deepEqual(sleeps, [], "a refused surface must not wait for a state change");
+  assert.equal(nowCalls, 0, "a refused surface must not poll the prompt");
+  assert.equal(currentEditorText, "unsent draft", "the draft must survive a refused surface");
+  assert.ok(
+    events.some((detail) => detail.phase === "tui-input" && detail.action === "enter"),
+    "a refused surface must be recorded as a runtime event",
+  );
+});
+
 test("createTelegramPlanModeRuntime enforces idle and state gates", async () => {
   const runtime = createTelegramPlanModeRuntime({
     isEnabled: () => true,

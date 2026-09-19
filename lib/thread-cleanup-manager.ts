@@ -14,6 +14,8 @@ import type { TelegramWorkspaceDeletionPermit,
   TelegramWorkspaceDestructiveFence,
   TelegramWorkspaceRetirementFence } from "./workspace-admission.ts";
 
+const TELEGRAM_THREAD_CLEANUP_READ_ATTEMPTS = 3;
+
 export interface TelegramThreadCleanupBindingSnapshot {
   cwd: string;
   workspaceKey: string;
@@ -294,11 +296,11 @@ export function createTelegramThreadCleanupWorkStore(options: {
       !Number.isSafeInteger(maxBytes) || maxBytes <= 0) throw new Error("Telegram Thread cleanup store options are invalid.");
   const empty = (): TelegramThreadCleanupWorkFile => ({ version: 1, profileName: options.profileName,
     tokenSha256: options.tokenSha256, workSets: [] });
-  const read = (): TelegramThreadCleanupWorkFile => {
+  const inspect = (): { replaced: true } | { replaced: false; file: TelegramThreadCleanupWorkFile } => {
     let before;
     try { before = lstatSync(options.path, { bigint: true }); }
     catch (error) {
-      if ((error as { code?: unknown }).code === "ENOENT") return empty();
+      if ((error as { code?: unknown }).code === "ENOENT") return { replaced: false, file: empty() };
       throw error;
     }
     const uid = process.getuid?.();
@@ -306,12 +308,17 @@ export function createTelegramThreadCleanupWorkStore(options: {
         before.isSymbolicLink() || before.uid !== BigInt(uid) || before.nlink !== 1n ||
         (before.mode & 0o077n) !== 0n || before.size > BigInt(maxBytes))
       throw new Error("Telegram Thread cleanup store is not a bounded private regular file.");
-    const fd = openSync(options.path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    let fd;
+    try { fd = openSync(options.path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); }
+    catch (error) {
+      if ((error as { code?: unknown }).code === "ENOENT") return { replaced: true };
+      throw error;
+    }
     let value: unknown;
     try {
       const opened = fstatSync(fd, { bigint: true });
       if (opened.dev !== before.dev || opened.ino !== before.ino || opened.size !== before.size ||
-          opened.mtimeNs !== before.mtimeNs) throw new Error("Telegram Thread cleanup store changed during inspection.");
+          opened.mtimeNs !== before.mtimeNs) return { replaced: true };
       value = JSON.parse(readFileSync(fd, "utf8")) as unknown;
     } finally { closeSync(fd); }
     if (!isObject(value) || !onlyKeys(value, ["version", "profileName", "tokenSha256", "workSets"]) ||
@@ -321,7 +328,15 @@ export function createTelegramThreadCleanupWorkStore(options: {
     const workSets = value.workSets.map(workSet => validateWorkSet(workSet, options.profileName));
     if (new Set(workSets.map(workSet => workSet.operationId)).size !== workSets.length)
       throw new Error("Telegram Thread cleanup operation identity is ambiguous.");
-    return { version: 1, profileName: options.profileName, tokenSha256: options.tokenSha256, workSets };
+    return { replaced: false,
+      file: { version: 1, profileName: options.profileName, tokenSha256: options.tokenSha256, workSets } };
+  };
+  const read = (): TelegramThreadCleanupWorkFile => {
+    for (let attempt = 0; attempt < TELEGRAM_THREAD_CLEANUP_READ_ATTEMPTS; attempt += 1) {
+      const inspected = inspect();
+      if (!inspected.replaced) return inspected.file;
+    }
+    throw new Error("Telegram Thread cleanup store changed during inspection.");
   };
   const publish = (file: TelegramThreadCleanupWorkFile): void => {
     if (file.workSets.length > maxWorkSets) throw new Error("Telegram Thread cleanup work-set capacity reached.");

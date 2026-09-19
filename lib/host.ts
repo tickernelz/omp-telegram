@@ -182,9 +182,9 @@ After=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=${input.cwd}
+WorkingDirectory=${quoteSystemdArgument(input.cwd)}
 Environment=${quoteSystemdArgument(`PI_CODING_AGENT_DIR=${input.agentDir}`)}
-ExecStart=${input.wrapperPath}
+ExecStart=${quoteSystemdArgument(input.wrapperPath)}
 Restart=always
 RestartSec=5
 KillMode=control-group
@@ -265,11 +265,12 @@ export function planTelegramHostAction(input: TelegramHostPlanInput): TelegramHo
     agentDir: input.agentDir,
     cwd: input.cwd,
   });
+  const tmuxExecutable = input.tmuxExecutable ?? resolveExecutableOnPath("tmux") ?? "tmux";
   const wrapper = renderTelegramHostWrapper({
     cwd: input.cwd,
     agentDir: input.agentDir,
     ompExecutable: input.ompExecutable,
-    tmuxExecutable: input.tmuxExecutable ?? resolveExecutableOnPath("tmux") ?? "tmux",
+    tmuxExecutable,
     socketPath,
     unitName,
   });
@@ -286,11 +287,11 @@ export function planTelegramHostAction(input: TelegramHostPlanInput): TelegramHo
       ? [...artifacts, { kind: "run", command: [...systemctl, "daemon-reload"] }, { kind: "run", command: [...systemctl, "enable", "--now", unitName] }]
       : input.action === "uninstall"
         ? [
-            { kind: "run", command: [...systemctl, "disable", "--now", unitName] },
+            { kind: "run", command: [...systemctl, "disable", "--now", unitName], optional: true },
             { kind: "remove", path: unitPath },
             { kind: "remove", path: wrapperPath },
             { kind: "remove", path: resolveTelegramHostAnchorPath(input.agentDir) },
-            { kind: "run", command: ["tmux", "-S", socketPath, "kill-server"], optional: true },
+            { kind: "run", command: [tmuxExecutable, "-S", socketPath, "kill-server"], optional: true },
             { kind: "remove", path: socketPath },
             { kind: "run", command: [...systemctl, "daemon-reload"] },
           ]
@@ -306,7 +307,7 @@ export function planTelegramHostAction(input: TelegramHostPlanInput): TelegramHo
                 { kind: "run", command: [...systemctl, "show", "-p", "ActiveState", "-p", "SubState", "-p", "MainPID", unitName], optional: true },
                 {
                   kind: "run",
-                  command: ["tmux", "-S", socketPath, "list-panes", "-t", TELEGRAM_HOST_SESSION_NAME, "-F", "#{pane_pid} #{pane_current_command} #{pane_tty}"],
+                  command: [tmuxExecutable, "-S", socketPath, "list-panes", "-t", TELEGRAM_HOST_SESSION_NAME, "-F", "#{pane_pid} #{pane_current_command} #{pane_tty}"],
                   optional: true,
                 },
               ]
@@ -537,8 +538,7 @@ export function resolveExecutableOnPath(
 
 /** True when the executable is resolvable on PATH. */
 export function commandExists(name: string): boolean {
-  const pathValue = process.env.PATH ?? "";
-  return pathValue.split(":").some((entry) => entry && telegramHostPathExists(join(entry, name)));
+  return resolveExecutableOnPath(name) !== undefined;
 }
 
 /** Fixed working directory for the resident host: the anchor when installed, else this session's directory. */
@@ -580,6 +580,13 @@ export async function runTelegramHostCommand(
   const [executable, ...args] = command;
   if (!executable) return { ok: false, output: "Empty command." };
   return await new Promise((settle) => {
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn(executable, args, { stdio: ["ignore", "pipe", "pipe"] });
+    } catch (error) {
+      settle({ ok: false, output: error instanceof Error ? error.message : String(error) });
+      return;
+    }
     let settled = false;
     const finish = (value: { ok: boolean; output: string }): void => {
       if (settled) return;
@@ -595,7 +602,6 @@ export async function runTelegramHostCommand(
       }
       finish({ ok: false, output: `${executable} timed out.` });
     }, options.timeoutMs ?? 15_000);
-    const child = spawn(executable, args, { stdio: ["ignore", "pipe", "pipe"] });
     let output = "";
     const collect = (chunk: Buffer): void => {
       output += chunk.toString("utf-8");
@@ -608,12 +614,3 @@ export async function runTelegramHostCommand(
   });
 }
 
-/** Whether a file exists, tolerant of permission errors. */
-export function telegramHostPathExists(path: string): boolean {
-  try {
-    accessSync(path, constants.F_OK);
-    return true;
-  } catch {
-    return false;
-  }
-}

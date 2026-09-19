@@ -4,13 +4,14 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
 import {
   applyTelegramHostPlan,
+  commandExists,
   isTelegramHostSession,
   renderTelegramHostWrapper,
   resolveOmpExecutable,
@@ -23,6 +24,7 @@ import {
   resolveTelegramHostSocketPath,
   resolveTelegramHostUnitPath,
   runTelegramHostAutoConnect,
+  runTelegramHostCommand,
   type TelegramHostApplyDeps,
   type TelegramHostStep,
 } from "../lib/host.ts";
@@ -68,10 +70,10 @@ test("the unit keeps the wrapper alive and restarts it when the agent dies", () 
     assert.match(plan.unit, /^Restart=always$/m);
     assert.match(plan.unit, /^KillMode=control-group$/m);
     assert.ok(
-      plan.unit.split("\n").includes(`ExecStart=${plan.wrapperPath}`),
+      plan.unit.split("\n").includes(`ExecStart="${plan.wrapperPath}"`),
       "ExecStart must name the rendered wrapper exactly",
     );
-    assert.match(plan.unit, /^WorkingDirectory=\/tmp\/host-workspace$/m);
+    assert.match(plan.unit, /^WorkingDirectory="\/tmp\/host-workspace"$/m);
     assert.match(plan.unit, /PI_CODING_AGENT_DIR=/);
     assert.match(plan.unit, /^WantedBy=default.target$/m);
     assert.ok(!plan.unit.includes("StandardInput="));
@@ -136,6 +138,11 @@ test("uninstall disables the unit before removing its artifacts and anchor", () 
     const plan = planTelegramHostAction(input);
     assert.equal(plan.steps[0].kind, "run");
     assert.equal(plan.steps[0].kind === "run" ? plan.steps[0].command.includes("disable") : false, true);
+    assert.equal(
+      plan.steps[0].kind === "run" ? plan.steps[0].optional : undefined,
+      true,
+      "an already-disabled unit must not strand the rest of the uninstall",
+    );
     const removed = plan.steps
       .filter((step: TelegramHostStep) => step.kind === "remove")
       .map((step: TelegramHostStep) => (step.kind === "remove" ? step.path : ""));
@@ -195,17 +202,108 @@ test("apply tolerates an optional command failure", async () => {
   const { dir, input } = createInput("uninstall");
   try {
     const plan = planTelegramHostAction(input);
+    const removed: string[] = [];
     const result = await applyTelegramHostPlan(plan, {
       runCommand: async (command) =>
-        command.includes("kill-server") ? { ok: false, output: "no server" } : { ok: true, output: "" },
+        command.includes("kill-server") || command.includes("disable")
+          ? { ok: false, output: "no server" }
+          : { ok: true, output: "" },
       writeTextFile: () => {},
       ensureDir: () => {},
-      removeFile: () => {},
+      removeFile: (path) => {
+        removed.push(path);
+      },
     });
     assert.equal(result.ok, true);
+    assert.ok(
+      removed.includes(plan.unitPath) && removed.includes(plan.wrapperPath),
+      "a unit that is already disabled must still have its artifacts removed",
+    );
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("host steps run the resolved tmux binary instead of trusting the unit PATH", () => {
+  const { dir, input } = createInput("uninstall");
+  try {
+    const plan = planTelegramHostAction({ ...input, tmuxExecutable: "/opt/tmux/bin/tmux" });
+    assert.deepEqual(
+      plan.steps
+        .filter((step: TelegramHostStep) => step.kind === "run" && step.command.includes("kill-server"))
+        .map((step: TelegramHostStep) => (step.kind === "run" ? step.command : [])),
+      [["/opt/tmux/bin/tmux", "-S", plan.socketPath, "kill-server"]],
+    );
+    assert.ok(plan.wrapper.includes("TMUX='/opt/tmux/bin/tmux'"));
+    const status = planTelegramHostAction({
+      ...input,
+      action: "status",
+      tmuxExecutable: "/opt/tmux/bin/tmux",
+    });
+    assert.deepEqual(
+      status.steps
+        .filter((step: TelegramHostStep) => step.kind === "run" && step.command.includes("list-panes"))
+        .map((step: TelegramHostStep) => (step.kind === "run" ? step.command[0] : "")),
+      ["/opt/tmux/bin/tmux"],
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a workspace path with spaces and quotes never escapes the rendered unit", () => {
+  const dir = mkdtempSync(join(tmpdir(), "pi-telegram-host-unit-quote-"));
+  try {
+    const plan = planTelegramHostAction({
+      action: "install",
+      agentDir: dir,
+      cwd: '/tmp/host "quoted" dir',
+      ompExecutable: "/usr/local/bin/omp",
+      systemdUserDir: join(dir, "systemd"),
+      unitName: "omp-telegram-host-test",
+    });
+    assert.ok(
+      plan.unit.split("\n").includes('WorkingDirectory="/tmp/host \\"quoted\\" dir"'),
+      "a quoted workspace path must stay one systemd argument",
+    );
+    assert.ok(plan.unit.split("\n").includes(`ExecStart="${plan.wrapperPath}"`));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("commandExists requires an executable file rather than any file on PATH", () => {
+  const dir = mkdtempSync(join(tmpdir(), "pi-telegram-host-command-"));
+  const originalPath = process.env.PATH;
+  try {
+    writeFileSync(join(dir, "plain-tool"), "not executable\n", { mode: 0o644 });
+    writeFileSync(join(dir, "real-tool"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    process.env.PATH = dir;
+    assert.equal(commandExists("real-tool"), true);
+    assert.equal(commandExists("plain-tool"), false, "a readable file is not a runnable command");
+    assert.equal(commandExists("absent-tool"), false);
+  } finally {
+    process.env.PATH = originalPath;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a command that cannot spawn settles instead of leaving a timer over nothing", async () => {
+  const invalid = await runTelegramHostCommand(["/bin/echo\u0000rejected", "hi"], {
+    timeoutMs: 50,
+  });
+  assert.equal(invalid.ok, false);
+  assert.ok(invalid.output.length > 0, "a refused spawn must report why");
+
+  const missing = await runTelegramHostCommand(
+    [join(tmpdir(), "pi-telegram-host-absent-binary")],
+    { timeoutMs: 2_000 },
+  );
+  assert.equal(missing.ok, false);
+
+  const echoed = await runTelegramHostCommand(["/bin/echo", "host-ok"], { timeoutMs: 5_000 });
+  assert.equal(echoed.ok, true);
+  assert.match(echoed.output, /host-ok/);
 });
 
 test("anchor round-trips the fixed host working directory", () => {
