@@ -4,6 +4,11 @@
 
 ## Unreleased
 
+## 0.6.5: Full Plan Details in Telegram Approval
+
+- `Full Plan Details Presentation`: Approval cards for plan review no longer truncate plan content to a single message ceiling. Telegram rich message delivery automatically chunks long plans across messages while anchoring inline action buttons to the terminal chunk.
+- `English Localization`: Converted remaining Indonesian status messages and callback warnings in plan review and plan mode runtimes to standard English.
+
 ## 0.6.4: Auto-Connect Belongs To The Host
 
 - `Host Auto-Connect Scope`: The cold-start gate only read the agent-wide `host.json` anchor, so every ordinary OMP session sharing that agent directory typed `/telegram-connect` into its own terminal seconds after session start and took the bot from the resident host. Auto-connect now requires the host session itself, identified by the wrapper's `OMP_TELEGRAM_HOST` stamp or the host's private tmux socket.
