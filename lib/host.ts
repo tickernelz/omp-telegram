@@ -16,7 +16,7 @@ import {
 } from "node:fs";
 import { spawn } from "node:child_process";
 import { homedir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { basename, delimiter, dirname, join } from "node:path";
 
 import { resolveAgentDir } from "./paths.ts";
 
@@ -528,7 +528,7 @@ export function resolveExecutableOnPath(
   name: string,
   pathValue = process.env.PATH ?? "",
 ): string | undefined {
-  for (const entry of pathValue.split(":")) {
+  for (const entry of pathValue.split(delimiter)) {
     if (!entry) continue;
     const candidate = join(entry, name);
     if (telegramHostRealExecutable(candidate)) return candidate;

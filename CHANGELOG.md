@@ -4,6 +4,12 @@
 
 ## Unreleased
 
+## 0.6.8: Windows Validation Restored
+
+- `Host PATH Resolution`: `resolveExecutableOnPath` split `PATH` on `:`, so a Windows entry such as `D:\tools` was torn into two nonexistent directories and every host binary probe answered false. The lookup now splits on the platform delimiter.
+- `Portable Host Assertions`: The host suite asserted an unescaped `ExecStart=` line and spawned `/bin/echo`, so Windows validation failed on a feature it correctly refuses to install there. Unit arguments are now verified by unquoting them back to the rendered path, the executable-bit case is scoped to platforms that have one, and the spawn probe runs the current Node binary.
+- `Changelog Sections Restored`: The 0.6.1 and 0.6.5 headings were lost by later prepends, which left their records attributed to the following release. Both headings are restored with their original titles.
+
 ## 0.6.7: Full Security Hardening, Host Reliability, and Plan Authorization
 
 - `Plan Review Callback Authorization`: `resolveFromUpdate` now verifies update senders against the allowed user id via `getAuthorizedTelegramCallbackQuery`, preventing unauthorized participants in group/forum threads from approving plans.
@@ -17,6 +23,8 @@
 - `Multi-Chunk Edit Reconciliation`: Bridge delivery reconciles unchanged chunks during `editView` without failing when Telegram returns 400 'message is not modified', allowing multi-chunk plan review cards to reliably update and clear inline keyboards.
 - `Plan Review Hardening`: `resolveFromUpdate` validates choices against active card options, sends keystrokes immediately to the CLI overlay, records failures accurately, and gracefully supersedes stale pending cards when newer plans arrive.
 - `Progress Tail & Memory Leaks`: Removed per-delta reasoning line derivation on streaming thinking deltas, bounded summary retention for completed tools, deleted expired guest placeholder rotation sessions, and resolved retired ask callbacks cleanly.
+
+## 0.6.5: Full Plan Details in Telegram Approval
 
 - `Full Plan Details Presentation`: Approval cards for plan review no longer truncate plan content to a single message ceiling. Telegram rich message delivery automatically chunks long plans across messages while anchoring inline action buttons to the terminal chunk.
 - `English Localization`: Converted remaining Indonesian status messages and callback warnings in plan review and plan mode runtimes to standard English.
@@ -35,6 +43,8 @@
 - `Host Executables Are Absolute`: The generated wrapper looked up `tmux` on `PATH`, which a systemd user unit does not inherit, so the installed host crash-looped with `tmux: command not found` while the same wrapper worked when run by hand. Both the tmux and OMP executables are now baked in as absolute paths at render time.
 - `Bun Standalone Executable Resolution`: A Bun-compiled OMP reports a virtual `/$bunfs/...` path in `process.argv[1]` that does not exist on disk, so the rendered wrapper pointed at a file nothing could execute. The resolver now verifies the candidate on the filesystem and otherwise resolves `omp` from `PATH`.
 
+
+## 0.6.1: Cross-Platform Host Tests
 
 - `Cross-Platform Host Tests`: The host test suite asserted POSIX path shapes, so Windows CI failed on a feature it correctly refuses to install there. Path, binary, and socket assertions are now separator-agnostic and verified against simulated Windows paths.
 

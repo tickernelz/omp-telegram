@@ -29,6 +29,14 @@ import {
   type TelegramHostStep,
 } from "../lib/host.ts";
 
+function readSystemdAssignment(unit: string, key: string): string | undefined {
+  const line = unit.split("\n").find((entry) => entry.startsWith(`${key}=`));
+  if (line === undefined) return undefined;
+  const value = line.slice(key.length + 1);
+  if (value.length < 2 || !value.startsWith('"') || !value.endsWith('"')) return value;
+  return value.slice(1, -1).replace(/\\(.)/g, "$1");
+}
+
 function createInput(action: Parameters<typeof planTelegramHostAction>[0]["action"]) {
   const dir = mkdtempSync(join(tmpdir(), "pi-telegram-host-"));
   return {
@@ -69,8 +77,9 @@ test("the unit keeps the wrapper alive and restarts it when the agent dies", () 
     assert.match(plan.unit, /^Type=simple$/m);
     assert.match(plan.unit, /^Restart=always$/m);
     assert.match(plan.unit, /^KillMode=control-group$/m);
-    assert.ok(
-      plan.unit.split("\n").includes(`ExecStart="${plan.wrapperPath}"`),
+    assert.equal(
+      readSystemdAssignment(plan.unit, "ExecStart"),
+      plan.wrapperPath,
       "ExecStart must name the rendered wrapper exactly",
     );
     assert.match(plan.unit, /^WorkingDirectory="\/tmp\/host-workspace"$/m);
@@ -266,7 +275,22 @@ test("a workspace path with spaces and quotes never escapes the rendered unit", 
       plan.unit.split("\n").includes('WorkingDirectory="/tmp/host \\"quoted\\" dir"'),
       "a quoted workspace path must stay one systemd argument",
     );
-    assert.ok(plan.unit.split("\n").includes(`ExecStart="${plan.wrapperPath}"`));
+    assert.equal(readSystemdAssignment(plan.unit, "ExecStart"), plan.wrapperPath);
+
+    const windowsPlan = planTelegramHostAction({
+      action: "install",
+      agentDir: "D:\\a\\_temp\\pi-telegram-host",
+      cwd: "/tmp/host-workspace",
+      ompExecutable: "/usr/local/bin/omp",
+      systemdUserDir: "D:\\a\\_temp\\pi-telegram-host\\systemd",
+      unitName: "omp-telegram-host-test",
+    });
+    assert.ok(windowsPlan.wrapperPath.includes("\\"), "the simulated host path must carry separators to escape");
+    assert.equal(
+      readSystemdAssignment(windowsPlan.unit, "ExecStart"),
+      windowsPlan.wrapperPath,
+      "an escaped separator must unquote back to the rendered wrapper",
+    );
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -280,7 +304,9 @@ test("commandExists requires an executable file rather than any file on PATH", (
     writeFileSync(join(dir, "real-tool"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
     process.env.PATH = dir;
     assert.equal(commandExists("real-tool"), true);
-    assert.equal(commandExists("plain-tool"), false, "a readable file is not a runnable command");
+    if (process.platform !== "win32") {
+      assert.equal(commandExists("plain-tool"), false, "a readable file is not a runnable command");
+    }
     assert.equal(commandExists("absent-tool"), false);
   } finally {
     process.env.PATH = originalPath;
@@ -289,7 +315,7 @@ test("commandExists requires an executable file rather than any file on PATH", (
 });
 
 test("a command that cannot spawn settles instead of leaving a timer over nothing", async () => {
-  const invalid = await runTelegramHostCommand(["/bin/echo\u0000rejected", "hi"], {
+  const invalid = await runTelegramHostCommand([`${process.execPath}\u0000rejected`, "hi"], {
     timeoutMs: 50,
   });
   assert.equal(invalid.ok, false);
@@ -301,7 +327,10 @@ test("a command that cannot spawn settles instead of leaving a timer over nothin
   );
   assert.equal(missing.ok, false);
 
-  const echoed = await runTelegramHostCommand(["/bin/echo", "host-ok"], { timeoutMs: 5_000 });
+  const echoed = await runTelegramHostCommand(
+    [process.execPath, "-e", "process.stdout.write('host-ok')"],
+    { timeoutMs: 5_000 },
+  );
   assert.equal(echoed.ok, true);
   assert.match(echoed.output, /host-ok/);
 });
