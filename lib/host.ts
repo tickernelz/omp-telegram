@@ -85,8 +85,20 @@ export function resolveTelegramHostUnitPath(
   return join(systemdUserDir, `${unitName}.service`);
 }
 
+/** Escape `%` so systemd does not expand it as a specifier. */
+function escapeSystemdSpecifiers(value: string): string {
+  return value.replaceAll("%", "%%");
+}
+
+/** Quote a value systemd parses as a command line or environment assignment. */
 function quoteSystemdArgument(value: string): string {
-  return `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
+  const escaped = escapeSystemdSpecifiers(value);
+  return `"${escaped.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
+}
+
+/** Render a path setting literally, because systemd reads quotes as part of the path. */
+function renderSystemdPath(value: string): string {
+  return escapeSystemdSpecifiers(value);
 }
 
 function quoteShellWord(value: string): string {
@@ -182,7 +194,7 @@ After=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=${quoteSystemdArgument(input.cwd)}
+WorkingDirectory=${renderSystemdPath(input.cwd)}
 Environment=${quoteSystemdArgument(`PI_CODING_AGENT_DIR=${input.agentDir}`)}
 ExecStart=${quoteSystemdArgument(input.wrapperPath)}
 Restart=always
@@ -435,6 +447,46 @@ export function parseTelegramHostCommand(args: string): {
     return { action: undefined, dryRun, invalid: `Unknown action: ${candidate}` };
   }
   return { action: candidate as TelegramHostAction, dryRun };
+}
+
+const TELEGRAM_HOST_ACTION_DESCRIPTIONS: Record<TelegramHostAction, string> = {
+  install: "Write the unit and wrapper, then enable and start the resident host",
+  uninstall: "Stop the resident host and remove its unit, wrapper, and socket",
+  restart: "Rewrite the host artifacts, reload systemd, and restart the unit",
+  status: "Show the planned artifacts plus live unit and tmux session state",
+  attach: "Print the tmux command that attaches to the host terminal",
+};
+
+/** Actions that mutate the system, so previewing them with --dry-run is meaningful. */
+const TELEGRAM_HOST_DRY_RUN_ACTIONS = new Set<TelegramHostAction>([
+  "install",
+  "uninstall",
+  "restart",
+]);
+
+/** Complete `/telegram-host` actions, then the `--dry-run` modifier. */
+export function getTelegramHostArgumentCompletions(
+  prefix: string,
+): Array<{ value: string; label: string; description?: string }> {
+  const tokens = prefix.trimStart().split(/\s+/);
+  const first = tokens[0] ?? "";
+  if (tokens.length <= 1) {
+    return TELEGRAM_HOST_ACTIONS.filter((action) => action.startsWith(first)).map((action) => ({
+      value: action,
+      label: action,
+      description: TELEGRAM_HOST_ACTION_DESCRIPTIONS[action],
+    }));
+  }
+  if (!TELEGRAM_HOST_DRY_RUN_ACTIONS.has(first as TelegramHostAction)) return [];
+  const modifier = tokens[1] ?? "";
+  if (!"--dry-run".startsWith(modifier)) return [];
+  return [
+    {
+      value: `${first} --dry-run`,
+      label: "--dry-run",
+      description: `Preview the ${first} plan without touching the system`,
+    },
+  ];
 }
 
 export interface TelegramHostStdinRuntime {

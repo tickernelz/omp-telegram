@@ -4,6 +4,11 @@
 
 ## Unreleased
 
+## 0.6.9: The Resident Host Restarts Again
+
+- `Unit Working Directory`: 0.6.7 quoted `WorkingDirectory=`, but systemd parses path settings verbatim, so the quotes became part of the path and every reload answered `path is not absolute` and `bad unit file setting`. `/telegram-host restart` rewrites that unit before restarting, so it broke the installed host it was asked to repair. Path settings now render literally, `%` is escaped as `%%` in every expanded value, and `systemd-analyze verify` accepts the rendered unit.
+- `Host Action Completions`: `/telegram-host` registered no argument completions, so its actions were invisible at the prompt. It now completes `install`, `uninstall`, `restart`, `status`, and `attach` with descriptions, then offers `--dry-run` for the three actions that change the system.
+
 ## 0.6.8: Windows Validation Restored
 
 - `Host PATH Resolution`: `resolveExecutableOnPath` split `PATH` on `:`, so a Windows entry such as `D:\tools` was torn into two nonexistent directories and every host binary probe answered false. The lookup now splits on the platform delimiter.

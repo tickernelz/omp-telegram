@@ -347,6 +347,30 @@ test("Connect reports an unresolved token reference before prompting setup", asy
   ]);
 });
 
+test("Resident host command exposes action completions", () => {
+  const harness = createCommandRegistrationApiHarness();
+  registerTelegramBridgeCommands(harness.api, {
+    promptForConfig: async () => {},
+    getStatusLines: () => [],
+    reloadConfig: async () => {},
+    hasBotToken: () => false,
+    startPolling: async () => {},
+    stopPolling: async () => {},
+    updateStatus: () => {},
+  });
+
+  const host = getRequiredCommand(harness.commands, "telegram-host");
+  assert.ok(host.getArgumentCompletions, "the host command must complete its actions");
+  assert.deepEqual(
+    host.getArgumentCompletions("").map((item: { value: string }) => item.value),
+    ["install", "uninstall", "restart", "status", "attach"],
+  );
+  assert.deepEqual(
+    host.getArgumentCompletions("install ").map((item: { value: string }) => item.value),
+    ["install --dry-run"],
+  );
+});
+
 test("Command helpers register pi setup and status commands", async () => {
   const harness = createCommandRegistrationApiHarness();
   const events: string[] = [];

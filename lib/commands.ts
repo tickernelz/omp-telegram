@@ -801,6 +801,7 @@ export function registerTelegramBridgeCommands(
   pi.registerCommand("telegram-host", {
     description:
       "Manage the resident Telegram host. Use /telegram-host install|uninstall|restart|status|attach, or --dry-run to preview.",
+    getArgumentCompletions: (prefix) => Host.getTelegramHostArgumentCompletions(prefix),
     handler: async (args, ctx) => {
       const parsed = Host.parseTelegramHostCommand(args);
       if (parsed.invalid) {

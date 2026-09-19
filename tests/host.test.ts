@@ -16,6 +16,7 @@ import {
   renderTelegramHostWrapper,
   resolveOmpExecutable,
   evaluateTelegramHostPlatform,
+  getTelegramHostArgumentCompletions,
   parseTelegramHostCommand,
   planTelegramHostAction,
   readTelegramHostAnchor,
@@ -82,7 +83,7 @@ test("the unit keeps the wrapper alive and restarts it when the agent dies", () 
       plan.wrapperPath,
       "ExecStart must name the rendered wrapper exactly",
     );
-    assert.match(plan.unit, /^WorkingDirectory="\/tmp\/host-workspace"$/m);
+    assert.match(plan.unit, /^WorkingDirectory=\/tmp\/host-workspace$/m);
     assert.match(plan.unit, /PI_CODING_AGENT_DIR=/);
     assert.match(plan.unit, /^WantedBy=default.target$/m);
     assert.ok(!plan.unit.includes("StandardInput="));
@@ -260,7 +261,7 @@ test("host steps run the resolved tmux binary instead of trusting the unit PATH"
   }
 });
 
-test("a workspace path with spaces and quotes never escapes the rendered unit", () => {
+test("path settings stay literal so systemd reads them as absolute paths", () => {
   const dir = mkdtempSync(join(tmpdir(), "pi-telegram-host-unit-quote-"));
   try {
     const plan = planTelegramHostAction({
@@ -272,8 +273,21 @@ test("a workspace path with spaces and quotes never escapes the rendered unit", 
       unitName: "omp-telegram-host-test",
     });
     assert.ok(
-      plan.unit.split("\n").includes('WorkingDirectory="/tmp/host \\"quoted\\" dir"'),
-      "a quoted workspace path must stay one systemd argument",
+      plan.unit.split("\n").includes('WorkingDirectory=/tmp/host "quoted" dir'),
+      "systemd parses WorkingDirectory as a literal path, so quoting it makes the path non-absolute",
+    );
+
+    const specifierPlan = planTelegramHostAction({
+      action: "install",
+      agentDir: dir,
+      cwd: "/tmp/host 100% workspace",
+      ompExecutable: "/usr/local/bin/omp",
+      systemdUserDir: join(dir, "systemd"),
+      unitName: "omp-telegram-host-test",
+    });
+    assert.ok(
+      specifierPlan.unit.split("\n").includes("WorkingDirectory=/tmp/host 100%% workspace"),
+      "a literal percent must be escaped so systemd does not expand it as a specifier",
     );
     assert.equal(readSystemdAssignment(plan.unit, "ExecStart"), plan.wrapperPath);
 
@@ -420,6 +434,32 @@ test("the command parser rejects unknown actions and options", () => {
   assert.match(parseTelegramHostCommand("explode").invalid ?? "", /Unknown action: explode/);
   assert.match(parseTelegramHostCommand("install --loud").invalid ?? "", /Unknown option: --loud/);
   assert.match(parseTelegramHostCommand("install extra").invalid ?? "", /Unknown arguments: extra/);
+});
+
+test("argument completion offers every action and then the dry-run modifier", () => {
+  const actions = getTelegramHostArgumentCompletions("");
+  assert.deepEqual(
+    actions.map((item) => item.value),
+    ["install", "uninstall", "restart", "status", "attach"],
+  );
+  assert.ok(actions.every((item) => (item.description ?? "").length > 0));
+
+  assert.deepEqual(
+    getTelegramHostArgumentCompletions("re").map((item) => item.value),
+    ["restart"],
+  );
+
+  assert.deepEqual(
+    getTelegramHostArgumentCompletions("restart ").map((item) => item.value),
+    ["restart --dry-run"],
+  );
+  assert.deepEqual(getTelegramHostArgumentCompletions("status "), []);
+  assert.deepEqual(getTelegramHostArgumentCompletions("explode "), []);
+
+  const parsed = parseTelegramHostCommand(
+    getTelegramHostArgumentCompletions("restart ")[0]?.value ?? "",
+  );
+  assert.deepEqual(parsed, { action: "restart", dryRun: true });
 });
 
 test("only the resident host session itself is a host session", () => {
