@@ -82,7 +82,7 @@ test("planTelegramPlanReviewKeystrokes maps choices to precise keystroke sequenc
   assert.equal(planTelegramPlanReviewKeystrokes("refine"), "jjjjjjjj\r");
 });
 
-test("buildTelegramPlanReviewCard bounds message length and truncates gracefully", () => {
+test("buildTelegramPlanReviewCard preserves full plan details without truncation", () => {
   const largeBody = "x".repeat(20000);
   const card = buildTelegramPlanReviewCard({
     title: "Big Plan",
@@ -92,9 +92,8 @@ test("buildTelegramPlanReviewCard bounds message length and truncates gracefully
     requestId: "req1",
   });
 
-  assert.ok(card.text.length <= 3800, `Text too long: ${card.text.length}`);
+  assert.ok(card.text.includes(largeBody));
   assert.ok(card.text.includes("Big Plan"));
-  assert.ok(card.text.includes("[plan truncated — full text in local://big.md]"));
   assert.equal(card.markup.inline_keyboard.length, 4);
 
   const cardNoKeep = buildTelegramPlanReviewCard({

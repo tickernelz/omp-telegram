@@ -114,17 +114,7 @@ export function buildTelegramPlanReviewCard(input: {
   requestId: string;
 }): { text: string; markup: TelegramInlineKeyboardMarkup } {
   const header = `📋 Plan ready for approval\n${input.title}\n${input.planFilePath}\n\n`;
-  const maxBodyLength = TELEGRAM_PLAN_REVIEW_MESSAGE_MAX_CHARS - header.length;
-
-  let body = input.planContent;
-  const truncateNotice = `\n… [plan truncated — full text in ${input.planFilePath}]`;
-
-  if (header.length + body.length > TELEGRAM_PLAN_REVIEW_MESSAGE_MAX_CHARS) {
-    const allowed = Math.max(0, maxBodyLength - truncateNotice.length);
-    body = body.slice(0, allowed) + truncateNotice;
-  }
-
-  const text = header + body;
+  const text = header + input.planContent;
 
   const buttons: Array<Array<{ text: string; callback_data: string }>> = [
     [
