@@ -53,14 +53,14 @@ test("createTelegramPlanModeRuntime drives enter, pause, exit with draft preserv
   });
   const resEnter = await runtime.run("enter", "fix auth", ctx);
   assert.equal(resEnter.ok, true);
-  assert.equal(resEnter.message, "📝 Plan mode aktif.");
+  assert.equal(resEnter.message, "📝 Plan mode active.");
   assert.equal(currentEditorText, "my draft text", "Draft text must be restored");
   assert.deepEqual(sentKeystrokes, ["\r"]);
   sentKeystrokes.length = 0;
 
   const resPause = await runtime.run("pause", "", ctx);
   assert.equal(resPause.ok, true);
-  assert.equal(resPause.message, "⏸ Plan mode dipause.");
+  assert.equal(resPause.message, "⏸ Plan mode paused.");
   assert.equal(currentEditorText, "my draft text", "Draft text must be restored");
   assert.deepEqual(sentKeystrokes, ["\r", "\r"]);
   sentKeystrokes.length = 0;
@@ -68,7 +68,7 @@ test("createTelegramPlanModeRuntime drives enter, pause, exit with draft preserv
 
   const resExit = await runtime.run("exit", "", ctx);
   assert.equal(resExit.ok, true);
-  assert.equal(resExit.message, "⏹ Plan mode dimatikan.");
+  assert.equal(resExit.message, "⏹ Plan mode exited.");
   assert.equal(currentEditorText, "my draft text");
   assert.deepEqual(sentKeystrokes, ["\r", "\r", "\r", "\r"]);
 });
@@ -87,7 +87,7 @@ test("createTelegramPlanModeRuntime enforces idle and state gates", async () => 
   };
   const resBusy = await runtime.run("enter", "", ctxBusy);
   assert.equal(resBusy.ok, false);
-  assert.ok(resBusy.message.includes("Agent masih jalan"));
+  assert.ok(resBusy.message.includes("Agent is still running"));
   const ctxActive = {
     mode: "tui",
     hasUI: true,
@@ -97,7 +97,7 @@ test("createTelegramPlanModeRuntime enforces idle and state gates", async () => 
   };
   const resAlready = await runtime.run("enter", "", ctxActive);
   assert.equal(resAlready.ok, false);
-  assert.ok(resAlready.message.includes("Plan mode sudah aktif"));
+  assert.ok(resAlready.message.includes("Plan mode is already active"));
   const ctxInactive = {
     mode: "tui",
     hasUI: true,
@@ -107,5 +107,5 @@ test("createTelegramPlanModeRuntime enforces idle and state gates", async () => 
   };
   const resNotActive = await runtime.run("pause", "", ctxInactive);
   assert.equal(resNotActive.ok, false);
-  assert.ok(resNotActive.message.includes("Plan mode tidak aktif"));
+  assert.ok(resNotActive.message.includes("Plan mode is not active"));
 });

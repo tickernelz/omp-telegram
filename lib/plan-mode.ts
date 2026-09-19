@@ -97,21 +97,21 @@ export function createTelegramPlanModeRuntime(
         if (!deps.isEnabled()) {
           return {
             ok: false,
-            message: "Plan Review dimatikan. Aktifkan dengan /telegram-settings planreview on.",
+            message: "Plan Review is disabled. Enable with /telegram-settings planreview on.",
           };
         }
 
         if (ctx?.mode !== "tui" || ctx?.hasUI !== true) {
           return {
             ok: false,
-            message: "Sesi ini tidak punya TUI, plan mode hanya bisa diubah dari CLI.",
+            message: "This session has no interactive TUI; plan mode can only be changed from the CLI.",
           };
         }
 
         if (typeof ctx?.isIdle === "function" && !ctx.isIdle()) {
           return {
             ok: false,
-            message: "Agent masih jalan. Tunggu idle lalu ulangi.",
+            message: "Agent is still running. Wait for idle and retry.",
           };
         }
 
@@ -120,14 +120,14 @@ export function createTelegramPlanModeRuntime(
         if (action === "enter" && currentlyActive) {
           return {
             ok: false,
-            message: "Plan mode sudah aktif.",
+            message: "Plan mode is already active.",
           };
         }
 
         if (action !== "enter" && !currentlyActive) {
           return {
             ok: false,
-            message: "Plan mode tidak aktif.",
+            message: "Plan mode is not active.",
           };
         }
 
@@ -176,12 +176,12 @@ export function createTelegramPlanModeRuntime(
           const active = isTelegramPlanModeActive(getSystemPrompt(ctx));
           if (active === targetActive) {
             if (action === "enter") {
-              return { ok: true, message: "📝 Plan mode aktif." };
+              return { ok: true, message: "📝 Plan mode active." };
             }
             if (action === "pause") {
-              return { ok: true, message: "⏸ Plan mode dipause." };
+              return { ok: true, message: "⏸ Plan mode paused." };
             }
-            return { ok: true, message: "⏹ Plan mode dimatikan." };
+            return { ok: true, message: "⏹ Plan mode exited." };
           }
           const currentNow = deps.now ? deps.now() : Date.now();
           if (currentNow - start >= maxWaitMs) {
@@ -192,13 +192,13 @@ export function createTelegramPlanModeRuntime(
 
         return {
           ok: false,
-          message: "Plan mode tidak berubah — cek CLI.",
+          message: "Plan mode did not change — check CLI.",
         };
       } catch (error) {
         record(error, { phase: "run" });
         return {
           ok: false,
-          message: `Gagal mengubah plan mode: ${error instanceof Error ? error.message : String(error)}`,
+          message: `Failed to change plan mode: ${error instanceof Error ? error.message : String(error)}`,
         };
       }
     },

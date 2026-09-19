@@ -184,7 +184,7 @@ test("createTelegramPlanReviewRuntime drives card send, callback execution, and 
   });
   assert.equal(verdict, "consume");
   assert.deepEqual(sentKeystrokes, ["j\r"]);
-  assert.ok(editedView.text.includes("✅ Approve and compact context (dari Telegram)"));
+  assert.ok(editedView.text.includes("✅ Approve and compact context (from Telegram)"));
   assert.equal(editedView.replyMarkup.inline_keyboard.length, 0);
 
   sentKeystrokes.length = 0;
@@ -196,7 +196,7 @@ test("createTelegramPlanReviewRuntime drives card send, callback execution, and 
   });
   assert.equal(verdict2, "consume");
   assert.equal(sentKeystrokes.length, 0);
-  assert.equal(answeredCallbacks[answeredCallbacks.length - 1]?.text, "Plan review ini sudah kadaluarsa.");
+  assert.equal(answeredCallbacks[answeredCallbacks.length - 1]?.text, "This plan review has expired.");
 
   await runtime.onToolExecutionEnd(
     {
@@ -219,7 +219,7 @@ test("createTelegramPlanReviewRuntime drives card send, callback execution, and 
   );
 
   await runtime.onAgentStart();
-  assert.ok(editedView.text.includes("↩️ Diputuskan di CLI"));
+  assert.ok(editedView.text.includes("↩️ Decided in CLI"));
   assert.equal(editedView.replyMarkup.inline_keyboard.length, 0);
 });
 

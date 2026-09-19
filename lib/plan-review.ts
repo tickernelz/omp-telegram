@@ -327,7 +327,7 @@ export function createTelegramPlanReviewRuntime(
       pending = undefined;
       try {
         await editView(current.handle, {
-          text: current.cardText + "\n\n↩️ Diputuskan di CLI",
+          text: current.cardText + "\n\n↩️ Decided in CLI",
           parseMode: "plain",
           replyMarkup: { inline_keyboard: [] },
         });
@@ -355,7 +355,7 @@ export function createTelegramPlanReviewRuntime(
       if (!pending || pending.requestId !== requestId) {
         if (typedCb.id && deps.answerCallbackQuery) {
           try {
-            await deps.answerCallbackQuery(typedCb.id, "Plan review ini sudah kadaluarsa.");
+            await deps.answerCallbackQuery(typedCb.id, "This plan review has expired.");
           } catch (err) {
             record(err, { phase: "answer-stale-callback" });
           }
@@ -385,7 +385,7 @@ export function createTelegramPlanReviewRuntime(
 
       try {
         await editView(current.handle, {
-          text: `${current.cardText}\n\n✅ ${label} (dari Telegram)`,
+          text: `${current.cardText}\n\n✅ ${label} (from Telegram)`,
           parseMode: "plain",
           replyMarkup: { inline_keyboard: [] },
         });
