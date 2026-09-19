@@ -58,13 +58,20 @@ Stable commands inside OMP:
 Stable commands inside the paired Telegram DM:
 
 - `/start` — pair when needed and open the main application menu.
+- `/status` — show agent, model, context, and session status card.
+- `/model` — choose active model via inline selection menu.
+- `/thinking` — adjust reasoning thinking effort via inline menu.
+- `/queue` — inspect and manage waiting queued turns.
+- `/diff` — inspect uncommitted workspace git status and diff stat.
+- `/undo` — drop the last queued turn before execution starts.
+- `/share` — show compact session and queue summary card.
 - `/compact` — open confirmation and compact when idle.
 - `/next` — dispatch the next queued turn, aborting active work first when needed; one OMP-aligned informational reply anchors to a pre-abort snapshot of the Telegram turn or falls back to the command, and aborted pending assistant text is suppressed.
 - `/continue` — enqueue a priority `continue` prompt.
 - `/abort` — abort active work and keep the queue; abort-history is scoped to Telegram-owned active turns.
 - `/stop` — abort active Telegram-owned work and clear waiting Telegram queue items.
 
-Hidden compatibility shortcuts may open sections directly: `/help`, `/status`, `/model`, `/thinking`, `/queue`, and `/settings`.
+Compatibility shortcuts: `/help` and `/settings`.
 
 This command surface is a mobile companion subset, not a raw terminal-command bridge or session browser. A Telegram destination follows its assigned OMP instance and sends prompts into that instance's currently active session; it is not permanently bound to one session identity. Compaction operates on the current session, while new-session, resume, fork, tree navigation, session switching, TUI transcript clearing, and arbitrary slash-command dispatch stay out of the stable Telegram API unless OMP exposes safe public extension hooks for them.
 

@@ -12,6 +12,7 @@
 - `Automatic Polling Boot Sync`: Polling startup in leader and standalone runtimes now automatically synchronizes bot commands and resets the menu button directly after webhook clearing, keeping commands fresh without requiring the user to issue `/start`.
 - `Commands CLI Management`: Registered `/telegram-commands [sync|reset]` with argument autocompletions for manual operator synchronization and complete scope reset on demand.
 - `Resilient Dependency Audit`: Wrapped `npm run audit` via `scripts/audit.mjs` to tolerate upstream npm registry maintenance (503 Service Unavailable) without masking real vulnerability failures.
+- `Expanded Bot Command Surface`: Promoted `/status`, `/model`, `/thinking`, and `/queue` to the visible Telegram bot command menu. Added built-in commands `/diff` (immediate workspace git status and stat inspection without model calls), `/undo` (safe dropping of the last queued turn before dispatch), and `/share` (compact session and queue summary card).
 
 ## 0.6.9: The Resident Host Restarts Again
 

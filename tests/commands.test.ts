@@ -34,6 +34,7 @@ import {
   createTelegramCommandTargetRuntime,
   executeTelegramCommandAction,
   getTelegramCommandExecutionMode,
+  getTelegramGitDiffSummary,
   getTelegramCommandMessageTarget,
   clearTelegramExtensionCommands,
   findTelegramExtensionCommand,
@@ -139,6 +140,13 @@ test("Command helpers expose Telegram bot command definitions", () => {
   );
   for (const command of [
     "start",
+    "status",
+    "model",
+    "thinking",
+    "queue",
+    "diff",
+    "undo",
+    "share",
     "compact",
     "next",
     "continue",
@@ -156,6 +164,34 @@ test("Command helpers expose Telegram bot command definitions", () => {
     {
       command: "start",
       description: "🟢 Open menu / Pair bridge",
+    },
+    {
+      command: "status",
+      description: "📊 Show agent & session status",
+    },
+    {
+      command: "model",
+      description: "🤖 Choose active model",
+    },
+    {
+      command: "thinking",
+      description: "🧠 Adjust thinking effort",
+    },
+    {
+      command: "queue",
+      description: "🔢 Inspect & manage queue",
+    },
+    {
+      command: "diff",
+      description: "🔍 Show workspace changes",
+    },
+    {
+      command: "undo",
+      description: "↩️ Undo last queued turn",
+    },
+    {
+      command: "share",
+      description: "📤 Share session summary",
     },
     {
       command: "name",
@@ -343,10 +379,13 @@ test("Command helpers register extension Telegram bot commands when visible", as
       calls.push(commands);
     },
   });
+  const compactIndex = TELEGRAM_BOT_COMMANDS.findIndex(
+    (command) => command.command === "compact",
+  );
   const expected = [
-    ...TELEGRAM_BOT_COMMANDS.slice(0, 3),
+    ...TELEGRAM_BOT_COMMANDS.slice(0, compactIndex + 1),
     { command: "new", description: "🆕 Start fresh" },
-    ...TELEGRAM_BOT_COMMANDS.slice(3),
+    ...TELEGRAM_BOT_COMMANDS.slice(compactIndex + 1),
   ];
   assert.deepEqual(calls, [expected, expected]);
   dispose();
@@ -3055,4 +3094,72 @@ test("Plan commands route through the command runtime instead of the model", asy
     [],
     "a reserved plan command must never fall through to the model",
   );
+});
+
+test("getTelegramGitDiffSummary formats git status and diff stat", () => {
+  const result = getTelegramGitDiffSummary(process.cwd());
+  assert.ok(
+    result.includes("Working tree clean") ||
+      result.includes("Workspace Changes"),
+  );
+});
+
+test("executeTelegramCommandAction dispatches diff, undo, and share", async () => {
+  const dispatched: string[] = [];
+  const deps = {
+    handleStop: async () => {},
+    handleName: async () => {},
+    handleAbort: async () => {},
+    handleNext: async () => {},
+    handleContinue: async () => {},
+    handleQueue: async () => {},
+    handleCompact: async () => {},
+    handleStatus: async () => {},
+    handleModel: async () => {},
+    handleThinking: async () => {},
+    handleHelp: async () => {},
+    handleDiff: async (_m: unknown, _c: unknown, args: string) => {
+      dispatched.push(`diff:${args}`);
+    },
+    handleUndo: async () => {
+      dispatched.push("undo");
+    },
+    handleShare: async () => {
+      dispatched.push("share");
+    },
+  };
+
+  assert.equal(
+    await executeTelegramCommandAction(
+      TELEGRAM_COMMAND_ACTIONS.diff,
+      {} as never,
+      {} as never,
+      deps,
+      "file.ts",
+    ),
+    true,
+  );
+  assert.equal(
+    await executeTelegramCommandAction(
+      TELEGRAM_COMMAND_ACTIONS.undo,
+      {} as never,
+      {} as never,
+      deps,
+    ),
+    true,
+  );
+  assert.equal(
+    await executeTelegramCommandAction(
+      TELEGRAM_COMMAND_ACTIONS.share,
+      {} as never,
+      {} as never,
+      deps,
+    ),
+    true,
+  );
+  assert.deepEqual(dispatched, [
+    "diff:file.ts",
+    "undo",
+    "share",
+  ]);
 });

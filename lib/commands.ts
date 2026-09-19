@@ -4,6 +4,7 @@
  * Owns Telegram slash-command normalization, bot command metadata, and pi-side command registration behind runtime ports
  */
 
+import { execFileSync } from "node:child_process";
 import * as Host from "./host.ts";
 import * as Paths from "./paths.ts";
 import * as Pi from "./pi.ts";
@@ -185,6 +186,9 @@ export const TELEGRAM_COMMAND_EMOJI = {
   plan: "📝",
   plan_pause: "⏸",
   plan_exit: "⏹",
+  diff: "🔍",
+  undo: "↩️",
+  share: "📤",
 } as const;
 
 export type TelegramCommandEmojiName = keyof typeof TELEGRAM_COMMAND_EMOJI;
@@ -269,6 +273,55 @@ export const TELEGRAM_BUILTIN_BOT_COMMANDS: readonly TelegramBotCommandDefinitio
       description: formatTelegramBotCommandDescription(
         "start",
         "Open menu / Pair bridge",
+      ),
+    },
+    {
+      command: "status",
+      description: formatTelegramBotCommandDescription(
+        "status",
+        "Show agent & session status",
+      ),
+    },
+    {
+      command: "model",
+      description: formatTelegramBotCommandDescription(
+        "model",
+        "Choose active model",
+      ),
+    },
+    {
+      command: "thinking",
+      description: formatTelegramBotCommandDescription(
+        "thinking",
+        "Adjust thinking effort",
+      ),
+    },
+    {
+      command: "queue",
+      description: formatTelegramBotCommandDescription(
+        "queue",
+        "Inspect & manage queue",
+      ),
+    },
+    {
+      command: "diff",
+      description: formatTelegramBotCommandDescription(
+        "diff",
+        "Show workspace changes",
+      ),
+    },
+    {
+      command: "undo",
+      description: formatTelegramBotCommandDescription(
+        "undo",
+        "Undo last queued turn",
+      ),
+    },
+    {
+      command: "share",
+      description: formatTelegramBotCommandDescription(
+        "share",
+        "Share session summary",
       ),
     },
     {
@@ -992,6 +1045,9 @@ export const TELEGRAM_RESERVED_COMMAND_NAMES = [
   "plan",
   "plan_pause",
   "plan_exit",
+  "diff",
+  "undo",
+  "share",
 ] as const;
 
 export type TelegramReservedCommandName =
@@ -1032,7 +1088,10 @@ export type TelegramCommandAction =
       kind: "help";
       commandName: "help" | "start";
       executionMode: "immediate";
-    };
+    }
+  | { kind: "diff"; executionMode: "immediate" }
+  | { kind: "undo"; executionMode: "immediate" }
+  | { kind: "share"; executionMode: "immediate" };
 
 export type TelegramCommandExecutionMode = "ignored" | "immediate";
 
@@ -1059,6 +1118,13 @@ export interface TelegramCommandActionDeps<TMessage, TContext> {
     commandName: "help" | "start",
     ctx: TContext,
   ) => Promise<void>;
+  handleDiff?: (
+    message: TMessage,
+    ctx: TContext,
+    args: string,
+  ) => Promise<void>;
+  handleUndo?: (message: TMessage, ctx: TContext) => Promise<void>;
+  handleShare?: (message: TMessage, ctx: TContext) => Promise<void>;
 }
 
 export interface TelegramStopCommandDeps {
@@ -1528,6 +1594,9 @@ export interface TelegramCommandRuntimeDeps<
   persistAllowedUserId: TelegramConfigStore["persistAllowedUserId"];
   registerBotCommands: () => Promise<void>;
   getPromptTemplateCommands?: () => readonly TelegramPromptTemplateMenuCommand[];
+  getCwd?: (ctx: TContext) => string | undefined;
+  dropLastQueuedTelegramItem?: () => { statusSummary?: string } | undefined;
+  enqueueTurn?: (message: TMessage, ctx: TContext, prompt: string) => Promise<void>;
   sendTextReply: (
     message: TMessage,
     text: string,
@@ -1544,6 +1613,13 @@ export const TELEGRAM_APP_MENU_INTRO_HTML = [
   "<b>OMP Telegram</b>",
   "",
   `${formatTelegramCommandEmojiPrefix("start")}/start — Open menu / Pair bridge`,
+  `${formatTelegramCommandEmojiPrefix("status")}/status — Show agent & session status`,
+  `${formatTelegramCommandEmojiPrefix("model")}/model — Choose active model`,
+  `${formatTelegramCommandEmojiPrefix("thinking")}/thinking — Adjust thinking effort`,
+  `${formatTelegramCommandEmojiPrefix("queue")}/queue — Inspect & manage queue`,
+  `${formatTelegramCommandEmojiPrefix("diff")}/diff — Show workspace changes`,
+  `${formatTelegramCommandEmojiPrefix("undo")}/undo — Undo last queued turn`,
+  `${formatTelegramCommandEmojiPrefix("share")}/share — Share session summary`,
   `${formatTelegramCommandEmojiPrefix("name")}/name Name — Rename this thread`,
   `${formatTelegramCommandEmojiPrefix("compact")}/compact — Compact current session`,
   `${formatTelegramCommandEmojiPrefix("plan")}/plan [goal] — Enter plan mode`,
@@ -1588,6 +1664,13 @@ function buildTelegramAppMenuIntroHtml(): string {
     "<b>OMP Telegram</b>",
     "",
     `${formatTelegramCommandEmojiPrefix("start")}/start — Open menu / Pair bridge`,
+    `${formatTelegramCommandEmojiPrefix("status")}/status — Show agent & session status`,
+    `${formatTelegramCommandEmojiPrefix("model")}/model — Choose active model`,
+    `${formatTelegramCommandEmojiPrefix("thinking")}/thinking — Adjust thinking effort`,
+    `${formatTelegramCommandEmojiPrefix("queue")}/queue — Inspect & manage queue`,
+    `${formatTelegramCommandEmojiPrefix("diff")}/diff — Show workspace changes`,
+    `${formatTelegramCommandEmojiPrefix("undo")}/undo — Undo last queued turn`,
+    `${formatTelegramCommandEmojiPrefix("share")}/share — Share session summary`,
     `${formatTelegramCommandEmojiPrefix("name")}/name Name — Rename this thread`,
     `${formatTelegramCommandEmojiPrefix("compact")}/compact — Compact current session`,
     `${formatTelegramCommandEmojiPrefix("plan")}/plan [goal] — Enter plan mode`,
@@ -1647,6 +1730,40 @@ function formatTelegramCompactionFailure(error: unknown): string {
   return `Compaction failed! ${sentence}`;
 }
 
+export function getTelegramGitDiffSummary(cwd: string, args = ""): string {
+  try {
+    const gitArgs = ["status", "--short"];
+    const status = execFileSync("git", gitArgs, {
+      cwd,
+      encoding: "utf8",
+      timeout: 5_000,
+    }).trim();
+    if (!status) {
+      return "<b>✅ Working tree clean</b>\n<i>No uncommitted changes in current workspace.</i>";
+    }
+    const statArgs = args.trim()
+      ? ["diff", "--stat", "--", args.trim()]
+      : ["diff", "--stat"];
+    const stat = execFileSync("git", statArgs, {
+      cwd,
+      encoding: "utf8",
+      timeout: 5_000,
+    }).trim();
+    const statusLines = status.split("\n").slice(0, 15);
+    const statLines = stat ? stat.split("\n").slice(-2) : [];
+    return [
+      "<b>📝 Workspace Changes:</b>\n",
+      ...statusLines.map((line) => `<code>${escapeHtml(line)}</code>`),
+      status.split("\n").length > 15 ? "\n<i>...and more files</i>" : "",
+      statLines.length > 0 ? `\n<i>${escapeHtml(statLines.join("\n"))}</i>` : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+  } catch {
+    return "<b>⚠️ Could not inspect git workspace changes.</b>";
+  }
+}
+
 export function parseTelegramCommand(
   text: string,
 ): ParsedTelegramCommand | undefined {
@@ -1675,6 +1792,9 @@ export const TELEGRAM_COMMAND_ACTIONS = {
   plan: { kind: "plan", action: "enter", executionMode: "immediate" },
   plan_pause: { kind: "plan", action: "pause", executionMode: "immediate" },
   plan_exit: { kind: "plan", action: "exit", executionMode: "immediate" },
+  diff: { kind: "diff", executionMode: "immediate" },
+  undo: { kind: "undo", executionMode: "immediate" },
+  share: { kind: "share", executionMode: "immediate" },
 } as const satisfies Record<TelegramReservedCommandName, TelegramCommandAction>;
 
 export function buildTelegramCommandAction(
@@ -2067,6 +2187,18 @@ export async function executeTelegramCommandAction<TMessage, TContext>(
     case "help":
       await deps.handleHelp(message, action.commandName, ctx);
       return true;
+    case "diff":
+      if (!deps.handleDiff) return false;
+      await deps.handleDiff(message, ctx, commandArgs);
+      return true;
+    case "undo":
+      if (!deps.handleUndo) return false;
+      await deps.handleUndo(message, ctx);
+      return true;
+    case "share":
+      if (!deps.handleShare) return false;
+      await deps.handleShare(message, ctx);
+      return true;
   }
 }
 
@@ -2154,6 +2286,9 @@ export function createTelegramCommandHandlerTargetRuntime<
       deleteMyCommands: deps.deleteMyCommands,
       setChatMenuButton: deps.setChatMenuButton,
     }),
+    getCwd: deps.getCwd,
+    dropLastQueuedTelegramItem: deps.dropLastQueuedTelegramItem,
+    enqueueTurn: deps.enqueueTurn,
     validateThreadName: deps.validateThreadName,
     renameCurrentThread: deps.renameCurrentThread,
     resetCurrentThreadName: deps.resetCurrentThreadName,
@@ -2476,6 +2611,86 @@ async function handleTelegramCommandRuntime<
           "menu-render",
           deps,
           () => deps.openThinkingMenu(nextMessage, commandCtx),
+          assertExecutionCurrentFor(nextMessage),
+        );
+      },
+      handleDiff: async (nextMessage, commandCtx, args) => {
+        scheduleTelegramCommandEffect(
+          commandCtx,
+          "diff",
+          "menu-render",
+          deps,
+          async () => {
+            const cwd = deps.getCwd?.(commandCtx) ?? process.cwd();
+            const summary = getTelegramGitDiffSummary(cwd, args);
+            await sendReplyFor(nextMessage)(summary, { parseMode: "HTML" });
+          },
+          assertExecutionCurrentFor(nextMessage),
+        );
+      },
+      handleUndo: async (nextMessage, commandCtx) => {
+        scheduleTelegramCommandEffect(
+          commandCtx,
+          "undo",
+          "menu-render",
+          deps,
+          async () => {
+            if (deps.dropLastQueuedTelegramItem) {
+              const dropped = deps.dropLastQueuedTelegramItem();
+              if (dropped) {
+                updateStatusFor(commandCtx)();
+                await sendReplyFor(nextMessage)(
+                  formatTelegramInformationHeading(
+                    "↩️",
+                    `Removed last queued prompt:\n<i>"${escapeHtml(dropped.statusSummary ?? "prompt")}"</i>`,
+                  ),
+                  { parseMode: "HTML" },
+                );
+                return;
+              }
+            }
+            if (deps.hasActiveTelegramTurn()) {
+              await sendReplyFor(nextMessage)(
+                formatTelegramInformationHeading(
+                  "⏳",
+                  "An agent turn is running. Use /abort to stop it, or /stop to clear queue.",
+                ),
+                { parseMode: "HTML" },
+              );
+              return;
+            }
+            await sendReplyFor(nextMessage)(
+              formatTelegramInformationHeading("ℹ️", "No queued turns to undo."),
+              { parseMode: "HTML" },
+            );
+          },
+          assertExecutionCurrentFor(nextMessage),
+        );
+      },
+      handleShare: async (nextMessage, commandCtx) => {
+        scheduleTelegramCommandEffect(
+          commandCtx,
+          "share",
+          "menu-render",
+          deps,
+          async () => {
+            const statusLabel = deps.hasActiveTelegramTurn()
+              ? "running"
+              : deps.isIdle(commandCtx)
+                ? "idle"
+                : "busy";
+            const queueLabel = deps.hasQueuedTelegramItems()
+              ? "items waiting"
+              : "empty";
+            const lines = [
+              "<b>📤 OMP Session Summary:</b>\n",
+              `• <b>Status:</b> <code>${statusLabel}</code>`,
+              `• <b>Queue:</b> <code>${queueLabel}</code>`,
+            ];
+            await sendReplyFor(nextMessage)(lines.join("\n"), {
+              parseMode: "HTML",
+            });
+          },
           assertExecutionCurrentFor(nextMessage),
         );
       },

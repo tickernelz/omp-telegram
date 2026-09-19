@@ -2221,6 +2221,28 @@ export function createTelegramInboundRouteRuntime<
     setMyCommands: deps.setMyCommands,
     deleteMyCommands: deps.deleteMyCommands,
     setChatMenuButton: deps.setChatMenuButton,
+    getCwd: (context) => getContextCwd(context) ?? process.cwd(),
+    dropLastQueuedTelegramItem: () => {
+      const items = deps.telegramQueueStore.getQueuedItems();
+      if (items.length === 0) return undefined;
+      const last = items[items.length - 1];
+      deps.telegramQueueStore.setQueuedItems(items.slice(0, -1));
+      return last;
+    },
+    enqueueTurn: async (message, context, prompt) => {
+      deps.bridgeRuntime.lifecycle.setFoldQueuedPromptsIntoHistory(false);
+      const turnMessage = {
+        ...message,
+        text: prompt,
+        caption: undefined,
+      } as TMessage;
+      const buildTurn = await preparePromptTurn([turnMessage], context);
+      const turn = buildTurn([]);
+      Updates.assertTelegramUpdateExecutionCurrent(message);
+      deps.queueMutationRuntime.append(turn, context);
+      reportQueueAdmission([turnMessage], turn.admissionReceipts ?? []);
+      requestDispatchNextQueuedTelegramTurn(context);
+    },
     validateThreadName: deps.validateThreadName,
     renameCurrentThread: deps.renameCurrentThread,
     resetCurrentThreadName: deps.resetCurrentThreadName,
