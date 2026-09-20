@@ -240,6 +240,7 @@ export interface TelegramActiveTurnStore<
   getReplyToMessageId: () => number | undefined;
   getGuestQueryId: () => string | undefined;
   getSourceMessageIds: () => number[] | undefined;
+  rebindTarget?: (target: TelegramQueueTarget) => void;
 }
 
 export interface TelegramDispatchGuardState {
@@ -471,6 +472,19 @@ export function createTelegramActiveTurnStore<
     getReplyToMessageId: () => activeTurn?.replyToMessageId,
     getGuestQueryId: () => activeTurn?.guestQueryId,
     getSourceMessageIds: () => activeTurn?.sourceMessageIds,
+    rebindTarget: (target) => {
+      if (!activeTurn) return;
+      const threadChanged =
+        activeTurn.target?.threadId !== undefined &&
+        target.threadId !== undefined &&
+        activeTurn.target.threadId !== target.threadId;
+      activeTurn = {
+        ...activeTurn,
+        target: { ...target },
+        chatId: target.chatId,
+        ...(threadChanged ? { replyToMessageId: undefined } : {}),
+      };
+    },
   };
 }
 
@@ -1624,6 +1638,8 @@ export interface TelegramAgentEndRuntimeDeps<
     error: unknown,
     details?: Record<string, unknown>,
   ) => void;
+  isStaleTargetError?: (error: unknown) => boolean;
+  getFallbackTarget?: () => TelegramQueueTarget | undefined;
 }
 
 export interface TelegramAgentEndHookRuntimeDeps<
@@ -1689,6 +1705,8 @@ export interface TelegramAgentEndHookRuntimeDeps<
   >["planOutboundReply"];
   sendOutboundReplyArtifacts?: TelegramAgentEndRuntimeDeps<TTurn>["sendOutboundReplyArtifacts"];
   recordRuntimeEvent?: TelegramAgentEndRuntimeDeps<TTurn>["recordRuntimeEvent"];
+  isStaleTargetError?: (error: unknown) => boolean;
+  getFallbackTarget?: () => TelegramQueueTarget | undefined;
 }
 
 export interface TelegramAgentEndHookEvent<TMessage> {
@@ -1828,6 +1846,8 @@ export function createTelegramAgentEndHook<
         planOutboundReply: deps.planOutboundReply,
         sendOutboundReplyArtifacts: deps.sendOutboundReplyArtifacts,
         recordRuntimeEvent: deps.recordRuntimeEvent,
+        isStaleTargetError: deps.isStaleTargetError,
+        getFallbackTarget: deps.getFallbackTarget,
       });
     } finally {
       reservation?.cancel();
@@ -2117,12 +2137,35 @@ export async function handleTelegramAgentEndRuntime<
           if (!finalized) {
             await clearTurnPreview();
             if (!isDeliveryActive()) return;
-            await deps.sendMarkdownReply(
-              turn.chatId,
-              turn.replyToMessageId,
-              finalText,
-              { replyMarkup, target: turn.target },
-            );
+            try {
+              await deps.sendMarkdownReply(
+                turn.chatId,
+                turn.replyToMessageId,
+                finalText,
+                { replyMarkup, target: turn.target },
+              );
+            } catch (error) {
+              const fallback = deps.getFallbackTarget?.();
+              const isStale =
+                deps.isStaleTargetError?.(error) ||
+                (error instanceof Error &&
+                  error.message.includes("not allowed for this follower"));
+              if (
+                isStale &&
+                fallback &&
+                (fallback.chatId !== turn.chatId ||
+                  fallback.threadId !== turn.target?.threadId)
+              ) {
+                await deps.sendMarkdownReply(
+                  fallback.chatId,
+                  undefined,
+                  finalText,
+                  { replyMarkup, target: fallback },
+                );
+              } else {
+                throw error;
+              }
+            }
           }
         }
         if (!isDeliveryActive()) return;

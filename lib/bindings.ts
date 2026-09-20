@@ -827,6 +827,8 @@ interface TelegramLifecycleBindingDeps {
   modelContextAvailabilityRuntime: Prompts.TelegramModelContextAvailabilityRuntime;
   disconnectOnQuit?: () => Promise<unknown>;
   resolveAutomaticThreadCleanupEnabled?: () => boolean | Promise<boolean>;
+  isStaleTargetError?: (error: unknown) => boolean;
+  getFallbackTarget?: () => Queue.TelegramQueueTarget | undefined;
   buttonActionStore: OutboundHandlers.TelegramButtonActionStore;
   callMultipart: OutboundHandlers.TelegramVoiceReplySenderDeps["sendMultipart"];
   sendChatAction: NonNullable<
@@ -942,6 +944,8 @@ export function registerTelegramLifecycleRuntimeHooks({
   preparePreviewDelivery,
   finalizeMarkdownPreview,
   proactivePushTargetGetter,
+  getFallbackTarget,
+  isStaleTargetError,
   getAssistantRenderingMode,
   recordMessageOwnership,
   canSendAgentActivity,
@@ -1145,6 +1149,8 @@ export function registerTelegramLifecycleRuntimeHooks({
     preparePreviewDelivery,
     preparePreviewClear: previewRuntime.prepareClear,
     clearPreview: previewRuntime.clear,
+    isStaleTargetError,
+    getFallbackTarget: getFallbackTarget ?? proactivePushTargetGetter,
     setPreviewPendingText: previewRuntime.setPendingText,
     finalizeMarkdownPreview,
     sendMarkdownReply,
@@ -1381,7 +1387,14 @@ export function registerTelegramLifecycleRuntimeHooks({
         contextWindow,
         modelName: ctx.model?.name ?? ctx.model?.id,
       };
-      activityRuntime.onAgentStart(turn?.target, turn?.replyToMessageId, turn?.historyText, contextInfo);
+      const fallbackTarget = getFallbackTarget ? getFallbackTarget() : undefined;
+      const targetMismatch =
+        turn?.target?.threadId !== undefined &&
+        fallbackTarget?.threadId !== undefined &&
+        turn.target.threadId !== fallbackTarget.threadId;
+      const effectiveTarget = targetMismatch ? fallbackTarget : turn?.target;
+      const replyToMessageId = targetMismatch ? undefined : turn?.replyToMessageId;
+      activityRuntime.onAgentStart(effectiveTarget, replyToMessageId, turn?.historyText, contextInfo);
       startAgentActivityTypingLoop(ctx);
     },
     async onToolExecutionStart(event, ctx) {

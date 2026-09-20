@@ -687,13 +687,13 @@ export function createTelegramProgressTailRuntime<TAuthority>(
             liveMessage.target.threadId !== admittedTarget.threadId);
         target = admittedTarget;
         authority = admittedAuthority;
+        clearTimer();
+        consecutivePublishFailures = 0;
+        lastPublishMs = 0;
+        dirty = true;
         if (staleBubble) {
-          clearTimer();
           liveMessage = undefined;
           lastPublishedMarkdown = undefined;
-          consecutivePublishFailures = 0;
-          lastPublishMs = 0;
-          dirty = true;
         }
       }
       return hasAuthority();

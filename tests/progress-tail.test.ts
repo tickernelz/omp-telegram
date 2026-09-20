@@ -1027,6 +1027,52 @@ test("Progress tail runtime: re-homes the live bubble when the delivery target m
   );
 });
 
+test("Progress tail runtime: adopts moved target and recovers publish after earlier send failures", async () => {
+  const sends: TelegramSendRichMessageBody[] = [];
+  let current: { chatId: number; threadId?: number } = { chatId: 77, threadId: 10 };
+  const now = 10_000;
+  let shouldFailSend = true;
+
+  const runtime = createTelegramProgressTailRuntime<{ chatId: number }>({
+    getActivityMode: () => "verbose",
+    getNowMs: () => now,
+    getIntervalMs: () => 0,
+    resolveTarget: () => ({ ...current }),
+    captureAuthority: () => ({ chatId: current.chatId }),
+    isAuthorityActive: (authority) => authority.chatId === current.chatId,
+    async sendRichMessage(body) {
+      if (shouldFailSend) {
+        throw new Error("Telegram bus API call is not allowed for this follower.");
+      }
+      sends.push(body);
+      return {
+        message_id: 999,
+        date: 1,
+        chat: { id: current.chatId, type: "private" },
+      };
+    },
+    async sendMessage() {
+      throw new Error("unexpected call");
+    },
+    async editMessageText() {
+      return "edited";
+    },
+  });
+
+  runtime.accept(event("tool-start", { toolCallId: "1", toolName: "read", args: { path: "pre.ts" } }));
+  await runtime.waitForIdle();
+  assert.equal(sends.length, 0);
+
+  current = { chatId: 77, threadId: 20 };
+  shouldFailSend = false;
+
+  runtime.accept(event("tool-start", { toolCallId: "2", toolName: "write", args: { path: "after.ts" } }));
+  await runtime.waitForIdle();
+
+  assert.equal(sends.length, 1);
+  assert.equal(sends[0]?.message_thread_id, 20);
+});
+
 test("Progress tail runtime: honors a publish interval changed after construction", async () => {
   const sends: TelegramSendRichMessageBody[] = [];
   const edits: TelegramEditMessageTextBody[] = [];

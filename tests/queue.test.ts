@@ -6371,3 +6371,62 @@ test("executeTelegramQueueDispatchPlan dispatches steer as deliverAs steer", () 
   assert.deepEqual(sentCalls[0].options, { deliverAs: "steer" });
   assert.equal(steeredItems.length, 1);
 });
+
+test("createTelegramActiveTurnStore rebindTarget updates active turn target and clears replyToMessageId on thread change", () => {
+  const store = createTelegramActiveTurnStore();
+  store.set(createQueueTestPromptTurn({
+    chatId: 42,
+    target: { chatId: 42, threadId: 100 },
+    replyToMessageId: 555,
+  }));
+
+  assert.deepEqual(store.getTarget(), { chatId: 42, threadId: 100 });
+  assert.equal(store.getReplyToMessageId(), 555);
+
+  store.rebindTarget?.({ chatId: 42, threadId: 200 });
+  assert.deepEqual(store.getTarget(), { chatId: 42, threadId: 200 });
+  assert.equal(store.getReplyToMessageId(), undefined);
+
+  store.rebindTarget?.({ chatId: 42, threadId: 200 });
+  assert.deepEqual(store.getTarget(), { chatId: 42, threadId: 200 });
+});
+
+test("handleTelegramAgentEndRuntime falls back to getFallbackTarget when target is stale", async () => {
+  const sentMarkdown: Array<{ chatId: number; replyToMessageId?: number; target?: unknown }> = [];
+  const turn = createQueueTestPromptTurn({
+    chatId: 42,
+    target: { chatId: 42, threadId: 100 },
+    replyToMessageId: 555,
+  });
+
+  let firstAttempt = true;
+  await handleTelegramAgentEndRuntime({
+    turn,
+    assistant: { text: "Final answer" },
+    foldQueuedPromptsIntoHistory: false,
+    resetRuntimeState: () => {},
+    updateStatus: () => {},
+    setPreviewPendingText: () => {},
+    dispatchNextQueuedTelegramTurn: () => {},
+    clearPreview: async () => {},
+    finalizeMarkdownPreview: async () => false,
+    sendQueuedAttachments: async () => {},
+    sendTextReply: async () => {},
+    isStaleTargetError: (err) => err instanceof Error && err.message.includes("thread not found"),
+    getFallbackTarget: () => ({ chatId: 42, threadId: 200 }),
+    sendMarkdownReply: async (chatId, replyToMessageId, _markdown, options) => {
+      if (firstAttempt) {
+        firstAttempt = false;
+        throw new Error("Bad Request: message thread not found");
+      }
+      sentMarkdown.push({ chatId, replyToMessageId, target: options?.target });
+    },
+  });
+
+  assert.equal(sentMarkdown.length, 1);
+  assert.deepEqual(sentMarkdown[0], {
+    chatId: 42,
+    replyToMessageId: undefined,
+    target: { chatId: 42, threadId: 200 },
+  });
+});

@@ -1093,3 +1093,26 @@ test("Assistant output projection drops queued work after generation stop", asyn
   await runtime.waitForIdle();
   assert.deepEqual(sent, [1]);
 });
+
+test("createTelegramActivityRuntime rebindTarget updates event target and clears replyToMessageId on thread change", () => {
+  const events: TelegramActivityEvent[] = [];
+  const runtime = createTelegramActivityRuntime({
+    generation: "rebind-test",
+    dispatcher: {
+      dispatch: (e) => events.push(e),
+      stop: () => {},
+    },
+  });
+
+  runtime.onAgentStart({ chatId: 10, threadId: 20 }, 123);
+  runtime.onToolStart({ toolCallId: "1", toolName: "read", args: {} });
+  assert.equal(events[0]?.type, "agent-start");
+  assert.deepEqual(events[0]?.target, { chatId: 10, threadId: 20 });
+  assert.equal(events[0]?.replyToMessageId, 123);
+
+  runtime.rebindTarget?.({ chatId: 10, threadId: 30 });
+  runtime.onToolEnd({ toolCallId: "1", toolName: "read", result: "ok", isError: false });
+  const toolEndEvent = events.find((e) => e.type === "tool-end");
+  assert.deepEqual(toolEndEvent?.target, { chatId: 10, threadId: 30 });
+  assert.equal(toolEndEvent?.replyToMessageId, undefined);
+});

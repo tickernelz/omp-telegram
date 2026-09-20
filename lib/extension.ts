@@ -432,7 +432,16 @@ export default function (pi: Pi.ExtensionAPI) {
   const findCurrentThreadRecord = currentInstanceThreadRuntime.findRecord;
   const proactivePushTargetGetter =
     Config.createTelegramProactivePushTargetGetter({
-      getActiveTurnTarget: activeTurnRuntime.getTarget,
+      getActiveTurnTarget: function () {
+        if (telegramBusFollowerRegistrationState.isRegistered()) {
+          const followerTarget =
+            telegramBusFollowerRegistrationState.getTarget();
+          if (followerTarget?.threadId !== undefined) {
+            return followerTarget;
+          }
+        }
+        return activeTurnRuntime.getTarget();
+      },
       getAssignedTarget: function () {
         return (
           telegramBusFollowerRegistrationState.getTarget() ??
@@ -758,6 +767,13 @@ export default function (pi: Pi.ExtensionAPI) {
       getActivityMode: configControls.getActivityVerbosity,
       refreshActivityMode: configControls.refreshActivityVerbosity,
       resolveTarget(event) {
+        if (telegramBusFollowerRegistrationState.isRegistered()) {
+          const followerTarget =
+            telegramBusFollowerRegistrationState.getTarget();
+          if (followerTarget?.threadId !== undefined) {
+            return followerTarget;
+          }
+        }
         return event.target ?? proactivePushTargetGetter();
       },
       sendMessage,
@@ -1254,6 +1270,12 @@ export default function (pi: Pi.ExtensionAPI) {
         },
         getSessionGeneration: telegramSessionContextStore.getGeneration,
         async onRegistered(ctx) {
+          const target = telegramBusFollowerRegistrationState.getTarget();
+          if (target) {
+            activeTurnRuntime.rebindTarget?.(target);
+            activityRuntime.rebindTarget?.(target);
+            activityVerbosityRuntime.reset();
+          }
           await followerAdmissionLifecycleRuntime.onTransportChanged(ctx);
           queueHandoffReconciliationBinding.request(ctx);
         },
@@ -1962,6 +1984,8 @@ export default function (pi: Pi.ExtensionAPI) {
     finalizeMarkdownPreview,
     preparePreviewDelivery,
     proactivePushTargetGetter,
+    getFallbackTarget: proactivePushTargetGetter,
+    isStaleTargetError: Threads.isTelegramTopicTargetStaleError,
     getAssistantRenderingMode: configControls.getAssistantRenderingMode,
     recordMessageOwnership: messageOwnershipRuntime.recordLocal,
     canSendAgentActivity(ctx) {

@@ -4,6 +4,14 @@
 
 ## Unreleased
 
+## 0.6.11: Live Progress Tail and Turn Target Rebinding for Workspace Threads
+
+- `Follower Target Rebinding`: When a follower instance registers or re-registers after a topic recreation, `activeTurnRuntime.rebindTarget` immediately updates any active turn's target and clears stale `replyToMessageId` to prevent Telegram API `message not found` errors.
+- `Activity Target Rebinding`: `activityRuntime.rebindTarget` updates `activityTarget` during live session handoff, ensuring subsequent tool and reasoning events emit with the follower's authoritative registered workspace thread.
+- `Progress Tail Stale Recovery`: In `progress-tail.ts`, `ensureActivity` now resets consecutive publish failure counters, clears the throttle timer, and marks dirty whenever the target moves, preventing live progress bubbles from getting permanently silenced after earlier failed attempts.
+- `Follower Target Resolution Authority`: `resolveTarget` and `proactivePushTargetGetter` strictly prioritize the registered follower workspace target over stale turn targets, ensuring progress tails and draft previews always route to the follower's bound thread.
+- `Stale Target Reply Fallback`: `queue.ts` delivery catches stale topic errors during final reply delivery and gracefully falls back to the current assigned workspace thread target without `replyToMessageId`, ensuring final assistant answers are never lost to deleted topics.
+
 ## 0.6.10: Dual-Scope Telegram Bot Commands and Menu Reset
 
 - `Bot Command Dual-Scope Sync`: Commands are now published to both `default` and `all_private_chats` scopes via `setMyCommands`. In Telegram's command resolution hierarchy, `all_private_chats` takes precedence over `default`, so bots previously configured by other agent runtimes (which register under `all_private_chats`) immediately display OMP commands instead of stale commands.
