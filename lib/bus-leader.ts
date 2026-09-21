@@ -1114,6 +1114,16 @@ export function createTelegramBusFollowerTargetProvisioner(
           record: refreshedRecord,
         };
       }
+      const previousOwnerInstanceId = recordsBeforeProvision.find(
+        (record) =>
+          record.target.chatId === result.target.chatId &&
+          record.target.threadId === result.target.threadId,
+      )?.instanceId;
+      const foreignInstanceReuse =
+        result.reused &&
+        previousOwnerInstanceId !== undefined &&
+        previousOwnerInstanceId !== registration.instanceId &&
+        previousOwnerInstanceId !== registration.previousInstanceId;
       const probeRequiredRecord =
         reconnectRecord?.status === "probe-required";
       const exactSessionHandoff =
@@ -1125,6 +1135,7 @@ export function createTelegramBusFollowerTargetProvisioner(
       const requiresVisibilityProbe =
         crossSessionReuse ||
         probeRequiredRecord ||
+        foreignInstanceReuse ||
         recoverableTarget !== undefined;
       let connectedAnnouncement =
         !result.reused || requiresVisibilityProbe

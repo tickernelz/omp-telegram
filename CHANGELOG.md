@@ -4,6 +4,13 @@
 
 ## Unreleased
 
+## 0.6.12: Workspace Threads Reclaimed From Dead Sessions
+
+- `Stranded Workspace Recovery`: A workspace whose previous OMP session died left an `active` record pointing at its thread, so `claimWorkspaceIdentity` treated the binding as live, drifted the new session to another ordinal, and then reused the dead record's letter. The commit refused that letter and `/telegram-connect` failed forever with "Telegram Workspace binding claim changed", also blocking `/telegram-disconnect`. Records whose process is provably gone no longer hold their binding.
+- `Cross-Binding Reuse Refused`: Topic provisioning no longer reuses a record bound to a different Workspace binding, and excludes that record from slot allocation, so a claimed letter and the provisioned thread can no longer diverge into an unrecoverable commit.
+- `Reused Thread Visibility Probe`: Reusing a record last owned by another instance now runs the same visibility probe as cross-session reuse, so a thread deleted in Telegram is detected at registration and replaced instead of silently binding a session to a dead thread.
+- `Named Binding Rejections`: A refused Workspace binding commit reports its exact conflict (`slot-owned-by-another-workspace`, `claim-slot-changed`, `claim-lost`, `unclaimed-binding`, `retirement-conflict`, `retirement-in-flight`, `invalid-binding`) through `explainWorkspaceBindingRejection` instead of one opaque sentence.
+
 ## 0.6.11: Live Progress Tail and Turn Target Rebinding for Workspace Threads
 
 - `Follower Target Rebinding`: When a follower instance registers or re-registers after a topic recreation, `activeTurnRuntime.rebindTarget` immediately updates any active turn's target and clears stale `replyToMessageId` to prevent Telegram API `message not found` errors.

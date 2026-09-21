@@ -494,6 +494,11 @@ export interface TelegramTopicTargetStore {
     binding: TelegramWorkspaceThreadBinding,
     claimInstanceId?: string,
   ) => TelegramWorkspaceThreadBinding | undefined;
+  /** Names why the same commit would be refused; it mutates nothing. */
+  explainWorkspaceBindingRejection: (
+    binding: TelegramWorkspaceThreadBinding,
+    claimInstanceId?: string,
+  ) => TelegramWorkspaceBindingRejection | undefined;
   upsert: (record: TelegramTopicTargetRecord) => TelegramTopicTargetRecord;
   markOfflineByInstanceId: (instanceId: string) => number;
   markStaleByTarget: (
@@ -608,6 +613,34 @@ export interface TelegramTopicTargetStoreOptions {
   canPersist?: () => boolean;
   commitPersist?: (commit: () => void) => boolean;
   getExternalReservedSlots?: () => readonly string[];
+  /** Proves a recorded instance still runs; unknown or unprovable identities stay live. */
+  isInstanceLive?: (instanceId: string) => boolean;
+}
+
+/** Why an exact Workspace binding commit was refused. */
+export type TelegramWorkspaceBindingRejection =
+  | "invalid-binding"
+  | "retirement-in-flight"
+  | "retirement-conflict"
+  | "slot-owned-by-another-workspace"
+  | "workspace-key-bound-to-another-directory"
+  | "claim-lost"
+  | "claim-slot-changed"
+  | "unclaimed-binding";
+
+/** Reads process liveness from an `instanceId`; unparseable identities remain live. */
+export function createTelegramInstanceLivenessProbe(
+  isProcessAlive: (pid: number) => boolean,
+): (instanceId: string) => boolean {
+  return (instanceId) => {
+    const processKey = getInstanceProcessKey(instanceId);
+    if (!processKey) return true;
+    try {
+      return isProcessAlive(Number(processKey));
+    } catch {
+      return true;
+    }
+  };
 }
 
 export interface TelegramTopicTargetProvisionerDeps {
@@ -701,7 +734,8 @@ export function assertTelegramPendingTopicRecoveryAllowed(
 /** Settle creation-title evidence with the exact Workspace claim; caller fences and persists. */
 export function commitTelegramWorkspaceProvisionBinding(input: {
   store: Pick<TelegramTopicTargetStore,
-    "upsertWorkspaceBinding" | "setWorkspaceDisplayTitle" |
+    "upsertWorkspaceBinding" | "explainWorkspaceBindingRejection" |
+    "setWorkspaceDisplayTitle" |
     "listPendingProvisions" | "removePendingProvision" |
     "listPendingCleanups" | "listSyncObservations">;
   binding: TelegramWorkspaceThreadBinding;
@@ -721,7 +755,15 @@ export function commitTelegramWorkspaceProvisionBinding(input: {
   if (titles.size > 1) throw new Error("Telegram Workspace creation title evidence conflicts.");
   const displayTitle = titles.values().next().value;
   const committed = input.store.upsertWorkspaceBinding(input.binding, input.instanceId);
-  if (!committed) throw new Error("Telegram Workspace binding claim changed.");
+  if (!committed) {
+    const rejection = input.store.explainWorkspaceBindingRejection(
+      input.binding,
+      input.instanceId,
+    );
+    throw new Error(
+      `Telegram Workspace binding claim changed (${rejection ?? "unknown"}).`,
+    );
+  }
   if (displayTitle !== undefined &&
       !input.store.setWorkspaceDisplayTitle(committed, displayTitle)) {
     throw new Error("Telegram Workspace display title commit changed binding.");
@@ -1758,13 +1800,44 @@ export function createTelegramTopicTargetStore(
     const prefix = readable.endsWith("--") ? readable.slice(0, -2) : readable;
     return `${prefix.slice(0, TELEGRAM_WORKSPACE_KEY_MAX_LENGTH - digest.length - 3)}-${digest}--`;
   };
+  const rejectWorkspaceBindingCommit = (
+    next: TelegramWorkspaceThreadBinding,
+    claimInstanceId: string | undefined,
+  ): TelegramWorkspaceBindingRejection | undefined => {
+    if (workspaceRetirementCommitInFlight) return "retirement-in-flight";
+    if (hasWorkspaceRetirementConflict(next)) return "retirement-conflict";
+    if (next.slot && Array.from(workspaceBindings.values()).some((existing) =>
+      existing.bindingKey !== next.bindingKey && existing.slot === next.slot,
+    )) return "slot-owned-by-another-workspace";
+    if (Array.from(workspaceBindings.values()).some((existing) =>
+      existing.workspaceKey === next.workspaceKey && existing.cwd !== next.cwd,
+    )) return "workspace-key-bound-to-another-directory";
+    const claim = workspaceClaims.get(getWorkspaceBindingMapKey(next));
+    if (!claimInstanceId) return claim ? "unclaimed-binding" : undefined;
+    if (claim?.instanceId !== claimInstanceId) return "claim-lost";
+    if (next.slot !== undefined && claim.identity.slot !== next.slot) {
+      return "claim-slot-changed";
+    }
+    return undefined;
+  };
+  const isRecordInstanceLive = (
+    record: TelegramTopicTargetRecord,
+  ): boolean => {
+    if (!options.isInstanceLive || !record.instanceId) return true;
+    try {
+      return options.isInstanceLive(record.instanceId);
+    } catch {
+      return true;
+    }
+  };
   const isWorkspaceTargetLive = (
     binding: TelegramWorkspaceThreadBinding,
   ): TelegramTopicTargetRecord | undefined =>
     Array.from(records.values()).find(
       (record) =>
         isCurrentThreadRecord(record) &&
-        targetMatches(record.target, binding.target),
+        targetMatches(record.target, binding.target) &&
+        isRecordInstanceLive(record),
     );
   const findLegacyWorkspaceMigrationRecord = (
     cwd: string,
@@ -2852,21 +2925,16 @@ export function createTelegramTopicTargetStore(
       }
       return released;
     },
-    upsertWorkspaceBinding(binding, claimInstanceId) {
-      if (workspaceRetirementCommitInFlight) return undefined;
+    explainWorkspaceBindingRejection(binding, claimInstanceId) {
       const next = normalizeWorkspaceBindingRecord(binding);
-      if (next && hasWorkspaceRetirementConflict(next)) return undefined;
-      if (!next) return undefined;
-      if (next.slot && Array.from(workspaceBindings.values()).some((existing) =>
-        existing.bindingKey !== next.bindingKey && existing.slot === next.slot,
-      )) return undefined;
-      for (const existing of workspaceBindings.values()) {
-        if (
-          existing.workspaceKey === next.workspaceKey &&
-          existing.cwd !== next.cwd
-        ) {
-          return undefined;
-        }
+      return next
+        ? rejectWorkspaceBindingCommit(next, claimInstanceId)
+        : "invalid-binding";
+    },
+    upsertWorkspaceBinding(binding, claimInstanceId) {
+      const next = normalizeWorkspaceBindingRecord(binding);
+      if (!next || rejectWorkspaceBindingCommit(next, claimInstanceId)) {
+        return undefined;
       }
       const nextMapKey = getWorkspaceBindingMapKey(next);
       const previous = workspaceBindings.get(nextMapKey);
@@ -2892,13 +2960,7 @@ export function createTelegramTopicTargetStore(
         if (previous.inactiveSinceMs !== undefined) next.inactiveSinceMs = previous.inactiveSinceMs;
       }
       const claim = workspaceClaims.get(nextMapKey);
-      if (claimInstanceId) {
-        if (claim?.instanceId !== claimInstanceId) return undefined;
-        if (next.slot !== undefined && claim.identity.slot !== next.slot) return undefined;
-        next.slot = claim.identity.slot;
-      } else if (claim) {
-        return undefined;
-      }
+      if (claim && claimInstanceId) next.slot = claim.identity.slot;
       for (const [key, existing] of workspaceBindings) {
         if (key === nextMapKey) continue;
         if (targetMatches(existing.target, next.target)) {
@@ -4616,7 +4678,16 @@ export function createTelegramTopicTargetProvisioner(
         pendingForRequest = undefined;
       }
     }
-    const existing = deps.store.getByProfileKey(request.profileKey);
+    const knownRecord = deps.store.getByProfileKey(request.profileKey);
+    const foreignBindingRecord =
+      knownRecord && request.workspaceBindingKey &&
+      deps.store.listWorkspaceBindings().some((binding) =>
+        binding.bindingKey !== request.workspaceBindingKey &&
+        targetMatches(binding.target, knownRecord.target),
+      )
+        ? knownRecord
+        : undefined;
+    const existing = foreignBindingRecord ? undefined : knownRecord;
     if (existing && isCurrentThreadRecord(existing)) {
       const slot = existing.slot ?? deps.store.allocateSlot(request.profileKey);
       if (!slot) {
@@ -4795,6 +4866,7 @@ export function createTelegramTopicTargetProvisioner(
             (candidateThreadName ? undefined : identity?.slot) ??
             preferredNameSlot),
         request.workspaceBindingKey,
+        foreignBindingRecord ? { excludeCurrentRecord: true } : undefined,
       );
     if (!slot) {
       throw new Error("Telegram Workspace slot reservation is unavailable.");

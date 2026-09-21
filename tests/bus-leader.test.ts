@@ -178,6 +178,89 @@ test("Bus leader preserves a binding through follower reload handoff", async () 
   }
 });
 
+test("Follower registration reclaims a Workspace binding stranded by a dead session", async () => {
+  for (const liveness of [true, false]) {
+    const dir = mkdtempSync(join(tmpdir(), "pi-telegram-stranded-workspace-"));
+    const store = createTelegramTopicTargetStore({
+      path: join(dir, "state.json"),
+      getNowMs: () => 2000,
+      ...(liveness ? { isInstanceLive: () => false } : {}),
+    });
+    try {
+      const identity = createTelegramWorkspaceBindingIdentity("/repo/workspace")!;
+      store.upsertWorkspaceBinding({
+        ...identity,
+        target: { chatId: 7, threadId: 42 },
+        slot: "C",
+        threadName: "Cedar",
+        updatedAtMs: 1000,
+      });
+      store.upsert({
+        profileKey: "cwd:/repo/workspace",
+        owner: { kind: "leader", cwd: "/repo/workspace", instanceId: "4242:900" },
+        target: { chatId: 7, threadId: 42 },
+        status: "active",
+        createdAtMs: 900,
+        updatedAtMs: 900,
+        instanceId: "4242:900",
+        slot: "C",
+        threadName: "Cedar",
+      });
+      await store.persist();
+      let syncState = {};
+      const methods: string[] = [];
+      const provision = createTelegramBusFollowerTargetProvisioner({
+        getAllowedUserId: () => 7,
+        topicTargetStore: store,
+        async callApi<TResponse>(method: string, body: Record<string, unknown>) {
+          methods.push(method);
+          if (method === "createForumTopic") {
+            return { message_thread_id: 43 } as TResponse;
+          }
+          if (body.message_thread_id === 42) {
+            throw new TelegramApiStaleTargetError(
+              "HTTP 400: Bad Request: message thread not found",
+              { chatId: 7, threadId: 42 },
+            );
+          }
+          return { ok: true } as TResponse;
+        },
+        getNowMs: () => 2000,
+        getSyncState: () => syncState,
+        setSyncState: (state) => {
+          syncState = state;
+        },
+        recordRuntimeEvent() {},
+      });
+      const target = await provision({
+        instanceId: "5151:2000",
+        profileKey: "cwd:/repo/workspace",
+        cwd: "/repo/workspace",
+        connectedAtMs: 2000,
+      });
+      assert.equal(target?.threadId, 43);
+      assert.ok(target?.slot && /^[A-Z]$/.test(target.slot));
+      const bindings = store
+        .listWorkspaceBindings()
+        .filter((binding) => binding.cwd === "/repo/workspace");
+      assert.ok(
+        bindings.some((binding) => binding.target.threadId === 43),
+        "the registered thread owns a Workspace binding",
+      );
+      if (liveness) {
+        assert.deepEqual(bindings.map((binding) => binding.slot), ["C"]);
+        assert.deepEqual(
+          bindings.map((binding) => binding.target.threadId),
+          [43],
+        );
+        assert.deepEqual(methods, ["sendMessage", "createForumTopic"]);
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});
+
 test("Follower recovery shortcuts preserve pending evidence under exact cleanup or closed protection", async () => {
   for (const recovery of ["reconnect", "carried-target"] as const) {
     for (const protection of ["cleanup", "closed", "other-chat"] as const) {

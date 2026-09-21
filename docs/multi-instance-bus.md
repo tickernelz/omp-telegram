@@ -127,6 +127,8 @@ reuse hint: cwd/profile/user-chosen alias/session id when available
 
 This keeps thread liveness honest: if an instance is registered, there is a live owner to answer. It also avoids coupling `/new`, compaction, and session-file internals to Telegram routing. Restarted projects may still reclaim previous current bindings through profile-aware reuse when that does not conflict with live ownership.
 
+A record only holds its Workspace binding while its owning process is live. When the store is given a liveness port, a record whose `instanceId` names a process that no longer exists stops blocking the claim, so the next session in that directory reclaims the same binding, letter, and name instead of drifting to another ordinal. Liveness stays conservative: an unparseable identity, a failing probe, or a missing port keeps the record live, and reclaim rebinds the Workspace rather than retiring it. A Workspace-claimed provision never reuses a record bound to another Workspace binding, because that would commit a letter the claim never reserved; such a record is skipped and its letter excluded from allocation. A refused commit names its exact conflict (`slot-owned-by-another-workspace`, `claim-slot-changed`, `claim-lost`, `unclaimed-binding`, `retirement-conflict`, `retirement-in-flight`, `invalid-binding`) instead of a single opaque sentence.
+
 ## Instance Identity
 
 A registered instance exposes:

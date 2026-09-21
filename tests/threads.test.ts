@@ -428,6 +428,95 @@ test("Thread store persists dormant workspace bindings with exact cwd", async ()
   }
 });
 
+test("Refused Workspace binding commits name their exact conflict", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "pi-telegram-workspace-rejection-"));
+  const path = join(dir, "state.json");
+  try {
+    const store = createTelegramTopicTargetStore({ path });
+    const first = createTelegramWorkspaceBindingIdentity("/repo/one")!;
+    const second = createTelegramWorkspaceBindingIdentity("/repo/two")!;
+    store.upsertWorkspaceBinding({
+      ...first,
+      target: { chatId: 7, threadId: 41 },
+      slot: "A",
+      updatedAtMs: 1,
+    });
+    const contested = {
+      ...second,
+      target: { chatId: 7, threadId: 42 },
+      slot: "A",
+      updatedAtMs: 2,
+    };
+    assert.equal(store.upsertWorkspaceBinding(contested), undefined);
+    assert.equal(
+      store.explainWorkspaceBindingRejection(contested),
+      "slot-owned-by-another-workspace",
+    );
+    const claimed = store.claimWorkspaceIdentity("/repo/two", "owner-a")!;
+    const drifted = {
+      ...claimed,
+      target: { chatId: 7, threadId: 43 },
+      slot: claimed.slot === "B" ? "C" : "B",
+      updatedAtMs: 3,
+    };
+    assert.equal(store.upsertWorkspaceBinding(drifted, "owner-a"), undefined);
+    assert.equal(
+      store.explainWorkspaceBindingRejection(drifted, "owner-a"),
+      "claim-slot-changed",
+    );
+    assert.equal(
+      store.explainWorkspaceBindingRejection({ ...drifted, slot: claimed.slot }, "owner-b"),
+      "claim-lost",
+    );
+    assert.equal(
+      store.explainWorkspaceBindingRejection({ ...claimed, target: { chatId: 7 } } as never),
+      "invalid-binding",
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("Thread store keeps a Workspace binding claimable when its holder process is gone", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "pi-telegram-workspace-liveness-"));
+  const path = join(dir, "state.json");
+  try {
+    const live = new Set(["4242:900"]);
+    const store = createTelegramTopicTargetStore({
+      path,
+      isInstanceLive: (instanceId) => live.has(instanceId),
+    });
+    const identity = createTelegramWorkspaceBindingIdentity("/repo")!;
+    store.upsertWorkspaceBinding({
+      ...identity,
+      target: { chatId: 7, threadId: 42 },
+      slot: "A",
+      updatedAtMs: 1,
+    });
+    store.upsert({
+      profileKey: "cwd:/repo",
+      owner: { kind: "leader", cwd: "/repo", instanceId: "4242:900" },
+      target: { chatId: 7, threadId: 42 },
+      status: "active",
+      createdAtMs: 1,
+      updatedAtMs: 1,
+      instanceId: "4242:900",
+      slot: "A",
+    });
+    assert.equal(
+      store.claimWorkspaceIdentity("/repo", "5151:2000")?.instanceSlot,
+      "b",
+    );
+    store.releaseWorkspaceClaim("5151:2000");
+    live.clear();
+    const reclaimed = store.claimWorkspaceIdentity("/repo", "5151:2000");
+    assert.equal(reclaimed?.instanceSlot, "a");
+    assert.equal(reclaimed?.slot, "A");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("Acknowledged display titles persist separately and cannot cross target replacement", async () => {
   const dir = await mkdtemp(join(tmpdir(), "pi-telegram-workspace-title-"));
   const path = join(dir, "state.json");

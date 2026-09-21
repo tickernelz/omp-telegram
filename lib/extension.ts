@@ -235,6 +235,9 @@ export default function (pi: Pi.ExtensionAPI) {
     getExternalReservedSlots: function () {
       return workspaceAdmissionRuntime.resolve()?.listReservedSlots() ?? [];
     },
+    isInstanceLive: Threads.createTelegramInstanceLivenessProbe(
+      Locks.isProcessAlive,
+    ),
   });
   runtimeDiagnostics.bindStorage({
     getBotToken: configStore.getBotToken,
