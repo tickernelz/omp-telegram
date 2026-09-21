@@ -4,6 +4,12 @@
 
 ## Unreleased
 
+## 0.6.13: One Follower Identity Per Terminal Pane
+
+- `Pane-Scoped Follower Identity`: Every OMP session started under one `tmux` (or `screen`) server shared the parent server's process-birth identity, so unrelated workspaces collapsed into one manual-follower profile and fought over a single thread record. The identity now carries an `@pane<n>`/`@screen<name>` scope from `TMUX_PANE`/`STY`, and liveness parsing strips that suffix so process-birth proof is unchanged. Sessions outside a multiplexer keep their exact previous identity.
+- `Claimed Slot Is Authority`: Registration committed its Workspace binding with the slot carried by the reused record. Once that letter drifted onto another workspace's binding, every commit was refused with `slot-owned-by-another-workspace`, the follower retried every 2.5s and the session sat in `electing` forever. The commit now uses the claim's reserved letter and re-aligns the record to it.
+- `Workspace Record Adoption`: A follower may adopt the record sitting on its claimed binding's exact target when that record is its own or its instance is dead, re-keying it to the current follower profile instead of stranding a live thread behind a stale owner key.
+
 ## 0.6.12: Workspace Threads Reclaimed From Dead Sessions
 
 - `Stranded Workspace Recovery`: A workspace whose previous OMP session died left an `active` record pointing at its thread, so `claimWorkspaceIdentity` treated the binding as live, drifted the new session to another ordinal, and then reused the dead record's letter. The commit refused that letter and `/telegram-connect` failed forever with "Telegram Workspace binding claim changed", also blocking `/telegram-disconnect`. Records whose process is provably gone no longer hold their binding.

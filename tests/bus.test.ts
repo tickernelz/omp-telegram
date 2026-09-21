@@ -363,6 +363,47 @@ test("Process birth identity liveness fails closed for opaque and live fallback 
   }), "dead");
 });
 
+test("Multiplexer panes keep distinct follower owner identities and truthful liveness", () => {
+  const stat = `(tmux: server) S ${Array(18).fill("0").join(" ")} 4540`;
+  const options = { platform: "linux" as const, readProcStat: () => stat };
+  const paneRuntime = (pane: string) =>
+    createTelegramBusProcessRuntime({
+      getActiveProfileName: () => undefined,
+      pid: pane === "%11" ? 786487 : 797831,
+      parentPid: 4359,
+      createdAtMs: 1000,
+      env: { TMUX: "/tmp/tmux-1000/default,4359,11", TMUX_PANE: pane },
+    });
+  const first = paneRuntime("%11").manualFollowerOwnerId;
+  const second = paneRuntime("%13").manualFollowerOwnerId;
+  assert.notEqual(first, second);
+  assert.match(first, /@pane11$/);
+  assert.equal(
+    createTelegramBusProcessRuntime({
+      getActiveProfileName: () => undefined,
+      pid: 42,
+      parentPid: 4359,
+      createdAtMs: 1000,
+      env: {},
+    }).manualFollowerOwnerId,
+    getTelegramProcessBirthIdentity(4359, 1000),
+  );
+  assert.equal(
+    getTelegramProcessBirthIdentityLiveness("4359:start:4540@pane11", {
+      ...options,
+      isProcessAlive: () => true,
+    }),
+    "alive",
+  );
+  assert.equal(
+    getTelegramProcessBirthIdentityLiveness("4359:start:4540@pane11", {
+      ...options,
+      isProcessAlive: () => false,
+    }),
+    "dead",
+  );
+});
+
 test("Process birth identity preserves Linux start ticks and fallback", () => {
   const stat = `(worker name) S ${Array(18).fill("0").join(" ")} 12345`;
   assert.equal(

@@ -958,10 +958,15 @@ export function createTelegramBusFollowerTargetProvisioner(
         !!registration.previousInstanceId &&
         record.instanceId === registration.previousInstanceId &&
         matchesRequestedTarget;
-      const matchesWorkspaceRecovery =
+      const matchesWorkspaceBindingTarget =
         !!workspaceBinding &&
-        record.status === "probe-required" &&
-        matchesRequestedTarget;
+        record.target.chatId === workspaceBinding.target.chatId &&
+        record.target.threadId === workspaceBinding.target.threadId;
+      const matchesWorkspaceRecovery =
+        matchesWorkspaceBindingTarget &&
+        (record.status === "probe-required" ||
+          record.instanceId === registration.instanceId ||
+          record.instanceId === registration.previousInstanceId);
       return (
         record.owner?.kind === "manual-follower" &&
         ((matchesCurrentIdentity && matchesRequestedTarget) ||
@@ -1102,6 +1107,8 @@ export function createTelegramBusFollowerTargetProvisioner(
         const nowMs = getNowMs();
         const refreshedRecord = deps.topicTargetStore.upsert({
           ...reconnectRecord,
+          profileKey: followerProfileKey,
+          owner: followerOwner,
           instanceId: registration.instanceId,
           updatedAtMs: nowMs,
           lastSyncObservedAtMs: nowMs,
@@ -1257,6 +1264,7 @@ export function createTelegramBusFollowerTargetProvisioner(
         }
       }
       if (workspaceIdentity) {
+        const claimedSlot = workspaceIdentity.slot ?? result.record.slot;
         const workspaceCommit =
           Threads.commitTelegramWorkspaceProvisionBinding({
             store: deps.topicTargetStore,
@@ -1269,12 +1277,23 @@ export function createTelegramBusFollowerTargetProvisioner(
               ...(result.record.threadName
                 ? { threadName: result.record.threadName }
                 : {}),
-              ...(result.record.slot ? { slot: result.record.slot } : {}),
+              ...(claimedSlot ? { slot: claimedSlot } : {}),
               journalBindingKeys: [followerProfileKey],
               journalBindingsComplete: true,
               updatedAtMs: getNowMs(),
             },
           });
+        if (workspaceCommit.slot && result.record.slot !== workspaceCommit.slot) {
+          result = {
+            ...result,
+            record: deps.topicTargetStore.upsert({
+              ...result.record,
+              slot: workspaceCommit.slot,
+              updatedAtMs: getNowMs(),
+              lastReconcileAction: "follower-slot-realigned",
+            }),
+          };
+        }
         if (connectedAnnouncement && workspaceCommit.displayTitle) {
           connectedAnnouncement = createTelegramBusInstanceLifecycleAnnouncement({
             target: result.target, threadName: workspaceCommit.displayTitle,

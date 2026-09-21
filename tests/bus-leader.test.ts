@@ -178,6 +178,82 @@ test("Bus leader preserves a binding through follower reload handoff", async () 
   }
 });
 
+test("Follower registration realigns a record whose slot drifted onto another Workspace", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "pi-telegram-slot-drift-"));
+  const store = createTelegramTopicTargetStore({
+    path: join(dir, "state.json"),
+    getNowMs: () => 2000,
+  });
+  try {
+    const neighbour = createTelegramWorkspaceBindingIdentity("/repo/neighbour")!;
+    const workspace = createTelegramWorkspaceBindingIdentity("/repo/workspace")!;
+    store.upsertWorkspaceBinding({
+      ...neighbour,
+      target: { chatId: 7, threadId: 41 },
+      slot: "D",
+      updatedAtMs: 1000,
+    });
+    store.upsertWorkspaceBinding({
+      ...workspace,
+      target: { chatId: 7, threadId: 42 },
+      slot: "E",
+      threadName: "Elder",
+      updatedAtMs: 1000,
+    });
+    store.upsert({
+      profileKey: "manual:shared-owner",
+      owner: { kind: "manual-follower", instanceId: "shared-owner" },
+      target: { chatId: 7, threadId: 42 },
+      status: "active",
+      createdAtMs: 1000,
+      updatedAtMs: 1000,
+      instanceId: "5151:2000",
+      slot: "D",
+      threadName: "Elder",
+    });
+    await store.persist();
+    let syncState = {};
+    const methods: string[] = [];
+    const provision = createTelegramBusFollowerTargetProvisioner({
+      getAllowedUserId: () => 7,
+      topicTargetStore: store,
+      async callApi<TResponse>(method: string) {
+        methods.push(method);
+        return { ok: true } as TResponse;
+      },
+      getNowMs: () => 2000,
+      getSyncState: () => syncState,
+      setSyncState: (state) => {
+        syncState = state;
+      },
+      recordRuntimeEvent() {},
+    });
+    const target = await provision(
+      {
+        instanceId: "5151:2000",
+        profileKey: "manual:pane-owner",
+        cwd: "/repo/workspace",
+        connectedAtMs: 2000,
+      },
+      { existingWorkspaceBindingOnly: true },
+    );
+    assert.deepEqual(target, {
+      chatId: 7,
+      threadId: 42,
+      slot: "E",
+      threadName: "Elder",
+    });
+    assert.equal(
+      store.list().find((record) => record.target.threadId === 42)?.slot,
+      "E",
+    );
+    assert.equal(store.getWorkspaceBinding("/repo/neighbour")?.slot, "D");
+    assert.equal(methods.includes("createForumTopic"), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("Follower registration reclaims a Workspace binding stranded by a dead session", async () => {
   for (const liveness of [true, false]) {
     const dir = mkdtempSync(join(tmpdir(), "pi-telegram-stranded-workspace-"));

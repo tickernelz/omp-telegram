@@ -153,10 +153,26 @@ export function getTelegramProcessLiveness(
   return proof.identity === owner.processBirthId ? "alive" : "dead";
 }
 
+/** Owner identities may carry an `@<scope>` suffix; liveness belongs to the process part. */
+export function getTelegramProcessBirthIdentityScope(identity: string): {
+  processBirthId: string;
+  scope?: string;
+} {
+  const separator = identity.indexOf("@");
+  return separator < 0
+    ? { processBirthId: identity }
+    : {
+        processBirthId: identity.slice(0, separator),
+        scope: identity.slice(separator + 1) || undefined,
+      };
+}
+
 export function getTelegramProcessBirthIdentityLiveness(
-  processBirthId: string,
+  identity: string,
   options: TelegramProcessLivenessOptions = {},
 ): TelegramProcessLiveness {
+  const processBirthId = getTelegramProcessBirthIdentityScope(identity)
+    .processBirthId;
   const match = /^(\d+):(start|generation):(.+)$/u.exec(processBirthId);
   if (!match) return "unverifiable";
   const processId = Number(match[1]);
@@ -169,17 +185,33 @@ export function getTelegramProcessBirthIdentityLiveness(
   return proof.identity === processBirthId ? "alive" : "dead";
 }
 
+/** Terminal multiplexers share one server process across unrelated sessions. */
+export function getTelegramTerminalOwnerScope(
+  env: Record<string, string | undefined> = process.env,
+): string | undefined {
+  const pane = env.TMUX_PANE?.trim();
+  if (pane && env.TMUX?.trim()) {
+    const identity = pane.replace(/^%/u, "");
+    if (/^\d+$/u.test(identity)) return `pane${identity}`;
+  }
+  const screen = env.STY?.trim();
+  if (screen && /^[\w.-]+$/u.test(screen)) return `screen${screen}`;
+  return undefined;
+}
+
 export function createCurrentTelegramBusProcessRuntime(input: {
   getActiveProfileName: () => string | undefined;
   pid?: number;
   parentPid?: number;
   createdAtMs?: number;
+  env?: Record<string, string | undefined>;
 }): TelegramBusProcessRuntime {
   return createTelegramBusProcessRuntime({
     getActiveProfileName: input.getActiveProfileName,
     pid: input.pid ?? process.pid,
     parentPid: input.parentPid ?? process.ppid,
     createdAtMs: input.createdAtMs ?? Date.now(),
+    ...(input.env ? { env: input.env } : {}),
   });
 }
 
@@ -189,12 +221,18 @@ export function createTelegramBusProcessRuntime(input: {
   parentPid: number;
   parentProcessIdentity?: string;
   createdAtMs: number;
+  env?: Record<string, string | undefined>;
 }): TelegramBusProcessRuntime {
   const instanceId = `${input.pid}:${input.createdAtMs}`;
   const ownerPid = input.parentPid || input.pid;
+  const ownerScope = getTelegramTerminalOwnerScope(input.env ?? process.env);
+  const ownerIdentity = getTelegramProcessBirthIdentity(
+    ownerPid,
+    input.createdAtMs,
+  );
   const manualFollowerOwnerId =
     input.parentProcessIdentity ??
-    getTelegramProcessBirthIdentity(ownerPid, input.createdAtMs);
+    (ownerScope ? `${ownerIdentity}@${ownerScope}` : ownerIdentity);
   return {
     instanceId,
     processId: input.pid,
