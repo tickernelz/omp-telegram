@@ -4,6 +4,11 @@
 
 ## Unreleased
 
+## 0.6.14: Stranded Records Release Their Workspace Identity
+
+- `Stranded Letter Release`: A second session in a directory whose previous session died failed registration with "Telegram Workspace slot reservation is unavailable": the claim released the binding, but slot allocation still counted that binding's stranded `active` record as holding the reclaimed letter, and a stranded record elsewhere pushed the reclaim to a new ordinal. A record whose instance is provably absent no longer reserves a Workspace letter.
+- `Reclaimed Thread Name`: The same stranded record kept its thread name occupied, so a reclaimed binding was provisioned under a drifted palette name while its binding still carried the original title. Thread-name occupancy now ignores records whose instance is provably absent, so a reclaimed Workspace keeps its binding, letter, and name together.
+
 ## 0.6.13: One Follower Identity Per Terminal Pane
 
 - `Pane-Scoped Follower Identity`: Every OMP session started under one `tmux` (or `screen`) server shared the parent server's process-birth identity, so unrelated workspaces collapsed into one manual-follower profile and fought over a single thread record. The identity now carries an `@pane<n>`/`@screen<name>` scope from `TMUX_PANE`/`STY`, and liveness parsing strips that suffix so process-birth proof is unchanged. Sessions outside a multiplexer keep their exact previous identity.

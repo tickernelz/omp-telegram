@@ -397,6 +397,8 @@ export interface TelegramTopicTargetStore {
     lastSyncError: string,
   ) => Promise<boolean>;
   list: () => TelegramTopicTargetRecord[];
+  /** Proves a record's instance still runs; unknown or unprovable identities stay live. */
+  isRecordLive: (record: TelegramTopicTargetRecord) => boolean;
   getFollowerRecoveryHintByTarget?: (
     target: TelegramTarget,
   ) => { slot?: string; threadName?: string } | undefined;
@@ -648,6 +650,7 @@ export interface TelegramTopicTargetProvisionerDeps {
   store: Pick<
     TelegramTopicTargetStore,
     | "list"
+    | "isRecordLive"
     | "getByProfileKey"
     | "getActiveByInstanceId"
     | "getIdentityByProfileKey"
@@ -690,6 +693,7 @@ export interface TelegramTopicTargetRenamerDeps {
     TelegramTopicTargetStore,
     | "renameByTarget"
     | "list"
+    | "isRecordLive"
     | "listWorkspaceBindings"
     | "listPendingProvisions"
     | "listSyncObservations"
@@ -2207,6 +2211,9 @@ export function createTelegramTopicTargetStore(
     list() {
       return Array.from(records.values()).map(cloneRecord);
     },
+    isRecordLive(record) {
+      return isRecordInstanceLive(record);
+    },
     getFollowerRecoveryHintByTarget(target) {
       const hint = followerRecoveryHints.get(getTargetRecoveryHintKey(target));
       return hint ? { ...hint } : undefined;
@@ -2815,6 +2822,7 @@ export function createTelegramTopicTargetStore(
           ...Array.from(workspaceClaims.values()).map((claim) => claim.identity.slot),
           ...Array.from(records.values())
             .filter((record) => isCurrentThreadRecord(record) &&
+              isRecordInstanceLive(record) &&
               !(retainedTarget && targetMatches(record.target, retainedTarget)))
             .map((record) => record.slot),
           ...reservations.filter((reservation) =>
@@ -3207,6 +3215,7 @@ export function createTelegramTopicTargetStore(
         if (foreignClaim || foreignBinding || isExternalSlotOccupied(slot) ||
             isTelegramTopicTargetSlotOccupied(
               slot, records, reservations, pendingProvisions, nowMs,
+              isRecordInstanceLive,
             )) return undefined;
         return slot;
       }
@@ -3254,9 +3263,11 @@ function isTelegramTopicTargetSlotOccupied(
   reservations: readonly TelegramThreadReservation[] = [],
   pendingProvisions: readonly TelegramThreadPendingProvision[] = [],
   nowMs = Date.now(),
+  reservesSlot?: (record: TelegramTopicTargetRecord) => boolean,
 ): boolean {
   for (const record of records.values()) {
-    if (record.slot === slot && isCurrentThreadRecord(record)) return true;
+    if (record.slot === slot && isCurrentThreadRecord(record) &&
+        (!reservesSlot || reservesSlot(record))) return true;
   }
   for (const reservation of reservations) {
     if (
@@ -3368,6 +3379,7 @@ export function listOccupiedTelegramThreadIdentities(input: {
   syncObservations?: readonly TelegramTopicSyncObservation[];
   exceptTarget?: TelegramTarget;
   exceptWorkspaceBindingKey?: string;
+  isRecordLive?: (record: TelegramTopicTargetRecord) => boolean;
 }): string[] {
   const deletedTargets = (input.syncObservations ?? []).filter((obs) => obs.syncStatus === "deleted");
   const isTargetDeleted = (target: TelegramTarget): boolean =>
@@ -3380,6 +3392,7 @@ export function listOccupiedTelegramThreadIdentities(input: {
   };
   for (const record of input.records) {
     if (!isCurrentThreadRecord(record)) continue;
+    if (input.isRecordLive && !input.isRecordLive(record)) continue;
     if (input.exceptTarget && targetMatches(record.target, input.exceptTarget))
       continue;
     if (isTargetDeleted(record.target)) continue;
@@ -4609,6 +4622,7 @@ export function createTelegramTopicTargetRenamer(
         pendingProvisions: deps.store.listPendingProvisions(),
         syncObservations: deps.store.listSyncObservations?.(),
         exceptTarget: request.target,
+        isRecordLive: deps.store.isRecordLive,
       }),
     );
     if (occupied.has(getTelegramTopicIdentityName(threadName))) return undefined;
@@ -4699,6 +4713,7 @@ export function createTelegramTopicTargetProvisioner(
         pendingProvisions: deps.store.listPendingProvisions(),
         exceptTarget: existing.target,
         exceptWorkspaceBindingKey: request.workspaceBindingKey,
+        isRecordLive: deps.store.isRecordLive,
       });
       const identityThreadName =
         identity?.threadName &&
@@ -4844,6 +4859,7 @@ export function createTelegramTopicTargetProvisioner(
       workspaceBindings: deps.store.listWorkspaceBindings(),
       pendingProvisions: deps.store.listPendingProvisions(),
       exceptWorkspaceBindingKey: request.workspaceBindingKey,
+      isRecordLive: deps.store.isRecordLive,
     });
     const requestedThreadName =
       request.threadName &&

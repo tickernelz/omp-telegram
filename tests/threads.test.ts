@@ -517,6 +517,114 @@ test("Thread store keeps a Workspace binding claimable when its holder process i
   }
 });
 
+test("A stranded record releases its Workspace letter to the reclaiming session", () => {
+  const live = new Set<string>();
+  const store = createTelegramTopicTargetStore({
+    path: "/unused/state.json",
+    isInstanceLive: (instanceId) => live.has(instanceId),
+  });
+  const identity = createTelegramWorkspaceBindingIdentity("/repo")!;
+  store.upsertWorkspaceBinding({
+    ...identity,
+    target: { chatId: 7, threadId: 42 },
+    slot: "A",
+    updatedAtMs: 1,
+  });
+  store.upsert({
+    profileKey: "manual:gone@pane1",
+    owner: { kind: "manual-follower", instanceId: "gone@pane1" },
+    target: { chatId: 7, threadId: 42 },
+    status: "active",
+    createdAtMs: 1,
+    updatedAtMs: 1,
+    instanceId: "4242:900",
+    slot: "A",
+  });
+  const reclaimed = store.claimWorkspaceIdentity("/repo", "5151:2000");
+  assert.equal(reclaimed?.bindingKey, identity.bindingKey);
+  assert.equal(reclaimed?.slot, "A");
+  assert.equal(
+    store.allocateSlot("manual:next@pane2", reclaimed?.slot, reclaimed?.bindingKey),
+    "A",
+  );
+  store.upsert({
+    profileKey: "manual:older@pane9",
+    owner: { kind: "manual-follower", instanceId: "older@pane9" },
+    target: { chatId: 7, threadId: 9 },
+    status: "active",
+    createdAtMs: 1,
+    updatedAtMs: 1,
+    instanceId: "4243:900",
+    slot: "A",
+  });
+  store.releaseWorkspaceClaim("5151:2000");
+  const afterStrand = store.claimWorkspaceIdentity("/repo", "6161:3000");
+  assert.equal(afterStrand?.instanceSlot, "a");
+  assert.equal(afterStrand?.slot, "A");
+  store.releaseWorkspaceClaim("6161:3000");
+  live.add("4242:900");
+  const blocked = store.claimWorkspaceIdentity("/repo", "7171:4000");
+  assert.equal(blocked?.instanceSlot, "b");
+  assert.equal(blocked?.slot, "B");
+});
+
+test("A reclaimed Workspace binding keeps its thread name across a stranded record", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "pi-telegram-workspace-name-"));
+  const calls: { method: string; body: Record<string, unknown> }[] = [];
+  const live = new Set<string>();
+  const store = createTelegramTopicTargetStore({
+    path: join(dir, "state.json"),
+    isInstanceLive: (instanceId) => live.has(instanceId),
+  });
+  try {
+    const identity = createTelegramWorkspaceBindingIdentity("/repo")!;
+    store.upsertWorkspaceBinding({
+      ...identity,
+      target: { chatId: -1001, threadId: 42 },
+      threadName: "Atlas",
+      slot: "A",
+      updatedAtMs: 1,
+    });
+    store.upsert({
+      profileKey: "manual:gone@pane1",
+      owner: { kind: "manual-follower", instanceId: "gone@pane1" },
+      target: { chatId: -1001, threadId: 42 },
+      status: "active",
+      createdAtMs: 1,
+      updatedAtMs: 1,
+      instanceId: "4242:900",
+      slot: "A",
+      threadName: "Atlas",
+    });
+    const claimed = store.claimWorkspaceIdentity("/repo", "5151:2000")!;
+    const provision = createTelegramTopicTargetProvisioner({
+      topicChatId: -1001,
+      store,
+      claimPendingTargets: false,
+      async callApi<TResponse>(method: string, body: Record<string, unknown>) {
+        calls.push({ method, body });
+        return { message_thread_id: 99 } as TResponse;
+      },
+    });
+    const result = await provision({
+      instanceId: "5151:2000",
+      owner: { kind: "manual-follower", instanceId: "next@pane2" },
+      profileKey: "manual:next@pane2",
+      threadName: "Atlas",
+      preferredSlot: claimed.slot,
+      workspaceBindingKey: claimed.bindingKey,
+      workspaceCwd: claimed.cwd,
+    });
+    assert.equal(result.record.slot, "A");
+    assert.equal(result.record.threadName, "Atlas");
+    assert.deepEqual(calls, [
+      { method: "createForumTopic", body: { chat_id: -1001, name: "Atlas" } },
+    ]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("Acknowledged display titles persist separately and cannot cross target replacement", async () => {
   const dir = await mkdtemp(join(tmpdir(), "pi-telegram-workspace-title-"));
   const path = join(dir, "state.json");
