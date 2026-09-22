@@ -109,6 +109,20 @@ export function createTelegramQueueBindingRuntime<TContext>(deps: {
     if (durableItems.length === 0) return true;
     const settlement = deps.admission.getSettlement();
     if (!settlement) return false;
+    deps.recordRuntimeEvent?.(
+      "queue",
+      new Error(
+        `Telegram discarded ${durableItems.length} queued item(s) holding durable receipts without dispatching them.`,
+      ),
+      {
+        phase: "discard-durable-queue-items",
+        queuedItems: durableItems.length,
+        updateIds: durableItems
+          .flatMap((item) => item.admissionReceipts ?? [])
+          .flatMap((receipt) => receipt.sourceUpdateIds)
+          .slice(0, 8),
+      },
+    );
     settlement.onItemsDiscarded(durableItems, ctx);
     return durableItems.every((item) => !settlement.isItemReady(item));
   };

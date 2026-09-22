@@ -1064,6 +1064,25 @@ export function canDispatchTelegramTurnState(
   );
 }
 
+export type TelegramDispatchBlocker =
+  | "compaction-in-progress"
+  | "active-turn"
+  | "dispatch-pending"
+  | "agent-busy"
+  | "pending-messages";
+
+export function describeTelegramDispatchBlockers(
+  state: TelegramDispatchGuardState,
+): TelegramDispatchBlocker[] {
+  const blockers: TelegramDispatchBlocker[] = [];
+  if (state.compactionInProgress) blockers.push("compaction-in-progress");
+  if (state.hasActiveTelegramTurn) blockers.push("active-turn");
+  if (state.hasPendingTelegramDispatch) blockers.push("dispatch-pending");
+  if (!state.isIdle) blockers.push("agent-busy");
+  if (state.hasPendingMessages) blockers.push("pending-messages");
+  return blockers;
+}
+
 export function canSteerTelegramTurnState(
   state: TelegramDispatchGuardState,
 ): boolean {
@@ -1087,6 +1106,19 @@ export function createTelegramDispatchReadinessChecker<TContext>(
 ): (ctx: TContext) => boolean {
   return (ctx) =>
     canDispatchTelegramTurnState({
+      compactionInProgress: deps.isCompactionInProgress(),
+      hasActiveTelegramTurn: deps.hasActiveTurn(),
+      hasPendingTelegramDispatch: deps.hasDispatchPending(),
+      isIdle: deps.isIdle(ctx),
+      hasPendingMessages: deps.hasPendingMessages(ctx),
+    });
+}
+
+export function createTelegramDispatchBlockerDescriber<TContext>(
+  deps: TelegramDispatchReadinessDeps<TContext>,
+): (ctx: TContext) => TelegramDispatchBlocker[] {
+  return (ctx) =>
+    describeTelegramDispatchBlockers({
       compactionInProgress: deps.isCompactionInProgress(),
       hasActiveTelegramTurn: deps.hasActiveTurn(),
       hasPendingTelegramDispatch: deps.hasDispatchPending(),
@@ -3125,6 +3157,9 @@ export interface TelegramQueueDispatchControllerDeps<
   getDispatchGeneration?: () => number;
   isDispatchGenerationActive?: (generation: number) => boolean;
   updateStatus: (ctx: TContext, error?: string) => void;
+  describeBlockers?: (ctx: TContext) => TelegramDispatchBlocker[];
+  getTimestampMs?: () => number;
+  stallReportThresholdMs?: number;
   sendTextReply: TelegramControlRuntimeDeps<TContext>["sendTextReply"];
   onPromptDispatchStart: (ctx: TContext, chatId: number) => void;
   commitPromptDispatch?: (
@@ -3219,6 +3254,13 @@ export function createTelegramQueueDispatchRuntime<TContext = unknown>(
       hasPendingMessages: deps.hasPendingMessages,
       isSteeringEnabled: deps.isSteeringEnabled,
     }),
+    describeBlockers: createTelegramDispatchBlockerDescriber({
+      isCompactionInProgress: deps.isCompactionInProgress,
+      hasActiveTurn: deps.hasActiveTurn,
+      hasDispatchPending: deps.hasDispatchPending,
+      isIdle: deps.isIdle,
+      hasPendingMessages: deps.hasPendingMessages,
+    }),
     hasDispatchContext: deps.hasDispatchContext,
     getDispatchGeneration: deps.getDispatchGeneration,
     isDispatchGenerationActive: deps.isDispatchGenerationActive,
@@ -3243,10 +3285,65 @@ export function createTelegramQueueDispatchController<TContext = unknown>(
   deps: TelegramQueueDispatchControllerDeps<TContext>,
 ): TelegramQueueDispatchController<TContext> {
   let controlDispatchPending = false;
+  let stallSignature: string | undefined;
+  let stallSinceMs = 0;
+  let stallReported = false;
+  const getNow = deps.getTimestampMs ?? Date.now;
+  const stallReportThresholdMs = deps.stallReportThresholdMs ?? 60000;
+  const clearStall = (): void => {
+    stallSignature = undefined;
+    stallSinceMs = 0;
+    stallReported = false;
+  };
+  const reportBlockedQueueItems = (
+    ctx: TContext,
+    phase: string,
+    items: readonly TelegramQueueItem<TContext>[],
+    extra?: Record<string, unknown>,
+  ): void => {
+    if (items.length === 0) {
+      clearStall();
+      return;
+    }
+    const blockers = deps.describeBlockers?.(ctx) ?? [];
+    const durableItemCount = items.filter(
+      (item) => (item.admissionReceipts?.length ?? 0) > 0,
+    ).length;
+    const signature = `${phase}|${blockers.join(",")}|${items.length}`;
+    const nowMs = getNow();
+    if (signature !== stallSignature) {
+      stallSignature = signature;
+      stallSinceMs = nowMs;
+      stallReported = false;
+    }
+    if (stallReported || nowMs - stallSinceMs < stallReportThresholdMs) return;
+    stallReported = true;
+    deps.recordRuntimeEvent?.(
+      "dispatch",
+      new Error(
+        `Telegram queue dispatch stalled for ${Math.round((nowMs - stallSinceMs) / 1000)}s (${phase}); ${items.length} item(s) waiting, ${durableItemCount} with durable receipts.`,
+      ),
+      {
+        phase,
+        blockers,
+        stalledForMs: nowMs - stallSinceMs,
+        queuedItems: items.length,
+        durableItems: durableItemCount,
+        updateIds: items
+          .flatMap((item) => item.admissionReceipts ?? [])
+          .flatMap((receipt) => receipt.sourceUpdateIds)
+          .slice(0, 8),
+        ...(extra ?? {}),
+      },
+    );
+  };
   const controller: TelegramQueueDispatchController<TContext> = {
     dispatchNext: (ctx) => {
-      if (deps.hasDispatchContext && !deps.hasDispatchContext()) return;
+      if (deps.hasDispatchContext && !deps.hasDispatchContext()) {
+        return;
+      }
       if (controlDispatchPending) {
+        reportBlockedQueueItems(ctx, "control-dispatch-pending", deps.getQueuedItems());
         deps.updateStatus(ctx);
         return;
       }
@@ -3279,6 +3376,13 @@ export function createTelegramQueueDispatchController<TContext = unknown>(
           { phase: "transport-generation" },
         );
       }
+      if (protectedInactiveItems.length > 0) {
+        reportBlockedQueueItems(
+          ctx,
+          "transport-generation-inactive",
+          protectedInactiveItems,
+        );
+      }
       const canDispatch = deps.canDispatch(ctx);
       const canSteer = deps.canSteer?.(ctx) ?? false;
       let nextActiveIndex = 0;
@@ -3293,6 +3397,7 @@ export function createTelegramQueueDispatchController<TContext = unknown>(
             break;
           }
           if (deps.hasPendingInboundQueueMutationForItem?.(candidate)) {
+            reportBlockedQueueItems(ctx, "pending-inbound-mutation", [candidate]);
             deps.updateStatus(ctx);
             return;
           }
@@ -3300,6 +3405,7 @@ export function createTelegramQueueDispatchController<TContext = unknown>(
             deps.isQueueItemAdmissionReady &&
             !deps.isQueueItemAdmissionReady(candidate)
           ) {
+            reportBlockedQueueItems(ctx, "admission-not-ready", [candidate]);
             deps.updateStatus(ctx);
             return;
           }
@@ -3334,6 +3440,7 @@ export function createTelegramQueueDispatchController<TContext = unknown>(
         nextItem &&
         deps.hasPendingInboundQueueMutationForItem?.(nextItem)
       ) {
+        reportBlockedQueueItems(ctx, "pending-inbound-mutation", [nextItem]);
         deps.updateStatus(ctx);
         return;
       }
@@ -3342,6 +3449,7 @@ export function createTelegramQueueDispatchController<TContext = unknown>(
         deps.isQueueItemAdmissionReady &&
         !deps.isQueueItemAdmissionReady(nextItem)
       ) {
+        reportBlockedQueueItems(ctx, "admission-not-ready", [nextItem]);
         deps.updateStatus(ctx);
         return;
       }
@@ -3350,7 +3458,14 @@ export function createTelegramQueueDispatchController<TContext = unknown>(
         canDispatch,
         canSteer,
       );
+      if (dispatchPlan.kind === "none" && dispatchableItems.length > 0) {
+        reportBlockedQueueItems(ctx, "readiness-blocked", dispatchableItems, {
+          canDispatch,
+          canSteer,
+        });
+      }
       if (dispatchPlan.kind !== "none") {
+        clearStall();
         deps.setQueuedItems([
           ...dispatchPlan.remainingItems,
           ...protectedInactiveItems,

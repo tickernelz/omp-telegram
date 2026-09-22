@@ -51,6 +51,7 @@ import {
   createTelegramQueueAdmissionReceipt,
   createTelegramQueueDispatchController,
   createTelegramQueueDispatchRuntime,
+  type TelegramQueueDispatchController,
   createTelegramQueueDispatchWatchdogRuntime,
   createTelegramQueueHandoff,
   createTelegramQueueHandoffPayload,
@@ -6429,4 +6430,152 @@ test("handleTelegramAgentEndRuntime falls back to getFallbackTarget when target 
     replyToMessageId: undefined,
     target: { chatId: 42, threadId: 200 },
   });
+});
+
+interface QueueDispatchBlockerEvent {
+  phase: string;
+  blockers: unknown;
+  queuedItems: number;
+  durableItems: number;
+  updateIds: unknown;
+  message: string;
+}
+
+function createBlockedDurableQueueItem(): TelegramQueueItem<string> {
+  const receipt = createTelegramQueueAdmissionReceipt({
+    queueKind: "prompt",
+    scope: "blocked-durable-turn",
+    sourceUpdateIds: [4242],
+  });
+  assert.ok(receipt);
+  return {
+    ...createQueueTestPromptTurn({
+      chatId: 7,
+      replyToMessageId: 8,
+      sourceMessageIds: [8],
+    }),
+    admissionReceipts: [receipt],
+  };
+}
+
+function createBlockedDispatchController(
+  options: {
+    items: () => TelegramQueueItem<string>[];
+    canDispatch?: () => boolean;
+    hasDispatchContext?: () => boolean;
+    isQueueItemAdmissionReady?: (item: TelegramQueueItem<string>) => boolean;
+    now?: () => number;
+    stallReportThresholdMs?: number;
+  },
+): { controller: TelegramQueueDispatchController<string>; events: QueueDispatchBlockerEvent[] } {
+  const events: QueueDispatchBlockerEvent[] = [];
+  const controller = createTelegramQueueDispatchController<string>({
+    hasDispatchContext: options.hasDispatchContext,
+    getQueuedItems: options.items,
+    setQueuedItems: () => {},
+    canDispatch: options.canDispatch ?? (() => false),
+    canSteer: () => false,
+    describeBlockers: () => ["active-turn"],
+    isQueueItemAdmissionReady: options.isQueueItemAdmissionReady,
+    getTimestampMs: options.now,
+    ...(options.stallReportThresholdMs !== undefined
+      ? { stallReportThresholdMs: options.stallReportThresholdMs }
+      : {}),
+    updateStatus: () => {},
+    sendTextReply: async () => undefined,
+    onPromptDispatchStart: () => {},
+    sendUserMessage: () => {
+      throw new Error("blocked queue item must not dispatch");
+    },
+    onPromptDispatchFailure: () => {},
+    recordRuntimeEvent: (_category, error, details) => {
+      events.push({
+        phase: String(details?.phase),
+        blockers: details?.blockers,
+        queuedItems: Number(details?.queuedItems),
+        durableItems: Number(details?.durableItems),
+        updateIds: details?.updateIds,
+        message: (error as Error).message,
+      });
+    },
+  });
+  return { controller, events };
+}
+
+function createAdvancingClock(startMs: number) {
+  let nowMs = startMs;
+  return {
+    now: () => nowMs,
+    advance: (deltaMs: number) => {
+      nowMs += deltaMs;
+    },
+  };
+}
+
+test("Queue dispatch controller stays quiet while a durable prompt is briefly blocked by the active turn", () => {
+  const item = createBlockedDurableQueueItem();
+  const clock = createAdvancingClock(1000);
+  const { controller, events } = createBlockedDispatchController({
+    items: () => [item],
+    now: clock.now,
+  });
+  controller.dispatchNext("ctx");
+  clock.advance(5000);
+  controller.dispatchNext("ctx");
+  assert.deepEqual(events, []);
+});
+
+test("Queue dispatch controller reports a durable prompt stalled past the report threshold", () => {
+  const item = createBlockedDurableQueueItem();
+  const clock = createAdvancingClock(1000);
+  const { controller, events } = createBlockedDispatchController({
+    items: () => [item],
+    now: clock.now,
+    stallReportThresholdMs: 30000,
+  });
+  controller.dispatchNext("ctx");
+  clock.advance(31000);
+  controller.dispatchNext("ctx");
+  assert.equal(events.length, 1);
+  assert.equal(events[0].phase, "readiness-blocked");
+  assert.deepEqual(events[0].blockers, ["active-turn"]);
+  assert.equal(events[0].queuedItems, 1);
+  assert.equal(events[0].durableItems, 1);
+  assert.deepEqual(events[0].updateIds, [4242]);
+  assert.match(events[0].message, /stalled for 31s/);
+});
+
+test("Queue dispatch controller reports a stall only once until the blockage clears", () => {
+  const item = createBlockedDurableQueueItem();
+  const clock = createAdvancingClock(1000);
+  const { controller, events } = createBlockedDispatchController({
+    items: () => [item],
+    now: clock.now,
+    stallReportThresholdMs: 30000,
+  });
+  controller.dispatchNext("ctx");
+  clock.advance(31000);
+  controller.dispatchNext("ctx");
+  clock.advance(60000);
+  controller.dispatchNext("ctx");
+  assert.equal(events.length, 1);
+});
+
+test("Queue dispatch controller reports an unready admission receipt stalling queued work", () => {
+  const item = createBlockedDurableQueueItem();
+  const clock = createAdvancingClock(1000);
+  const { controller, events } = createBlockedDispatchController({
+    items: () => [item],
+    canDispatch: () => true,
+    isQueueItemAdmissionReady: () => false,
+    now: clock.now,
+    stallReportThresholdMs: 30000,
+  });
+  controller.dispatchNext("ctx");
+  clock.advance(31000);
+  controller.dispatchNext("ctx");
+  assert.equal(events.length, 1);
+  assert.equal(events[0].phase, "admission-not-ready");
+  assert.deepEqual(events[0].updateIds, [4242]);
+  assert.equal(events[0].durableItems, 1);
 });

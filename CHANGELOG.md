@@ -4,6 +4,10 @@
 
 ## Unreleased
 
+## 0.6.15: Visible Queue Stalls
+
+- `Visible Queue Stalls`: A queued prompt could sit in the durable queue and never reach the session: the dispatch controller had silent early exits (unready admission receipt, pending inbound mutation, retained inactive-transport item, readiness guards) and a discarded item left no trace. Blocked dispatch now reports the phase, blockers, waiting and durable counts, and source update ids once a blockage outlives a stall threshold; durable discards record the same evidence.
+
 ## 0.6.14: Stranded Records Release Their Workspace Identity
 
 - `Stranded Letter Release`: A second session in a directory whose previous session died failed registration with "Telegram Workspace slot reservation is unavailable": the claim released the binding, but slot allocation still counted that binding's stranded `active` record as holding the reclaimed letter, and a stranded record elsewhere pushed the reclaim to a new ordinal. A record whose instance is provably absent no longer reserves a Workspace letter.
