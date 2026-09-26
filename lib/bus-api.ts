@@ -85,6 +85,13 @@ function rejectTelegramDirectOwnership(method: string): Promise<never> {
   );
 }
 
+export function createTelegramApiDeliveryAvailability(
+  ownsDirect: () => boolean,
+  isFollowerRegistered: () => boolean,
+): () => boolean {
+  return () => ownsDirect() || isFollowerRegistered();
+}
+
 export function createTelegramAggregateTypingActionSender(
   runtime: Pick<TelegramBridgeApiRuntime, "call">,
 ): (chatId: number) => Promise<unknown> {

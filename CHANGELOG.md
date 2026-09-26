@@ -4,6 +4,11 @@
 
 ## Unreleased
 
+## 0.6.16: Resilient Asks And Visible Outbound Failures
+
+- `Ask Without A Dead Transport`: Asking a question could hang the turn until a forced stop when Telegram was unreachable. The tool arms Telegram only when this session holds transport authority, so a disconnected bridge returns the conservative-default result at once instead of waiting on a channel nobody can read; a local session keeps its dialog answerable.
+- `Visible Telegram Outbound Failures`: Rate limits and outbound Bot API errors were log-only, now reported in chat with `retry_after`, HTTP status, and Telegram's own description, coalesced per class so a bad spell cannot flood the thread. Routine outcomes stay silent, a notice never leaves the owner chat, and a notice's own failure cannot raise another.
+
 ## 0.6.15: Visible Queue Stalls
 
 - `Visible Queue Stalls`: A queued prompt could sit in the durable queue and never reach the session: the dispatch controller had silent early exits (unready admission receipt, pending inbound mutation, retained inactive-transport item, readiness guards) and a discarded item left no trace. Blocked dispatch now reports the phase, blockers, waiting and durable counts, and source update ids once a blockage outlives a stall threshold; durable discards record the same evidence.

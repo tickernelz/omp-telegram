@@ -1857,10 +1857,12 @@ export function createDefaultTelegramBridgeApiRuntime(deps: {
     | TelegramApiWorkspaceAdmissionPort
     | (() => TelegramApiWorkspaceAdmissionPort | undefined);
   chatOutboundMinIntervalMs?: number;
+  decorateClient?: (client: TelegramApiClient) => TelegramApiClient;
 }): TelegramBridgeApiRuntime {
-  const client = createTelegramApiClient(deps.getBotToken, {
+  const baseClient = createTelegramApiClient(deps.getBotToken, {
     recordRuntimeEvent: deps.recordRuntimeEvent,
   });
+  const client = deps.decorateClient?.(baseClient) ?? baseClient;
   const admittedClient = deps.workspaceAdmission
     ? createTelegramApiWorkspaceAdmissionClient(client, deps.workspaceAdmission, {
         onReleaseError(error, method) {

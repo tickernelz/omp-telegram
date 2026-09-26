@@ -457,3 +457,133 @@ await test("an ask card follows the handle the delivery layer hands back", async
   controller.abort();
 });
 
+
+await test("ask skips the Telegram arm when transport is unavailable", async () => {
+  const events: RecordedEvent[] = [];
+  let telegramSends = 0;
+  let dialogOpened = false;
+  const runtime = createTelegramAskRuntime({
+    getActiveTurn: () => ({ chatId: 77 }),
+    isDeliveryAvailable: () => false,
+    recordRuntimeEvent: (category, error, details) => {
+      events.push({
+        category,
+        message: error instanceof Error ? error.message : String(error),
+        details,
+      });
+    },
+    sendView: async () => {
+      telegramSends += 1;
+      return {
+        ok: true,
+        value: { target: { chatId: 77 }, messageIds: [1], generation: "g1" },
+      };
+    },
+    editView: async (handle) => ({ ok: true, value: handle }),
+  });
+  const tools = new Map<string, { execute: Function }>();
+  runtime.register({
+    registerTool: (definition: { name: string; execute: Function }) => {
+      tools.set(definition.name, definition);
+    },
+  } as never);
+
+  const ctx = {
+    hasUI: true,
+    ui: {
+      askDialog: async () => {
+        dialogOpened = true;
+        return {
+          kind: "submit",
+          results: [
+            {
+              id: "q",
+              question: "Which surface?",
+              options: ["A", "B"],
+              multi: false,
+              selectedOptions: ["A"],
+            },
+          ],
+        };
+      },
+    },
+  };
+  const result = await tools.get("ask")!.execute("call-down", question, undefined, undefined, ctx);
+
+  assert.equal(dialogOpened, true, "the local dialog stays available while Telegram is down");
+  assert.equal(telegramSends, 0, "no question is sent over a dead transport");
+  assert.match(String(result.content?.[0]?.text ?? ""), /User selected: A/);
+  assert.equal(runtime.hasPending(), false);
+  const recorded = events.filter((event) => event.details?.phase === "transport-unavailable");
+  assert.equal(recorded.length, 1, "the skip must be visible in diagnostics");
+  assert.equal(recorded[0]?.category, "ask");
+});
+
+await test("ask still offers the local dialog when Telegram is down but the session is local", async () => {
+  let dialogOpened = false;
+  const runtime = createTelegramAskRuntime({
+    getActiveTurn: () => undefined,
+    getDefaultTarget: () => ({ chatId: 77, threadId: 10 }),
+    isDeliveryAvailable: () => false,
+    sendView: async () => ({
+      ok: true,
+      value: { target: { chatId: 77 }, messageIds: [1], generation: "g1" },
+    }),
+    editView: async (handle) => ({ ok: true, value: handle }),
+  });
+  const tools = new Map<string, { execute: Function }>();
+  runtime.register({
+    registerTool: (definition: { name: string; execute: Function }) => {
+      tools.set(definition.name, definition);
+    },
+  } as never);
+
+  const ctx = {
+    hasUI: true,
+    ui: {
+      askDialog: async () => {
+        dialogOpened = true;
+        return {
+          kind: "submit",
+          results: [
+            {
+              id: "q",
+              question: "Which surface?",
+              options: ["A", "B"],
+              multi: false,
+              selectedOptions: ["B"],
+            },
+          ],
+        };
+      },
+    },
+  };
+  const result = await tools.get("ask")!.execute("call-local", question, undefined, undefined, ctx);
+
+  assert.equal(dialogOpened, true, "a local session keeps its own dialog");
+  assert.match(String(result.content?.[0]?.text ?? ""), /User selected: B/);
+  assert.equal(result.details?.answeredVia, "cli");
+});
+
+await test("ask reports an unavailable Telegram surface when no turn is active and transport is down", async () => {
+  const runtime = createTelegramAskRuntime({
+    getActiveTurn: () => undefined,
+    getDefaultTarget: () => ({ chatId: 77, threadId: 10 }),
+    isDeliveryAvailable: () => false,
+    sendView: async () => ({
+      ok: true,
+      value: { target: { chatId: 77 }, messageIds: [1], generation: "g1" },
+    }),
+    editView: async (handle) => ({ ok: true, value: handle }),
+  });
+  const tools = new Map<string, { execute: Function }>();
+  runtime.register({
+    registerTool: (definition: { name: string; execute: Function }) => {
+      tools.set(definition.name, definition);
+    },
+  } as never);
+
+  const result = await tools.get("ask")!.execute("call-headless", question, undefined, undefined, { hasUI: false });
+  assert.equal(result.isError, true);
+  assert.match(String(result.content?.[0]?.text ?? ""), /Telegram transport is not connected/);
+});

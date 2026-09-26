@@ -5,6 +5,7 @@
  */
 
 import * as AgentMessages from "./agent-messages.ts";
+import * as ApiNotice from "./api-notice.ts";
 import * as Ask from "./ask.ts";
 import * as TuiInput from "./tui-input.ts";
 import * as PlanReview from "./plan-review.ts";
@@ -526,10 +527,16 @@ export default function (pi: Pi.ExtensionAPI) {
 
   // --- Telegram API ---
 
+  const apiNoticeRuntime = ApiNotice.createTelegramApiNoticeRuntime({
+    getTarget: proactivePushTargetGetter,
+    getAllowedChatId: configStore.getAllowedUserId,
+    recordRuntimeEvent,
+  });
   const directTelegramApiRuntime =
     TelegramApi.createDefaultTelegramBridgeApiRuntime({
       getBotToken: configStore.getBotToken,
       recordRuntimeEvent,
+      decorateClient: apiNoticeRuntime.decorateClient,
       targetActivity: telegramApiTargetActivityRuntime,
       workspaceAdmission: workspaceAdmissionRuntime.resolve,
       captureRequestErrorHandler(body) {
@@ -565,14 +572,22 @@ export default function (pi: Pi.ExtensionAPI) {
         Bus.createTelegramBusForwardOwnershipValidator(telegramBusFollowerRegistry),
       recordRuntimeEvent,
     });
+  const telegramApiDeliveryAvailability =
+    BusApi.createTelegramApiDeliveryAvailability(
+      ownsTelegramDirectDelivery,
+      telegramBusFollowerRegistrationState.isRegistered,
+    );
   const telegramApiRuntime = BusApi.createTelegramBusAwareApiRuntime({
     directRuntime: directTelegramApiRuntime,
     ownsDirect() {
       return lockRuntime.owns();
     },
     getDefaultTarget: proactivePushTargetGetter,
-    callFollowerApi: telegramBusFollowerClients.callApi,
+    callFollowerApi: apiNoticeRuntime.followerApiCall(
+      telegramBusFollowerClients.callApi,
+    ),
   });
+  apiNoticeRuntime.bindSender(telegramApiRuntime);
   const {
     call: callTelegramApi,
     callMultipart,
@@ -1709,6 +1724,7 @@ export default function (pi: Pi.ExtensionAPI) {
     getAllowedChatId: configStore.getAllowedUserId,
     getActiveTurn: activeTurnRuntime.get,
     getDefaultTarget: proactivePushTargetGetter,
+    isDeliveryAvailable: telegramApiDeliveryAvailability,
     answerCallbackQuery,
     recordRuntimeEvent,
   });
@@ -1930,6 +1946,7 @@ export default function (pi: Pi.ExtensionAPI) {
         ctx: Parameters<typeof sessionLifecycleRuntime.onSessionShutdown>[1],
       ) {
         askRuntime.cancelAll("Telegram session shut down");
+        apiNoticeRuntime.reset();
         await planReviewRuntime.cancelAll("Telegram session shut down");
         await sessionLifecycleRuntime.onSessionShutdown(event, ctx);
       },

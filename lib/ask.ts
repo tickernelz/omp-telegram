@@ -144,6 +144,7 @@ export type TelegramAskEditView = (
 export interface TelegramAskRuntimeDeps {
   getActiveTurn: () => unknown;
   getDefaultTarget?: () => TelegramTarget | undefined;
+  isDeliveryAvailable?: () => boolean;
   api?: TelegramBridgeApiRuntime;
   recordOwnership?: (input: {
     chatId: number;
@@ -913,13 +914,32 @@ export function createTelegramAskRuntime(
           ? undefined
           : getTelegramAskNativeDelegate(ctx);
         const scope = resolveScope();
-        if (!askDialog && !nativeDelegate && !scope) {
+        const telegramUsable =
+          scope !== undefined && deps.isDeliveryAvailable?.() !== false;
+        if (scope && !telegramUsable) {
+          deps.recordRuntimeEvent?.(
+            "ask",
+            new Error(
+              "Telegram transport is unavailable, so the question was not sent to Telegram.",
+            ),
+            {
+              phase: "transport-unavailable",
+              questions: params.questions.length,
+            },
+          );
+        }
+        if (!askDialog && !nativeDelegate && !telegramUsable) {
+          if (scope) {
+            return buildTelegramAskUnavailableResult(
+              "Telegram transport is not connected in this session, so the question cannot be delivered.",
+            );
+          }
           return buildTelegramAskUnavailableResult(
             "no Telegram turn is active and this session exposes no native ask surface.",
           );
         }
         const delegateParams = params as unknown as Record<string, unknown>;
-        if (!askDialog && !nativeDelegate && scope && hasInteractiveSurface(ctx)) {
+        if (!askDialog && !nativeDelegate && telegramUsable && hasInteractiveSurface(ctx)) {
           deps.recordRuntimeEvent?.(
             "ask",
             new Error(
@@ -945,7 +965,7 @@ export function createTelegramAskRuntime(
           });
         }
         const results: TelegramAskQuestionResult[] = [];
-        if (scope) {
+        if (telegramUsable && scope) {
           const questions = params.questions.map(normalizeTelegramAskQuestion);
           arms.push({
             surface: "telegram",
