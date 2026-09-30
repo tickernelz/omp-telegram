@@ -1329,6 +1329,22 @@ test("Status HTML builder binds active model lookup", () => {
   assert.doesNotMatch(html, /<b>Tokens:<\/b>/s);
 });
 
+test("Status HTML builder reads members inherited through a delegated handler context", () => {
+  const buildStatusHtml = createTelegramStatusHtmlBuilder({
+    getActiveModel: () => ({ contextWindow: 1000 }),
+    isCompactionInProgress: () => false,
+  });
+  const sessionCtx = {
+    sessionManager: { getEntries: () => [] },
+    getContextUsage: () => ({ percent: 0, contextWindow: undefined }),
+    isIdle: () => true,
+    modelRegistry: { isUsingOAuth: () => false },
+  };
+  const handlerCtx: typeof sessionCtx = Object.create(sessionCtx);
+  Object.defineProperty(handlerCtx, "ui", { value: {}, enumerable: true });
+  assert.match(buildStatusHtml(handlerCtx), /Status.*idle/s);
+});
+
 test("Status HTML separates token and cache telemetry", () => {
   const buildStatusHtml = createTelegramStatusHtmlBuilder({
     getActiveModel: () => ({ contextWindow: 1000 }),

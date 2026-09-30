@@ -32,6 +32,7 @@ import {
   readHostSettingsWrites,
   resetHostSettingsStub,
   settings as hostSettings,
+  useHostSettingsApi,
 } from "./fixtures/host-settings.ts";
 
 installHostSdkSettingsHook();
@@ -199,38 +200,41 @@ test("OMP scoped model persister invalidates cached inputs without clearing live
   ]);
 });
 
-test("OMP settings manager adapts the host instance and clones it per cwd", async () => {
-  resetHostSettingsStub();
-  const ambientCwd = hostSettings.getCwd();
-  const ambient = await createSettingsManager(ambientCwd);
-  assert.equal(ambient.getEnabledModels(), undefined);
-  ambient.setEnabledModels(["openai/gpt-5"]);
-  assert.deepEqual(ambient.getEnabledModels(), ["openai/gpt-5"]);
-  ambient.setEnabledModels(undefined);
-  assert.deepEqual(ambient.getEnabledModels(), []);
-  await ambient.reload();
-  await ambient.flush();
+for (const api of ["legacy", "typed"] as const) {
+  test(`OMP settings manager adapts the ${api} host settings API and clones it per cwd`, async () => {
+    useHostSettingsApi(api);
+    resetHostSettingsStub();
+    const ambientCwd = hostSettings.getCwd();
+    const ambient = await createSettingsManager(ambientCwd);
+    assert.equal(ambient.getEnabledModels(), undefined);
+    ambient.setEnabledModels(["openai/gpt-5"]);
+    assert.deepEqual(ambient.getEnabledModels(), ["openai/gpt-5"]);
+    ambient.setEnabledModels(undefined);
+    assert.deepEqual(ambient.getEnabledModels(), []);
+    await ambient.reload();
+    await ambient.flush();
 
-  const scoped = await createSettingsManager(join(ambientCwd, "scoped-project"));
-  scoped.setEnabledModels(["anthropic/claude-sonnet-4"]);
-  await scoped.flush();
-  assert.deepEqual(scoped.getEnabledModels(), ["anthropic/claude-sonnet-4"]);
-  assert.deepEqual(ambient.getEnabledModels(), []);
+    const scoped = await createSettingsManager(join(ambientCwd, "scoped-project"));
+    scoped.setEnabledModels(["anthropic/claude-sonnet-4"]);
+    await scoped.flush();
+    assert.deepEqual(scoped.getEnabledModels(), ["anthropic/claude-sonnet-4"]);
+    assert.deepEqual(ambient.getEnabledModels(), []);
 
-  assert.deepEqual(readHostSettingsWrites(), [
-    { cwd: ambientCwd, key: "enabledModels", value: ["openai/gpt-5"] },
-    { cwd: ambientCwd, key: "enabledModels", value: [] },
-    {
-      cwd: join(ambientCwd, "scoped-project"),
-      key: "enabledModels",
-      value: ["anthropic/claude-sonnet-4"],
-    },
-  ]);
-  assert.deepEqual(readHostSettingsFlushes(), [
-    ambientCwd,
-    join(ambientCwd, "scoped-project"),
-  ]);
-});
+    assert.deepEqual(readHostSettingsWrites(), [
+      { cwd: ambientCwd, key: "enabledModels", value: ["openai/gpt-5"] },
+      { cwd: ambientCwd, key: "enabledModels", value: [] },
+      {
+        cwd: join(ambientCwd, "scoped-project"),
+        key: "enabledModels",
+        value: ["anthropic/claude-sonnet-4"],
+      },
+    ]);
+    assert.deepEqual(readHostSettingsFlushes(), [
+      ambientCwd,
+      join(ambientCwd, "scoped-project"),
+    ]);
+  });
+}
 
 test("OMP context helpers expose model, idle, pending-message, and compact adapters", () => {
   const model = { provider: "openai", id: "gpt-5", name: "GPT-5" };

@@ -4,6 +4,10 @@
 
 ## Unreleased
 
+- `OMP 18.3 Settings Registry`: `/start`, `/status`, and `/model` rendered nothing on OMP 18.3 and newer because the enabled-model adapter still used the removed string-path `Settings` API. The adapter now uses registry handles when the host exposes them and keeps the string-path API for OMP 17.4.2 through 18.2.
+- `Delegated Status Context`: `/status` failed with an undefined `sessionManager` because OMP scopes each handler context through prototype delegation and the status builder spread it into a plain object. The builder now delegates to the handler context, so inherited members stay reachable.
+- `Pseudo-Path Commands`: OMP 18.4 bundled commands such as `/green` and MCP prompt commands carry `bundled:` or `mcp:` pseudo-paths, and sending one from Telegram retried forever on a missing template file. Only commands backed by an absolute template path now expand as prompt templates; the rest reach the agent as ordinary text.
+
 ## 0.6.16: Resilient Asks And Visible Outbound Failures
 
 - `Ask Without A Dead Transport`: Asking a question could hang the turn until a forced stop when Telegram was unreachable. The tool arms Telegram only when this session holds transport authority, so a disconnected bridge returns the conservative-default result at once instead of waiting on a channel nobody can read; a local session keeps its dialog answerable.

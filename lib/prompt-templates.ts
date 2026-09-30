@@ -5,6 +5,7 @@
  */
 
 import { readFileSync } from "node:fs";
+import { posix, win32 } from "node:path";
 import type { PiSlashCommandInfo } from "./pi.ts";
 
 export interface TelegramPromptTemplateCommand {
@@ -117,7 +118,8 @@ export function getTelegramPromptTemplateCommands(
     if (reservedNames.has(telegramCommand)) continue;
     if (seen.has(telegramCommand)) continue;
     const sourcePath = command.path;
-    if (!sourcePath) continue;
+    // Bundled (`bundled:green`) and MCP (`mcp:tool`) commands carry pseudo-paths with no template file behind them.
+    if (!sourcePath || !(posix.isAbsolute(sourcePath) || win32.isAbsolute(sourcePath))) continue;
     seen.add(telegramCommand);
     promptCommands.push({
       command: telegramCommand,

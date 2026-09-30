@@ -69,6 +69,18 @@ test("Prompt-template helpers skip commands without source paths", () => {
   assert.deepEqual(commands, []);
 });
 
+test("Prompt-template helpers skip bundled and MCP commands without a template file", () => {
+  const commands = getTelegramPromptTemplateCommands(
+    [
+      { name: "green", source: "prompt", path: "bundled:green" },
+      { name: "lint", source: "prompt", path: "mcp:lint" },
+      createCommand("review", "prompt", "Review changes"),
+    ],
+    new Set(TELEGRAM_RESERVED_COMMAND_NAMES),
+  );
+  assert.deepEqual(commands.map((command) => command.command), ["review"]);
+});
+
 test("Prompt-template helpers map pi template names to Telegram commands", () => {
   assert.equal(
     mapPiPromptTemplateNameToTelegramCommandName("fix-tests"),

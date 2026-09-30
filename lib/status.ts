@@ -656,12 +656,16 @@ export function createTelegramStatusHtmlBuilder<TContext>(deps: {
   isCompactionInProgress?: () => boolean;
   getBridgeStatusLineState?: () => TelegramBridgeStatusLineState;
 }): (ctx: TContext & TelegramStatusContext) => string {
-  return (ctx) =>
-    buildStatusHtml(
-      { ...ctx, isCompactionInProgress: deps.isCompactionInProgress },
+  return (ctx) => {
+    // OMP scopes handler contexts through prototype delegation, so a spread would drop inherited members.
+    const statusCtx: TelegramStatusContext = Object.create(ctx);
+    statusCtx.isCompactionInProgress = deps.isCompactionInProgress;
+    return buildStatusHtml(
+      statusCtx,
       deps.getActiveModel(ctx),
       deps.getBridgeStatusLineState?.(),
     );
+  };
 }
 
 function resolveStatusBarTheme(

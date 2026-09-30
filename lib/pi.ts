@@ -256,7 +256,65 @@ async function resolveSettingsForCwd(cwd: string): Promise<Settings> {
     : await settings.cloneForCwd(scoped);
 }
 
-function createHostSettingsAdapter(instance: Settings): HostSettingsManager {
+type LegacySettingsHost = {
+  isConfigured(key: string): boolean;
+  get(key: string): unknown;
+  set(key: string, value: unknown): void;
+};
+
+type TypedSettingsHost = {
+  isConfigured(setting: unknown): boolean;
+  rawValue(setting: unknown): unknown;
+  writeValue(setting: unknown, value: unknown, layer: "global"): void;
+};
+
+type SettingsLifecycleHost = {
+  reloadFromDisk(): void | PromiseLike<void>;
+  flush(): void | PromiseLike<void>;
+};
+
+/** OMP 18.3 replaced string-path settings access with registry handles addressed through this subpath. */
+const HOST_SETTINGS_REGISTRY_SPECIFIER: string = "@oh-my-pi/pi-coding-agent/config/registry";
+
+function isTypedSettingsHost(host: object): host is TypedSettingsHost {
+  return "rawValue" in host && typeof host.rawValue === "function"
+    && "writeValue" in host && typeof host.writeValue === "function";
+}
+
+function isLegacySettingsHost(host: object): host is LegacySettingsHost {
+  return "get" in host && typeof host.get === "function"
+    && "set" in host && typeof host.set === "function";
+}
+
+async function resolveEnabledModelsHandle(): Promise<unknown> {
+  // The registry module exists only on OMP >= 18.3, so its specifier is resolved at runtime.
+  const registry: { lookup?: (id: string) => unknown } = await import(HOST_SETTINGS_REGISTRY_SPECIFIER);
+  const handle = registry.lookup?.("enabledModels");
+  if (handle === undefined) {
+    throw new TypeError("Host settings registry does not define enabledModels.");
+  }
+  return handle;
+}
+
+function createTypedHostSettingsAdapter(
+  instance: TypedSettingsHost & SettingsLifecycleHost,
+  enabledModels: unknown,
+): HostSettingsManager {
+  return {
+    reload: () => instance.reloadFromDisk(),
+    flush: () => instance.flush(),
+    getEnabledModels: () =>
+      instance.isConfigured(enabledModels)
+        ? instance.rawValue(enabledModels)
+        : undefined,
+    setEnabledModels: (patterns) =>
+      instance.writeValue(enabledModels, patterns ?? [], "global"),
+  };
+}
+
+function createLegacyHostSettingsAdapter(
+  instance: LegacySettingsHost & SettingsLifecycleHost,
+): HostSettingsManager {
   return {
     reload: () => instance.reloadFromDisk(),
     flush: () => instance.flush(),
@@ -272,9 +330,16 @@ function createHostSettingsAdapter(instance: Settings): HostSettingsManager {
 export async function createSettingsManager(
   cwd: string,
 ): Promise<PiSettingsManager> {
-  return normalizeSettingsManager(
-    createHostSettingsAdapter(await resolveSettingsForCwd(cwd)),
-  );
+  const instance: object & SettingsLifecycleHost = await resolveSettingsForCwd(cwd);
+  if (isTypedSettingsHost(instance)) {
+    return normalizeSettingsManager(
+      createTypedHostSettingsAdapter(instance, await resolveEnabledModelsHandle()),
+    );
+  }
+  if (isLegacySettingsHost(instance)) {
+    return normalizeSettingsManager(createLegacyHostSettingsAdapter(instance));
+  }
+  throw new TypeError("Host settings expose neither typed nor string-path enabled-model access.");
 }
 
 export function createScopedModelPatternPersister(deps: {
