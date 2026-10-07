@@ -27,7 +27,10 @@ import {
   normalizeSettingsManager,
 } from "../lib/pi.ts";
 import {
+  enableHostRegistryMode,
   installHostSdkSettingsHook,
+  readHostHandleReads,
+  readHostHandleWrites,
   readHostSettingsFlushes,
   readHostSettingsWrites,
   resetHostSettingsStub,
@@ -342,4 +345,43 @@ test("Thread name clamping rejects labels it cannot make usable", () => {
   assert.equal(clampTelegramThreadName(""), undefined);
   assert.equal(clampTelegramThreadName(null), undefined);
   assert.equal(clampTelegramThreadName(`${"x".repeat(80)} ${"y".repeat(80)}`), undefined);
+});
+
+
+test("OMP settings manager addresses a >=18.3 host through the typed registry (issue #2)", async () => {
+  resetHostSettingsStub();
+  enableHostRegistryMode();
+
+  // The fixture is now an OMP >=18.3 host: the pre-fix string-path call throws.
+  assert.throws(() => hostSettings.isConfigured("enabledModels"));
+
+  const ambientCwd = hostSettings.getCwd();
+  const manager = await createSettingsManager(ambientCwd);
+
+  // Reading must not raise — this is the call that killed every menu render.
+  assert.equal(manager.getEnabledModels(), undefined);
+  assert.ok(readHostHandleReads().includes("enabledModels"));
+
+  manager.setEnabledModels(["ct210/deepseek-v4.1-flash"]);
+  assert.deepEqual(manager.getEnabledModels(), ["ct210/deepseek-v4.1-flash"]);
+  assert.deepEqual(readHostHandleWrites(), [
+    { cwd: ambientCwd, key: "enabledModels", value: ["ct210/deepseek-v4.1-flash"] },
+  ]);
+
+  manager.setEnabledModels(undefined);
+  assert.deepEqual(manager.getEnabledModels(), []);
+  assert.deepEqual(readHostHandleWrites().at(-1), {
+    cwd: ambientCwd,
+    key: "enabledModels",
+    value: [],
+  });
+
+  await manager.reload();
+  await manager.flush();
+  assert.deepEqual(readHostSettingsFlushes(), [ambientCwd]);
+
+  // The string-path write sink stays untouched while the registry answers.
+  assert.deepEqual(readHostSettingsWrites(), []);
+
+  resetHostSettingsStub();
 });

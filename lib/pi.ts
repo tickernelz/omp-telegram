@@ -256,16 +256,81 @@ async function resolveSettingsForCwd(cwd: string): Promise<Settings> {
     : await settings.cloneForCwd(scoped);
 }
 
-function createHostSettingsAdapter(instance: Settings): HostSettingsManager {
+/**
+ * OMP >=18.3 removed the string-path Settings API: `instance.isConfigured(
+ * "enabledModels")` throws
+ * `undefined is not an object (evaluating 'n of t')` inside the host bundle
+ * (`for (const segment of setting.segments)` with `segments` undefined), which
+ * kills every status/model menu render. See issue #2.
+ *
+ * Hosts >=18.3 expose a typed setting registry instead, so resolve the
+ * `enabledModels` handle from there. Hosts that predate the registry keep the
+ * string-path API, so both paths stay supported without pinning the peer range.
+ */
+interface EnabledModelsHandle {
+  set(scope: unknown, value: unknown): unknown;
+}
+
+/** Host >=18.3: isConfigured/rawValue take a typed setting handle. */
+interface RegistryBackedSettings {
+  isConfigured(setting: unknown): boolean;
+  rawValue(setting: unknown): unknown;
+}
+
+/** Host <18.3: isConfigured/get/set take a string path. */
+interface StringPathSettings {
+  isConfigured(path: string): boolean;
+  get(path: string): unknown;
+  set(path: string, value: unknown): void;
+}
+
+async function loadEnabledModelsHandle(): Promise<
+  EnabledModelsHandle | undefined
+> {
+  // Specifier stays non-literal so this file still compiles against hosts that
+  // ship no `config/registry` subpath at all.
+  const specifier = "@oh-my-pi/pi-coding-agent/config/registry";
+  try {
+    const registry = (await import(specifier)) as {
+      lookup?: (id: string) => EnabledModelsHandle | undefined;
+    };
+    return registry.lookup?.("enabledModels");
+  } catch {
+    return undefined;
+  }
+}
+
+async function createHostSettingsAdapter(
+  instance: Settings,
+): Promise<HostSettingsManager> {
+  const handle = await loadEnabledModelsHandle();
   return {
     reload: () => instance.reloadFromDisk(),
     flush: () => instance.flush(),
-    getEnabledModels: () =>
-      instance.isConfigured("enabledModels")
-        ? instance.get("enabledModels")
-        : undefined,
-    setEnabledModels: (patterns) =>
-      instance.set("enabledModels", patterns ?? []),
+    getEnabledModels: () => {
+      if (handle) {
+        const bridge = instance as unknown as RegistryBackedSettings;
+        return bridge.isConfigured(handle) ? bridge.rawValue(handle) : undefined;
+      }
+      // Registry missing: either an old host (string path works) or a host we
+      // cannot address. Never let a read crash the menu.
+      try {
+        const bridge = instance as unknown as StringPathSettings;
+        return bridge.isConfigured("enabledModels")
+          ? bridge.get("enabledModels")
+          : undefined;
+      } catch {
+        return undefined;
+      }
+    },
+    setEnabledModels: (patterns) => {
+      if (handle) {
+        handle.set(instance, patterns ?? []);
+        return;
+      }
+      const bridge = instance as unknown as StringPathSettings;
+      bridge.set("enabledModels", patterns ?? []);
+    },
   };
 }
 
@@ -273,7 +338,7 @@ export async function createSettingsManager(
   cwd: string,
 ): Promise<PiSettingsManager> {
   return normalizeSettingsManager(
-    createHostSettingsAdapter(await resolveSettingsForCwd(cwd)),
+    await createHostSettingsAdapter(await resolveSettingsForCwd(cwd)),
   );
 }
 
